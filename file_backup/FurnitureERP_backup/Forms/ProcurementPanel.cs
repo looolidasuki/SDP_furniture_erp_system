@@ -221,121 +221,31 @@ namespace FurnitureERP.Forms
 
         private void ShowRowDetail(DataGridViewRow row, string title)
         {
-            using (var dlg = new Form())
-            {
-                dlg.Text = title;
-                dlg.Size = new Size(640, 460);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var grid = GridHelper.CreateStyledGrid();
-                var dt = new DataTable();
-                dt.Columns.Add("Field");
-                dt.Columns.Add("Value");
-
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    dt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                grid.DataSource = dt;
-                GridHelper.StyleGrid(grid);
-                dlg.Controls.Add(grid);
-                dlg.ShowDialog(this);
-            }
+            DetailViewHelper.ShowKeyValueDetail(this, title, row);
         }
 
         private void ShowPurchaseOrderTableDialog(long id, DataGridViewRow row)
         {
-            using (var dlg = new Form())
-            {
-                dlg.Text = "Purchase Order Detail";
-                dlg.Size = new Size(760, 520);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
-                var headGrid = GridHelper.CreateStyledGrid();
-                var headDt = new DataTable();
-                headDt.Columns.Add("Field");
-                headDt.Columns.Add("Value");
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    headDt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                headGrid.DataSource = headDt;
-                GridHelper.StyleGrid(headGrid);
-
-                var lineGrid = GridHelper.CreateStyledGrid();
-                try { lineGrid.DataSource = _purchaseOrderCtrl.GetLinesByPurchaseOrder(id); GridHelper.StyleGrid(lineGrid); } catch { }
-                split.Panel1.Controls.Add(headGrid);
-                split.Panel2.Controls.Add(lineGrid);
-                dlg.Controls.Add(split);
-                dlg.ShowDialog(this);
-            }
+            DataTable lines = null;
+            try { lines = _purchaseOrderCtrl.GetLinesByPurchaseOrder(id); } catch { }
+            DetailViewHelper.ShowDetail(this, "Purchase Order Detail",
+                DetailViewHelper.RowToFieldValueTable(row), lines, $"PurchaseOrder_{id}");
         }
 
         private void ShowGrnTableDialog(long id, DataGridViewRow row)
         {
-            using (var dlg = new Form())
-            {
-                dlg.Text = "GRN Detail";
-                dlg.Size = new Size(760, 520);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
-                var headGrid = GridHelper.CreateStyledGrid();
-                var headDt = new DataTable();
-                headDt.Columns.Add("Field");
-                headDt.Columns.Add("Value");
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    headDt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                headGrid.DataSource = headDt;
-                GridHelper.StyleGrid(headGrid);
-
-                var lineGrid = GridHelper.CreateStyledGrid();
-                try { lineGrid.DataSource = _grnCtrl.GetReceivedLines(id); GridHelper.StyleGrid(lineGrid); } catch { }
-                split.Panel1.Controls.Add(headGrid);
-                split.Panel2.Controls.Add(lineGrid);
-                dlg.Controls.Add(split);
-                dlg.ShowDialog(this);
-            }
+            DataTable lines = null;
+            try { lines = _grnCtrl.GetReceivedLines(id); } catch { }
+            DetailViewHelper.ShowDetail(this, "GRN Detail",
+                DetailViewHelper.RowToFieldValueTable(row), lines, $"GRN_{id}");
         }
 
         private void ShowSupplierTableDialog(long supplierId, DataGridViewRow row)
         {
-            using (var dlg = new Form())
-            {
-                dlg.Text = "Supplier Detail";
-                dlg.Size = new Size(760, 520);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
-                var headGrid = GridHelper.CreateStyledGrid();
-                var headDt = new DataTable();
-                headDt.Columns.Add("Field");
-                headDt.Columns.Add("Value");
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    headDt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                headGrid.DataSource = headDt;
-                GridHelper.StyleGrid(headGrid);
-
-                var quoteGrid = GridHelper.CreateStyledGrid();
-                try { quoteGrid.DataSource = _supplierCtrl.GetRawMaterialQuotesBySupplier(supplierId); GridHelper.StyleGrid(quoteGrid); } catch { }
-                split.Panel1.Controls.Add(headGrid);
-                split.Panel2.Controls.Add(quoteGrid);
-                dlg.Controls.Add(split);
-                dlg.ShowDialog(this);
-            }
+            DataTable quotes = null;
+            try { quotes = _supplierCtrl.GetRawMaterialQuotesBySupplier(supplierId); } catch { }
+            DetailViewHelper.ShowDetail(this, "Supplier Detail",
+                DetailViewHelper.RowToFieldValueTable(row), quotes, $"Supplier_{supplierId}");
         }
 
         private void ShowPurchaseOrderDetailDialog(long id)

@@ -62,6 +62,11 @@ namespace FurnitureERP.Forms
             _lblTotalIncome = MakeSummaryCard("Total Income", "RM 0", Color.FromArgb(0, 168, 120), 0, summaryPanel);
             _lblTotalExpense = MakeSummaryCard("Total Expense", "RM 0", Color.FromArgb(220, 60, 60), 220, summaryPanel);
             _lblNetFlow = MakeSummaryCard("Net Cash Flow", "RM 0", Color.FromArgb(63, 118, 210), 440, summaryPanel);
+            var btnExportReport = UITheme.CreatePrimaryButton("Print Report PDF");
+            btnExportReport.Width = 150;
+            btnExportReport.Location = new Point(660, 20);
+            btnExportReport.Click += (s, e) => ExportOverviewReportPdf();
+            summaryPanel.Controls.Add(btnExportReport);
             outer.Controls.Add(summaryPanel, 0, 0);
 
             var row1 = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
@@ -413,6 +418,13 @@ namespace FurnitureERP.Forms
 
             var btnPanel = new FlowLayoutPanel { Width = 430, Height = 40, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 10, 0, 0) };
             btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
+            if (!isNew)
+            {
+                var btnPrint = UITheme.CreateSecondaryButton("Print PDF");
+                btnPrint.Width = 110;
+                btnPrint.Click += (s, e) => PrintPaymentVoucherPdf(pv);
+                btnPanel.Controls.Add(btnPrint);
+            }
 
             mainLayout.Controls.Add(btnPanel);
             dlg.Controls.Add(mainLayout);
@@ -463,8 +475,91 @@ namespace FurnitureERP.Forms
             };
             var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
             btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
+            if (!isNew)
+            {
+                var btnPrint = UITheme.CreateSecondaryButton("Print PDF");
+                btnPrint.Width = 110;
+                btnPrint.Click += (s, e) => PrintReceiptVoucherPdf(rv);
+                btnPanel.Controls.Add(btnPrint);
+            }
             dlg.Controls.Add(layout); dlg.Controls.Add(btnPanel);
             return dlg;
+        }
+
+        private void ExportOverviewReportPdf()
+        {
+            var fields = new DataTable();
+            fields.Columns.Add("Field");
+            fields.Columns.Add("Value");
+            fields.Rows.Add("Total Income", _lblTotalIncome?.Text ?? "");
+            fields.Rows.Add("Total Expense", _lblTotalExpense?.Text ?? "");
+            fields.Rows.Add("Net Cash Flow", _lblNetFlow?.Text ?? "");
+            fields.Rows.Add("Report Period", "Monthly aggregates (see charts in application)");
+
+            try
+            {
+                var data = DetailViewHelper.FromFieldValueTable(
+                    "Finance Overview Report", fields, null, "Finance_Overview_Report");
+                if (PdfExportHelper.ExportToPdf(data, this))
+                    UITheme.ShowSuccess("PDF saved successfully.");
+            }
+            catch (Exception ex) { UITheme.ShowError("Failed to export PDF: " + ex.Message); }
+        }
+
+        private void PrintPaymentVoucherPdf(PaymentVoucher pv)
+        {
+            if (pv == null) return;
+            var fields = new DataTable();
+            fields.Columns.Add("Field");
+            fields.Columns.Add("Value");
+            fields.Rows.Add("Voucher Code", pv.PaymentVoucherCode);
+            fields.Rows.Add("Supplier ID", pv.SupplierID);
+            fields.Rows.Add("Purchase Order ID", pv.PurchaseOrderID?.ToString() ?? "");
+            fields.Rows.Add("Staff ID", pv.StaffID);
+            fields.Rows.Add("Amount", pv.Amount.ToString("N2"));
+            fields.Rows.Add("Payment Method", pv.PaymentMethod);
+            fields.Rows.Add("Reference", pv.PaymentRef ?? "");
+            fields.Rows.Add("Status", pv.Status >= 0 && pv.Status < PVStatusNames.Length ? PVStatusNames[pv.Status] : pv.Status.ToString());
+            fields.Rows.Add("Remark", pv.Remark ?? "");
+            if (pv.PurchaseOrderID.HasValue)
+            {
+                fields.Rows.Add("PO Code", pv.PurchaseOrderCode ?? "");
+                fields.Rows.Add("PO Total", pv.PurchaseOrderTotalAmount.ToString("N2"));
+                fields.Rows.Add("Settled Amount", pv.VoucherPayAmount.ToString("N2"));
+            }
+            try
+            {
+                var data = DetailViewHelper.FromFieldValueTable(
+                    "Payment Voucher — " + pv.PaymentVoucherCode, fields, null, pv.PaymentVoucherCode);
+                if (PdfExportHelper.ExportToPdf(data, this))
+                    UITheme.ShowSuccess("PDF saved successfully.");
+            }
+            catch (Exception ex) { UITheme.ShowError("Failed to export PDF: " + ex.Message); }
+        }
+
+        private void PrintReceiptVoucherPdf(ReceiptVoucher rv)
+        {
+            if (rv == null) return;
+            var fields = new DataTable();
+            fields.Columns.Add("Field");
+            fields.Columns.Add("Value");
+            fields.Rows.Add("Voucher Code", rv.ReceiptVoucherCode);
+            fields.Rows.Add("Invoice ID", rv.InvoiceID?.ToString() ?? "");
+            fields.Rows.Add("Customer ID", rv.CustomerID?.ToString() ?? "");
+            fields.Rows.Add("Staff ID", rv.StaffID);
+            fields.Rows.Add("Amount", rv.Amount.ToString("N2"));
+            fields.Rows.Add("Payment Method", rv.PaymentMethod >= 0 && rv.PaymentMethod < MethodNames.Length ? MethodNames[rv.PaymentMethod] : rv.PaymentMethod.ToString());
+            fields.Rows.Add("Reference", rv.PaymentRef ?? "");
+            fields.Rows.Add("Status", rv.Status >= 0 && rv.Status < RVStatusNames.Length ? RVStatusNames[rv.Status] : rv.Status.ToString());
+            fields.Rows.Add("Remark", rv.Remark ?? "");
+            try
+            {
+                var data = DetailViewHelper.FromFieldValueTable(
+                    "Receipt Voucher — " + rv.ReceiptVoucherCode, fields, null, rv.ReceiptVoucherCode);
+                if (PdfExportHelper.ExportToPdf(data, this))
+                    UITheme.ShowSuccess("PDF saved successfully.");
+            }
+            catch (Exception ex) { UITheme.ShowError("Failed to export PDF: " + ex.Message); }
         }
     }
 }

@@ -108,5 +108,163 @@ namespace Sales_user.Controllers
             }
             return 0;
         }
+
+        public List<ContactPerson> GetContactPersons(long customerId)
+        {
+            string sql = @"SELECT contactPersonID, customerID, contactPerson, title, phone, email
+                           FROM contactperson WHERE customerID = @id ORDER BY contactPersonID";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", customerId) });
+            var list = new List<ContactPerson>();
+            if (dt == null) return list;
+            foreach (DataRow row in dt.Rows)
+            {
+                list.Add(new ContactPerson
+                {
+                    ContactPersonID = System.Convert.ToInt64(row["contactPersonID"]),
+                    CustomerID = System.Convert.ToInt64(row["customerID"]),
+                    Name = row["contactPerson"]?.ToString(),
+                    Title = row["title"]?.ToString(),
+                    Phone = row["phone"]?.ToString(),
+                    Email = row["email"]?.ToString()
+                });
+            }
+            return list;
+        }
+
+        public List<CustomerDeliveryAddress> GetDeliveryAddresses(long customerId)
+        {
+            string sql = @"SELECT addressID, customerID, deliveryAddress, contactPerson, phone, email
+                           FROM customerdeliveryaddress WHERE customerID = @id ORDER BY addressID";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", customerId) });
+            var list = new List<CustomerDeliveryAddress>();
+            if (dt == null) return list;
+            foreach (DataRow row in dt.Rows)
+            {
+                list.Add(new CustomerDeliveryAddress
+                {
+                    AddressID = System.Convert.ToInt64(row["addressID"]),
+                    CustomerID = System.Convert.ToInt64(row["customerID"]),
+                    DeliveryAddress = row["deliveryAddress"]?.ToString(),
+                    ContactPerson = row["contactPerson"]?.ToString(),
+                    Phone = row["phone"]?.ToString(),
+                    Email = row["email"]?.ToString()
+                });
+            }
+            return list;
+        }
+
+        public long InsertContactPerson(ContactPerson cp)
+        {
+            string sql = @"INSERT INTO contactperson (customerID, contactPerson, title, phone, email)
+                           VALUES (@cid, @name, @title, @phone, @email)";
+            return DatabaseConnect.ExecuteInsertReturnId(sql, new[]
+            {
+                new MySqlParameter("@cid", cp.CustomerID),
+                new MySqlParameter("@name", cp.Name ?? (object)System.DBNull.Value),
+                new MySqlParameter("@title", cp.Title ?? (object)System.DBNull.Value),
+                new MySqlParameter("@phone", cp.Phone ?? (object)System.DBNull.Value),
+                new MySqlParameter("@email", cp.Email ?? (object)System.DBNull.Value)
+            });
+        }
+
+        public bool UpdateContactPerson(ContactPerson cp)
+        {
+            string sql = @"UPDATE contactperson SET contactPerson = @name, title = @title,
+                           phone = @phone, email = @email WHERE contactPersonID = @id";
+            return DatabaseConnect.ExecuteNonQuery(sql, new[]
+            {
+                new MySqlParameter("@name", cp.Name ?? (object)System.DBNull.Value),
+                new MySqlParameter("@title", cp.Title ?? (object)System.DBNull.Value),
+                new MySqlParameter("@phone", cp.Phone ?? (object)System.DBNull.Value),
+                new MySqlParameter("@email", cp.Email ?? (object)System.DBNull.Value),
+                new MySqlParameter("@id", cp.ContactPersonID)
+            }) > 0;
+        }
+
+        public bool DeleteContactPerson(long contactPersonId)
+        {
+            string sql = "DELETE FROM contactperson WHERE contactPersonID = @id";
+            return DatabaseConnect.ExecuteNonQuery(sql, new[] { new MySqlParameter("@id", contactPersonId) }) > 0;
+        }
+
+        public long InsertDeliveryAddress(CustomerDeliveryAddress addr)
+        {
+            string sql = @"INSERT INTO customerdeliveryaddress (customerID, deliveryAddress, contactPerson, phone, email)
+                           VALUES (@cid, @addr, @contact, @phone, @email)";
+            return DatabaseConnect.ExecuteInsertReturnId(sql, new[]
+            {
+                new MySqlParameter("@cid", addr.CustomerID),
+                new MySqlParameter("@addr", addr.DeliveryAddress ?? (object)System.DBNull.Value),
+                new MySqlParameter("@contact", addr.ContactPerson ?? (object)System.DBNull.Value),
+                new MySqlParameter("@phone", addr.Phone ?? (object)System.DBNull.Value),
+                new MySqlParameter("@email", addr.Email ?? (object)System.DBNull.Value)
+            });
+        }
+
+        public bool UpdateDeliveryAddress(CustomerDeliveryAddress addr)
+        {
+            string sql = @"UPDATE customerdeliveryaddress SET deliveryAddress = @addr, contactPerson = @contact,
+                           phone = @phone, email = @email WHERE addressID = @id";
+            return DatabaseConnect.ExecuteNonQuery(sql, new[]
+            {
+                new MySqlParameter("@addr", addr.DeliveryAddress ?? (object)System.DBNull.Value),
+                new MySqlParameter("@contact", addr.ContactPerson ?? (object)System.DBNull.Value),
+                new MySqlParameter("@phone", addr.Phone ?? (object)System.DBNull.Value),
+                new MySqlParameter("@email", addr.Email ?? (object)System.DBNull.Value),
+                new MySqlParameter("@id", addr.AddressID)
+            }) > 0;
+        }
+
+        public bool DeleteDeliveryAddress(long addressId)
+        {
+            string sql = "DELETE FROM customerdeliveryaddress WHERE addressID = @id";
+            return DatabaseConnect.ExecuteNonQuery(sql, new[] { new MySqlParameter("@id", addressId) }) > 0;
+        }
+
+        public void SyncContactPersons(long customerId, List<ContactPerson> current, IEnumerable<long> originalIds)
+        {
+            var keptIds = new HashSet<long>();
+            foreach (var cp in current)
+            {
+                cp.CustomerID = customerId;
+                if (cp.ContactPersonID > 0)
+                {
+                    UpdateContactPerson(cp);
+                    keptIds.Add(cp.ContactPersonID);
+                }
+                else if (!string.IsNullOrWhiteSpace(cp.Name) || !string.IsNullOrWhiteSpace(cp.Phone) || !string.IsNullOrWhiteSpace(cp.Email))
+                {
+                    InsertContactPerson(cp);
+                }
+            }
+            foreach (long id in originalIds)
+            {
+                if (!keptIds.Contains(id))
+                    DeleteContactPerson(id);
+            }
+        }
+
+        public void SyncDeliveryAddresses(long customerId, List<CustomerDeliveryAddress> current, IEnumerable<long> originalIds)
+        {
+            var keptIds = new HashSet<long>();
+            foreach (var addr in current)
+            {
+                addr.CustomerID = customerId;
+                if (addr.AddressID > 0)
+                {
+                    UpdateDeliveryAddress(addr);
+                    keptIds.Add(addr.AddressID);
+                }
+                else if (!string.IsNullOrWhiteSpace(addr.DeliveryAddress) || !string.IsNullOrWhiteSpace(addr.ContactPerson))
+                {
+                    InsertDeliveryAddress(addr);
+                }
+            }
+            foreach (long id in originalIds)
+            {
+                if (!keptIds.Contains(id))
+                    DeleteDeliveryAddress(id);
+            }
+        }
     }
 }

@@ -389,45 +389,22 @@ namespace FurnitureERP.Forms
             var po = _productionCtrl.GetById(id);
             if (po == null) { UITheme.ShowWarning("Record not found."); return; }
 
-            using (var dlg = new Form())
-            {
-                dlg.Text = $"Production Detail - {po.ProductionOrderCode}";
-                dlg.Size = new Size(760, 520);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
+            var headerDt = new DataTable();
+            headerDt.Columns.Add("Field");
+            headerDt.Columns.Add("Value");
+            headerDt.Rows.Add("Production Order ID", po.ProductionOrderID);
+            headerDt.Rows.Add("Production Order Code", po.ProductionOrderCode ?? "");
+            headerDt.Rows.Add("Sales Order ID", po.SalesOrderID);
+            headerDt.Rows.Add("Staff ID", po.StaffID);
+            headerDt.Rows.Add("Est. Finish Date", po.EstFinishDate.ToString("yyyy-MM-dd"));
+            headerDt.Rows.Add("Status", po.Status);
+            headerDt.Rows.Add("Remark", po.Remark ?? "");
 
-                var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
+            DataTable lines = null;
+            try { lines = _productionCtrl.GetProductLines(id); } catch { }
 
-                var headerGrid = GridHelper.CreateStyledGrid();
-                var headerDt = new DataTable();
-                headerDt.Columns.Add("Field");
-                headerDt.Columns.Add("Value");
-                headerDt.Rows.Add("Production Order ID", po.ProductionOrderID);
-                headerDt.Rows.Add("Production Order Code", po.ProductionOrderCode ?? "");
-                headerDt.Rows.Add("Sales Order ID", po.SalesOrderID);
-                headerDt.Rows.Add("Staff ID", po.StaffID);
-                headerDt.Rows.Add("Est. Finish Date", po.EstFinishDate.ToString("yyyy-MM-dd"));
-                headerDt.Rows.Add("Status", po.Status);
-                headerDt.Rows.Add("Remark", po.Remark ?? "");
-                headerGrid.DataSource = headerDt;
-                GridHelper.StyleGrid(headerGrid);
-
-                var linesGrid = GridHelper.CreateStyledGrid();
-                try
-                {
-                    linesGrid.DataSource = _productionCtrl.GetProductLines(id);
-                    GridHelper.StyleGrid(linesGrid);
-                }
-                catch
-                {
-                }
-
-                split.Panel1.Controls.Add(headerGrid);
-                split.Panel2.Controls.Add(linesGrid);
-
-                dlg.Controls.Add(split);
-                dlg.ShowDialog(this);
-            }
+            DetailViewHelper.ShowDetail(this, $"Production Detail - {po.ProductionOrderCode}",
+                headerDt, lines, $"Production_{po.ProductionOrderCode}");
         }
 
         private void ShowAddProductDialog()

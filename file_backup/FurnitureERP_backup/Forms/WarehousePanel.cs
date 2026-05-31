@@ -304,62 +304,17 @@ namespace FurnitureERP.Forms
 
         private void ShowWarehouseTableDialog(DataGridViewRow row)
         {
-            using (var dlg = new Form())
-            {
-                dlg.Text = "Warehouse Detail";
-                dlg.Size = new Size(620, 420);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var grid = GridHelper.CreateStyledGrid();
-                var dt = new DataTable();
-                dt.Columns.Add("Field");
-                dt.Columns.Add("Value");
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    dt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                grid.DataSource = dt;
-                GridHelper.StyleGrid(grid);
-                dlg.Controls.Add(grid);
-                dlg.ShowDialog(this);
-            }
+            DetailViewHelper.ShowKeyValueDetail(this, "Warehouse Detail", row);
         }
 
         private void ShowDeliveryTableDialog(DataGridViewRow row)
         {
             if (row?.Cells[0].Value == null) return;
             long id = Convert.ToInt64(row.Cells[0].Value);
-            using (var dlg = new Form())
-            {
-                dlg.Text = "Delivery Note Detail";
-                dlg.Size = new Size(760, 520);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
-
-                var headGrid = GridHelper.CreateStyledGrid();
-                var headDt = new DataTable();
-                headDt.Columns.Add("Field");
-                headDt.Columns.Add("Value");
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    headDt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                headGrid.DataSource = headDt;
-                GridHelper.StyleGrid(headGrid);
-
-                var lineGrid = GridHelper.CreateStyledGrid();
-                try { lineGrid.DataSource = _deliveryCtrl.GetDeliveryLines(id); GridHelper.StyleGrid(lineGrid); } catch { }
-
-                split.Panel1.Controls.Add(headGrid);
-                split.Panel2.Controls.Add(lineGrid);
-                dlg.Controls.Add(split);
-                dlg.ShowDialog(this);
-            }
+            DataTable lines = null;
+            try { lines = _deliveryCtrl.GetDeliveryLines(id); } catch { }
+            DetailViewHelper.ShowDetail(this, "Delivery Note Detail",
+                DetailViewHelper.RowToFieldValueTable(row), lines, $"DeliveryNote_{id}");
         }
 
         private void ShowCreateDialog()

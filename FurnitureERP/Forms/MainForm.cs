@@ -1,7 +1,6 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
-using Sales_user.Controllers;
 using Sales_user.Models;
 using FurnitureERP.Helpers;
 
@@ -14,6 +13,7 @@ namespace FurnitureERP.Forms
         private Panel _sidebar;
         private Panel _contentPanel;
         private Panel _headerPanel;
+        private Panel _navContainer;
         private Button _activeNavButton;
 
         public MainForm()
@@ -26,7 +26,6 @@ namespace FurnitureERP.Forms
         {
             SuspendLayout();
 
-            // 初始化面板
             _sidebar = new Panel { Dock = DockStyle.Left, Width = 220, BackColor = UITheme.NavDark };
             BuildSidebar();
 
@@ -35,17 +34,17 @@ namespace FurnitureERP.Forms
 
             _contentPanel = new Panel { Dock = DockStyle.Fill, BackColor = UITheme.Background, Padding = new Padding(0) };
 
-            // WinForms Dock 引擎按 Controls 倒序處理：Fill 先加(最底)，Left 次之，Top 最後加(最高索引先處理)
-            Controls.Add(_contentPanel);  // Fill — 最先加，最後處理，填滿剩餘空間
-            Controls.Add(_sidebar);       // Left — 次之
-            Controls.Add(_headerPanel);   // Top  — 最後加，最先處理，佔頂部高度
+            Controls.Add(_contentPanel);
+            Controls.Add(_sidebar);
+            Controls.Add(_headerPanel);
 
             ResumeLayout();
-            LoadModule("Dashboard");
         }
 
         private void BuildSidebar()
         {
+            _sidebar.Controls.Clear();
+
             Panel logoPanel = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = UITheme.NavDarkest };
             Label logoLabel = new Label { Text = "PREMIUM LIVING", ForeColor = Color.White, Font = new Font("Segoe UI", 11, FontStyle.Bold), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter };
             Label subLabel = new Label { Text = "ERP System", ForeColor = Color.FromArgb(160, 190, 230), Font = new Font("Segoe UI", 8), Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleCenter };
@@ -53,16 +52,36 @@ namespace FurnitureERP.Forms
             logoPanel.Controls.Add(subLabel);
             _sidebar.Controls.Add(logoPanel);
 
-            var navItems = new[] {
-                ("Dashboard"), ("Customers"), ("Quotations"), ("Sales Orders"),
-                ("Production"), ("Raw Materials"), ("Purchase Orders"), ("Goods Received"),
-                ("Warehouse"), ("Delivery Notes"), ("Invoices"), ("Refunds"),
-                ("Finance Dept"), ("Suppliers"), ("Staff"), ("System Admin")
-            };
+            _navContainer = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = UITheme.NavDark };
+            PopulateNavButtons();
+            _sidebar.Controls.Add(_navContainer);
 
-            Panel navContainer = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = UITheme.NavDark };
+            Button logoutBtn = new Button
+            {
+                Text = "Logout",
+                Dock = DockStyle.Bottom,
+                Height = 46,
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = Color.FromArgb(255, 120, 120),
+                BackColor = Color.FromArgb(60, 20, 20),
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Cursor = Cursors.Hand
+            };
+            logoutBtn.FlatAppearance.BorderSize = 0;
+            logoutBtn.Click += (s, e) => {
+                AppSession.Clear();
+                if (MessageBox.Show("Logout from the system?", "Confirm Logout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                { new FurnitureERP.LoginForm().Show(); Close(); }
+            };
+            _sidebar.Controls.Add(logoutBtn);
+        }
+
+        private void PopulateNavButtons()
+        {
+            _navContainer.Controls.Clear();
             int yPos = 8;
-            foreach (var name in navItems)
+            foreach (var name in GetVisibleNavItems())
             {
                 Button btn = new Button
                 {
@@ -81,30 +100,40 @@ namespace FurnitureERP.Forms
                 btn.FlatAppearance.BorderSize = 0;
                 btn.FlatAppearance.MouseOverBackColor = UITheme.NavHover;
                 btn.Click += NavButton_Click;
-                navContainer.Controls.Add(btn);
+                _navContainer.Controls.Add(btn);
                 yPos += 44;
             }
-            navContainer.AutoScrollMinSize = new Size(0, yPos + 8);
-            _sidebar.Controls.Add(navContainer);
+            _navContainer.AutoScrollMinSize = new Size(0, yPos + 8);
+        }
 
-            Button logoutBtn = new Button
+        private static string[] GetVisibleNavItems()
+        {
+            var items = new System.Collections.Generic.List<string>();
+            if (AppSession.IsLoggedIn) items.Add("Dashboard");
+            if (AppSession.CanView(PermissionModule.Customer)) items.Add("Customers");
+            if (AppSession.CanView(PermissionModule.Quotation)) items.Add("Quotations");
+            if (AppSession.CanView(PermissionModule.SalesOrder)) items.Add("Sales Orders");
+            if (AppSession.CanView(PermissionModule.ProductionOrder)
+                || AppSession.CanView(PermissionModule.RawMaterialRequestNote)
+                || AppSession.CanView(PermissionModule.Product))
+                items.Add("Production");
+            if (AppSession.CanView(PermissionModule.RawMaterial)) items.Add("Raw Materials");
+            if (AppSession.CanView(PermissionModule.PurchaseOrder)) items.Add("Purchase Orders");
+            if (AppSession.CanView(PermissionModule.GoodsReceivedNote)) items.Add("Goods Received");
+            if (AppSession.CanView(PermissionModule.Warehouse)) items.Add("Warehouse");
+            if (AppSession.CanView(PermissionModule.InternalTransferForm)) items.Add("Internal Transfer");
+            if (AppSession.CanView(PermissionModule.DeliveryNote)) items.Add("Delivery Notes");
+            if (AppSession.CanView(PermissionModule.Invoice)) items.Add("Invoices");
+            if (AppSession.CanView(PermissionModule.Refund)) items.Add("Refunds");
+            if (AppSession.CanView(PermissionModule.PaymentVoucher) || AppSession.CanView(PermissionModule.ReceiptVoucher))
+                items.Add("Finance Dept");
+            if (AppSession.CanView(PermissionModule.Supplier)) items.Add("Suppliers");
+            if (AppSession.IsSuperUser)
             {
-                Text = "Logout",
-                Dock = DockStyle.Bottom,
-                Height = 46,
-                FlatStyle = FlatStyle.Flat,
-                ForeColor = Color.FromArgb(255, 120, 120),
-                BackColor = Color.FromArgb(60, 20, 20),
-                Font = new Font("Segoe UI", 9, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Cursor = Cursors.Hand
-            };
-            logoutBtn.FlatAppearance.BorderSize = 0;
-            logoutBtn.Click += (s, e) => {
-                if (MessageBox.Show("Logout from the system?", "Confirm Logout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-                { new FurnitureERP.LoginForm().Show(); Close(); }
-            };
-            _sidebar.Controls.Add(logoutBtn);
+                items.Add("Staff");
+                items.Add("System Admin");
+            }
+            return items.ToArray();
         }
 
         private void BuildHeader()
@@ -130,6 +159,12 @@ namespace FurnitureERP.Forms
 
         public void LoadModule(string module)
         {
+            if (!CanAccessModule(module))
+            {
+                UITheme.ShowWarning("You do not have permission to access this module.");
+                return;
+            }
+
             if (_headerPanel.Controls["lblModuleTitle"] is Label t) t.Text = module;
             _contentPanel.Controls.Clear();
             _contentPanel.SuspendLayout();
@@ -149,6 +184,7 @@ namespace FurnitureERP.Forms
                     case "Suppliers": panel = new ProcurementPanel(module); break;
                     case "Warehouse":
                     case "Delivery Notes": panel = new WarehousePanel(module); break;
+                    case "Internal Transfer": panel = new InternalTransferPanel(); break;
                     case "Invoices":
                     case "Refunds": panel = new FinancePanel(module); break;
                     case "Finance Dept": panel = new FinanceDeptPanel(); break;
@@ -159,9 +195,6 @@ namespace FurnitureERP.Forms
                 {
                     panel.Dock = DockStyle.Fill;
                     _contentPanel.Controls.Add(panel);
-
-                    // 加入此行，強制檢查該 Panel 的邊界
-                    System.Diagnostics.Debug.WriteLine($"Module {module} docked to: {panel.ClientRectangle}");
                 }
             }
             catch (Exception ex)
@@ -171,14 +204,49 @@ namespace FurnitureERP.Forms
             _contentPanel.ResumeLayout();
         }
 
+        private static bool CanAccessModule(string module)
+        {
+            if (!AppSession.IsLoggedIn) return false;
+            switch (module)
+            {
+                case "Dashboard": return true;
+                case "Customers": return AppSession.CanView(PermissionModule.Customer);
+                case "Quotations": return AppSession.CanView(PermissionModule.Quotation);
+                case "Sales Orders": return AppSession.CanView(PermissionModule.SalesOrder);
+                case "Production":
+                    return AppSession.CanView(PermissionModule.ProductionOrder)
+                        || AppSession.CanView(PermissionModule.RawMaterialRequestNote)
+                        || AppSession.CanView(PermissionModule.Product);
+                case "Raw Materials": return AppSession.CanView(PermissionModule.RawMaterial);
+                case "Purchase Orders": return AppSession.CanView(PermissionModule.PurchaseOrder);
+                case "Goods Received": return AppSession.CanView(PermissionModule.GoodsReceivedNote);
+                case "Warehouse": return AppSession.CanView(PermissionModule.Warehouse);
+                case "Internal Transfer": return AppSession.CanView(PermissionModule.InternalTransferForm);
+                case "Delivery Notes": return AppSession.CanView(PermissionModule.DeliveryNote);
+                case "Invoices": return AppSession.CanView(PermissionModule.Invoice);
+                case "Refunds": return AppSession.CanView(PermissionModule.Refund);
+                case "Finance Dept":
+                    return AppSession.CanView(PermissionModule.PaymentVoucher)
+                        || AppSession.CanView(PermissionModule.ReceiptVoucher);
+                case "Suppliers": return AppSession.CanView(PermissionModule.Supplier);
+                case "Staff":
+                case "System Admin": return AppSession.IsSuperUser;
+                default: return false;
+            }
+        }
+
         public void SetCurrentUser(Staff user)
         {
             CurrentUser = user;
+            AppSession.CurrentUser = user;
             if (_headerPanel.Controls["lblUser"] is Label ul && user != null)
             {
-                ul.Text = user.FullName + " | " + user.Department;
+                string roleLabel = AppSession.IsSuperUser ? "Super User" : user.Department;
+                ul.Text = user.FullName + " | " + roleLabel;
                 ul.Location = new Point(_headerPanel.Width - ul.PreferredWidth - 20, (_headerPanel.Height - ul.PreferredHeight) / 2);
             }
+            PopulateNavButtons();
+            LoadModule("Dashboard");
         }
     }
 }

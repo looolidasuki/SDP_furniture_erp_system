@@ -24,15 +24,30 @@ namespace FurnitureERP.Forms
         {
             Dock = DockStyle.Fill;
             BackColor = UITheme.Background;
+            Tag = module;
             BuildUI();
-            if (module == "Raw Materials") _tabs.SelectedIndex = 1;
+            if (module == "Raw Materials" && _tabs != null)
+            {
+                for (int i = 0; i < _tabs.TabPages.Count; i++)
+                {
+                    if (_tabs.TabPages[i].Text.Contains("Raw Material"))
+                    {
+                        _tabs.SelectedIndex = i;
+                        break;
+                    }
+                }
+            }
         }
 
         private void BuildUI()
         {
             _tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9) };
-            _tabs.TabPages.Add(BuildProductionTab());
-            _tabs.TabPages.Add(BuildRawMaterialsTab());
+            if (AppSession.CanView(PermissionModule.ProductionOrder)
+                || AppSession.CanView(PermissionModule.RawMaterialRequestNote)
+                || AppSession.CanView(PermissionModule.Product))
+                _tabs.TabPages.Add(BuildProductionTab());
+            if (AppSession.CanView(PermissionModule.RawMaterial))
+                _tabs.TabPages.Add(BuildRawMaterialsTab());
             Controls.Add(_tabs);
         }
 
@@ -47,11 +62,13 @@ namespace FurnitureERP.Forms
 
             Button btnNew = UITheme.CreatePrimaryButton("+ New Production Order");
             btnNew.Location = new Point(0, 9);
-            btnNew.Click += (s, e) => ShowCreateDialog();
+            btnNew.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.ProductionOrder, PermissionAction.Create, this)) ShowCreateDialog(); };
+            PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.ProductionOrder);
 
             Button btnQuickNew = UITheme.CreateSecondaryButton("⚡ Quick Entry");
             btnQuickNew.Location = new Point(btnNew.Width + 10, 9);
-            btnQuickNew.Click += (s, e) => ShowBatchCreateDialog();
+            btnQuickNew.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.ProductionOrder, PermissionAction.Create, this)) ShowBatchCreateDialog(); };
+            PermissionGuard.ApplyCreateButton(btnQuickNew, PermissionModule.ProductionOrder);
 
             Button btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefresh.Location = new Point(btnNew.Width + btnQuickNew.Width + 20, 9);
@@ -71,11 +88,13 @@ namespace FurnitureERP.Forms
 
             Button btnAddProduct = UITheme.CreateSecondaryButton("🗂 Add Product");
             btnAddProduct.Location = new Point(btnViewProducts.Right + 10, 9);
-            btnAddProduct.Click += (s, e) => ShowAddProductDialog();
+            btnAddProduct.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.Product, PermissionAction.Create, this)) ShowAddProductDialog(); };
+            PermissionGuard.ApplyCreateButton(btnAddProduct, PermissionModule.Product);
 
             Button btnRMRN = UITheme.CreateSecondaryButton("📋 RM Requests");
             btnRMRN.Location = new Point(btnAddProduct.Right + 10, 9);
-            btnRMRN.Click += (s, e) => ShowRawMaterialRequestsPanel();
+            btnRMRN.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.RawMaterialRequestNote, PermissionAction.View, this)) ShowRawMaterialRequestsPanel(); };
+            btnRMRN.Visible = AppSession.CanView(PermissionModule.RawMaterialRequestNote);
 
             _searchBox = new TextBox { Width = 160, Height = 28, Location = new Point(btnRMRN.Right + 10, 12) };
             _searchBox.TextChanged += (s, e) => LoadData(_searchBox.Text.Trim());
@@ -92,7 +111,11 @@ namespace FurnitureERP.Forms
             {
                 if (e.RowIndex < 0) return;
                 if (_grid.Rows[e.RowIndex].Cells[0].Value == null) return;
-                ShowDetailDialog(Convert.ToInt64(_grid.Rows[e.RowIndex].Cells[0].Value));
+                long id = Convert.ToInt64(_grid.Rows[e.RowIndex].Cells[0].Value);
+                if (AppSession.CanEdit(PermissionModule.ProductionOrder))
+                    ShowDetailDialog(id);
+                else
+                    ShowProductionDetailTableDialog(id);
             };
 
             var content = new Panel { Dock = DockStyle.Fill };
@@ -128,7 +151,8 @@ namespace FurnitureERP.Forms
             var toolbar = new Panel { Dock = DockStyle.Top, Height = 50 };
             var btnNew = UITheme.CreatePrimaryButton("+ New Raw Material");
             btnNew.Location = new Point(0, 9);
-            btnNew.Click += (s, e) => ShowRawMaterialDialog();
+            btnNew.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.RawMaterial, PermissionAction.Create, this)) ShowRawMaterialDialog(); };
+            PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.RawMaterial);
 
             var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefresh.Location = new Point(btnNew.Width + 10, 9);

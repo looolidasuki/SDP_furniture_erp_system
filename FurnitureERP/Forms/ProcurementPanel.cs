@@ -22,22 +22,36 @@ namespace FurnitureERP.Forms
         {
             Dock = DockStyle.Fill;
             BackColor = UITheme.Background;
+            Tag = module;
             BuildUI();
-            // Select the correct tab based on module
-            if (module == "Goods Received") _tabs.SelectedIndex = 2;
-            else if (module == "Suppliers") _tabs.SelectedIndex = 3;
-            else if (module == "Raw Materials") _tabs.SelectedIndex = 0;
-            else _tabs.SelectedIndex = 1; // Purchase Orders
+            SelectModuleTab(module);
+        }
+
+        private void SelectModuleTab(string module)
+        {
+            if (_tabs == null || _tabs.TabPages.Count == 0) return;
+            for (int i = 0; i < _tabs.TabPages.Count; i++)
+            {
+                string text = _tabs.TabPages[i].Text;
+                if (module == "Goods Received" && text.Contains("Goods Received")) { _tabs.SelectedIndex = i; return; }
+                if (module == "Suppliers" && text.Contains("Supplier")) { _tabs.SelectedIndex = i; return; }
+                if (module == "Raw Materials" && text.Contains("Raw Material")) { _tabs.SelectedIndex = i; return; }
+                if (module == "Purchase Orders" && text.Contains("Purchase Order")) { _tabs.SelectedIndex = i; return; }
+            }
         }
 
         private void BuildUI()
         {
             _tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9) };
 
-            _tabs.TabPages.Add(BuildRawMaterialsTab());
-            _tabs.TabPages.Add(BuildPurchaseOrdersTab());
-            _tabs.TabPages.Add(BuildGoodsReceivedTab());
-            _tabs.TabPages.Add(BuildSuppliersTab());
+            if (AppSession.CanView(PermissionModule.RawMaterial))
+                _tabs.TabPages.Add(BuildRawMaterialsTab());
+            if (AppSession.CanView(PermissionModule.PurchaseOrder))
+                _tabs.TabPages.Add(BuildPurchaseOrdersTab());
+            if (AppSession.CanView(PermissionModule.GoodsReceivedNote))
+                _tabs.TabPages.Add(BuildGoodsReceivedTab());
+            if (AppSession.CanView(PermissionModule.Supplier))
+                _tabs.TabPages.Add(BuildSuppliersTab());
 
             Controls.Add(_tabs);
         }
@@ -47,7 +61,7 @@ namespace FurnitureERP.Forms
             var tab = new TabPage("Raw Materials") { BackColor = UITheme.Background, Padding = new Padding(8) };
             var grid = GridHelper.CreateStyledGrid();
 
-            var toolbar = BuildToolbar("+ New Raw Material", () => ShowRawMaterialDialog(), grid, () => {
+            var toolbar = BuildToolbar("+ New Raw Material", PermissionModule.RawMaterial, () => ShowRawMaterialDialog(), grid, () => {
                 try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterials(); GridHelper.ApplyStyle(grid); } catch { }
             }, () =>
             {
@@ -61,7 +75,8 @@ namespace FurnitureERP.Forms
                 var idObj = grid.Rows[e.RowIndex].Cells[0].Value;
                 if (idObj == null) return;
                 var entity = _rawMaterialCtrl.GetById(Convert.ToInt64(idObj));
-                if (entity != null) ShowRawMaterialDialog(entity);
+                if (entity != null && AppSession.CanEdit(PermissionModule.RawMaterial)) ShowRawMaterialDialog(entity);
+                else ShowRowDetail(grid.Rows[e.RowIndex], "Raw Material Details");
             };
 
             try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterials(); GridHelper.ApplyStyle(grid); } catch { }
@@ -76,7 +91,7 @@ namespace FurnitureERP.Forms
             var tab = new TabPage("Purchase Orders") { BackColor = UITheme.Background, Padding = new Padding(8) };
             var grid = GridHelper.CreateStyledGrid();
 
-            var toolbar = BuildToolbar("+ New Purchase Order", () => ShowPurchaseOrderDialog(), grid, () => {
+            var toolbar = BuildToolbar("+ New Purchase Order", PermissionModule.PurchaseOrder, () => ShowPurchaseOrderDialog(), grid, () => {
                 try { grid.DataSource = _purchaseOrderCtrl.GetAllPurchaseOrders(); GridHelper.ApplyStyle(grid); } catch { }
             }, () =>
             {
@@ -89,7 +104,10 @@ namespace FurnitureERP.Forms
                 if (e.RowIndex < 0) return;
                 var idObj = grid.Rows[e.RowIndex].Cells[0].Value;
                 if (idObj == null) return;
-                ShowPurchaseOrderDetailDialog(Convert.ToInt64(idObj));
+                if (AppSession.CanEdit(PermissionModule.PurchaseOrder))
+                    ShowPurchaseOrderDetailDialog(Convert.ToInt64(idObj));
+                else
+                    ShowPurchaseOrderTableDialog(Convert.ToInt64(idObj), grid.Rows[e.RowIndex]);
             };
 
             try { grid.DataSource = _purchaseOrderCtrl.GetAllPurchaseOrders(); GridHelper.ApplyStyle(grid); } catch { }
@@ -104,7 +122,7 @@ namespace FurnitureERP.Forms
             var tab = new TabPage("Goods Received") { BackColor = UITheme.Background, Padding = new Padding(8) };
             var grid = GridHelper.CreateStyledGrid();
 
-            var toolbar = BuildToolbar("+ New GRN", () => ShowGrnDialog(), grid, () => {
+            var toolbar = BuildToolbar("+ New GRN", PermissionModule.GoodsReceivedNote, () => ShowGrnDialog(), grid, () => {
                 try { grid.DataSource = _grnCtrl.GetAllGoodsReceivedNotes(); GridHelper.ApplyStyle(grid); } catch { }
             }, () =>
             {
@@ -117,7 +135,10 @@ namespace FurnitureERP.Forms
                 if (e.RowIndex < 0) return;
                 var idObj = grid.Rows[e.RowIndex].Cells[0].Value;
                 if (idObj == null) return;
-                ShowGrnDetailDialog(Convert.ToInt64(idObj));
+                if (AppSession.CanEdit(PermissionModule.GoodsReceivedNote))
+                    ShowGrnDetailDialog(Convert.ToInt64(idObj));
+                else
+                    ShowGrnTableDialog(Convert.ToInt64(idObj), grid.Rows[e.RowIndex]);
             };
 
             try { grid.DataSource = _grnCtrl.GetAllGoodsReceivedNotes(); GridHelper.ApplyStyle(grid); } catch { }
@@ -132,7 +153,7 @@ namespace FurnitureERP.Forms
             var tab = new TabPage("Suppliers") { BackColor = UITheme.Background, Padding = new Padding(8) };
             var grid = GridHelper.CreateStyledGrid();
 
-            var toolbar = BuildToolbar("+ New Supplier", () => ShowSupplierDialog(), grid, () => {
+            var toolbar = BuildToolbar("+ New Supplier", PermissionModule.Supplier, () => ShowSupplierDialog(), grid, () => {
                 try { grid.DataSource = _supplierCtrl.GetAllSuppliers(); GridHelper.ApplyStyle(grid); } catch { }
             }, () =>
             {
@@ -146,7 +167,8 @@ namespace FurnitureERP.Forms
                 var idObj = grid.Rows[e.RowIndex].Cells[0].Value;
                 if (idObj == null) return;
                 var entity = _supplierCtrl.GetById(Convert.ToInt64(idObj));
-                if (entity != null) ShowSupplierDialog(entity);
+                if (entity != null && AppSession.CanEdit(PermissionModule.Supplier)) ShowSupplierDialog(entity);
+                else ShowSupplierTableDialog(Convert.ToInt64(idObj), grid.Rows[e.RowIndex]);
             };
 
             try { grid.DataSource = _supplierCtrl.GetAllSuppliers(); GridHelper.ApplyStyle(grid); } catch { }
@@ -156,12 +178,13 @@ namespace FurnitureERP.Forms
             return tab;
         }
 
-        private Panel BuildToolbar(string createLabel, Action onCreate, DataGridView grid, Action onRefresh, Action onViewDetail)
+        private Panel BuildToolbar(string createLabel, string permissionModule, Action onCreate, DataGridView grid, Action onRefresh, Action onViewDetail)
         {
             var toolbar = new Panel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(0, 8, 0, 8) };
             var btnCreate = UITheme.CreatePrimaryButton(createLabel);
             btnCreate.Location = new Point(0, 8);
-            btnCreate.Click += (s, e) => onCreate();
+            btnCreate.Click += (s, e) => { if (PermissionGuard.Ensure(permissionModule, PermissionAction.Create, this)) onCreate(); };
+            PermissionGuard.ApplyCreateButton(btnCreate, permissionModule);
 
             var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefresh.Location = new Point(btnCreate.Width + 10, 8);

@@ -52,7 +52,10 @@ namespace FurnitureERP.Forms
                 if (_invoiceGrid?.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select an invoice first."); return; }
                 ShowInvoiceTableDetailFromRow(_invoiceGrid.CurrentRow);
             };
-            _invoiceSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnDetailInvoice.Right + 10, 10) };
+            Button btnPrintInvoice = UITheme.CreateSecondaryButton("Print PDF");
+            btnPrintInvoice.Location = new Point(btnDetailInvoice.Right + 10, 8);
+            btnPrintInvoice.Click += (s, e) => PrintSelectedInvoice();
+            _invoiceSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnPrintInvoice.Right + 10, 10) };
             _invoiceSearchBox.TextChanged += (s, e) => LoadInvoices();
             _invoiceStatusFilter = new ComboBox { Width = 120, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(_invoiceSearchBox.Right + 10, 10) };
             _invoiceStatusFilter.Items.AddRange(new object[] { "All Status", "0", "1", "2", "3", "4" });
@@ -61,6 +64,7 @@ namespace FurnitureERP.Forms
             invoiceToolbar.Controls.Add(btnNewInvoice);
             invoiceToolbar.Controls.Add(btnRefreshInvoice);
             invoiceToolbar.Controls.Add(btnDetailInvoice);
+            invoiceToolbar.Controls.Add(btnPrintInvoice);
             invoiceToolbar.Controls.Add(_invoiceSearchBox);
             invoiceToolbar.Controls.Add(_invoiceStatusFilter);
 
@@ -90,7 +94,14 @@ namespace FurnitureERP.Forms
                 if (_refundGrid?.CurrentRow == null) { UITheme.ShowWarning("Please select a refund request first."); return; }
                 ShowRefundTableDetailFromRow(_refundGrid.CurrentRow);
             };
-            _refundSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnDetailRefund.Right + 10, 10) };
+            Button btnPrintRefund = UITheme.CreateSecondaryButton("Print PDF");
+            btnPrintRefund.Location = new Point(btnDetailRefund.Right + 10, 8);
+            btnPrintRefund.Click += (s, e) =>
+            {
+                if (_refundGrid?.CurrentRow == null) { UITheme.ShowWarning("Please select a refund request first."); return; }
+                PrintRefundRow(_refundGrid.CurrentRow);
+            };
+            _refundSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnPrintRefund.Right + 10, 10) };
             _refundSearchBox.TextChanged += (s, e) => LoadRefunds();
             _refundStatusFilter = new ComboBox { Width = 120, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(_refundSearchBox.Right + 10, 10) };
             _refundStatusFilter.Items.AddRange(new object[] { "All Status", "0", "1", "2", "3", "4" });
@@ -99,6 +110,7 @@ namespace FurnitureERP.Forms
             refundToolbar.Controls.Add(btnNewRefund);
             refundToolbar.Controls.Add(btnRefreshRefund);
             refundToolbar.Controls.Add(btnDetailRefund);
+            refundToolbar.Controls.Add(btnPrintRefund);
             refundToolbar.Controls.Add(_refundSearchBox);
             refundToolbar.Controls.Add(_refundStatusFilter);
 
@@ -270,85 +282,69 @@ namespace FurnitureERP.Forms
 
         private void ShowInvoiceDetails(long invoiceId)
         {
-            using (var dlg = new Form())
-            {
-                dlg.Text = $"Invoice Details — ID: {invoiceId}";
-                dlg.Size = new Size(700, 500);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var grid = GridHelper.CreateStyledGrid();
-                try
-                {
-                    // Show invoice product lines if available
-                    grid.DataSource = _invoiceCtrl.GetInvoiceLines(invoiceId);
-                    GridHelper.StyleGrid(grid);
-                }
-                catch { }
-
-                dlg.Controls.Add(grid);
-                dlg.ShowDialog(this);
-            }
+            DataTable lines = null;
+            try { lines = _invoiceCtrl.GetInvoiceLines(invoiceId); } catch { }
+            var fields = DetailViewHelper.RowToFieldValueTable(null);
+            fields.Rows.Add("Invoice ID", invoiceId);
+            DetailViewHelper.ShowDetail(this, $"Invoice Details — ID: {invoiceId}", fields, lines, $"Invoice_{invoiceId}");
         }
 
         private void ShowInvoiceTableDetailFromRow(DataGridViewRow row)
         {
             if (row?.Cells[0].Value == null) return;
             long invoiceId = Convert.ToInt64(row.Cells[0].Value);
-
-            using (var dlg = new Form())
-            {
-                dlg.Text = $"Invoice Detail — ID: {invoiceId}";
-                dlg.Size = new Size(760, 520);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
-                var headGrid = GridHelper.CreateStyledGrid();
-                var headDt = new DataTable();
-                headDt.Columns.Add("Field");
-                headDt.Columns.Add("Value");
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    headDt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                headGrid.DataSource = headDt;
-                GridHelper.StyleGrid(headGrid);
-
-                var lineGrid = GridHelper.CreateStyledGrid();
-                try { lineGrid.DataSource = _invoiceCtrl.GetInvoiceLines(invoiceId); GridHelper.StyleGrid(lineGrid); } catch { }
-
-                split.Panel1.Controls.Add(headGrid);
-                split.Panel2.Controls.Add(lineGrid);
-                dlg.Controls.Add(split);
-                dlg.ShowDialog(this);
-            }
+            DataTable lines = null;
+            try { lines = _invoiceCtrl.GetInvoiceLines(invoiceId); } catch { }
+            DetailViewHelper.ShowDetail(this, $"Invoice Detail — ID: {invoiceId}",
+                DetailViewHelper.RowToFieldValueTable(row), lines, $"Invoice_{invoiceId}");
         }
 
         private void ShowRefundTableDetailFromRow(DataGridViewRow row)
         {
-            using (var dlg = new Form())
-            {
-                dlg.Text = "Refund Request Detail";
-                dlg.Size = new Size(620, 420);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
+            DetailViewHelper.ShowKeyValueDetail(this, "Refund Request Detail", row, null);
+        }
 
-                var grid = GridHelper.CreateStyledGrid();
-                var dt = new DataTable();
-                dt.Columns.Add("Field");
-                dt.Columns.Add("Value");
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    dt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                grid.DataSource = dt;
-                GridHelper.StyleGrid(grid);
-                dlg.Controls.Add(grid);
-                dlg.ShowDialog(this);
+        private void PrintSelectedInvoice()
+        {
+            if (_invoiceGrid?.CurrentRow?.Cells[0].Value == null)
+            {
+                UITheme.ShowWarning("Please select an invoice first.");
+                return;
             }
+            PrintInvoiceRow(_invoiceGrid.CurrentRow);
+        }
+
+        private void PrintInvoiceRow(DataGridViewRow row)
+        {
+            long invoiceId = Convert.ToInt64(row.Cells[0].Value);
+            DataTable lines = null;
+            try { lines = _invoiceCtrl.GetInvoiceLines(invoiceId); } catch { }
+            try
+            {
+                var data = DetailViewHelper.FromFieldValueTable(
+                    $"Invoice — ID: {invoiceId}",
+                    DetailViewHelper.RowToFieldValueTable(row),
+                    lines,
+                    $"Invoice_{invoiceId}");
+                if (PdfExportHelper.ExportToPdf(data, this))
+                    UITheme.ShowSuccess("PDF saved successfully.");
+            }
+            catch (Exception ex) { UITheme.ShowError("Failed to export PDF: " + ex.Message); }
+        }
+
+        private void PrintRefundRow(DataGridViewRow row)
+        {
+            try
+            {
+                var data = DetailViewHelper.FromFieldValueTable(
+                    "Refund Request",
+                    DetailViewHelper.RowToFieldValueTable(row),
+                    null,
+                    "RefundRequest");
+                if (PdfExportHelper.ExportToPdf(data, this))
+                    UITheme.ShowSuccess("PDF saved successfully.");
+            }
+            catch (Exception ex) { UITheme.ShowError("Failed to export PDF: " + ex.Message); }
         }
 
         private void ShowCreateInvoiceDialog()

@@ -210,27 +210,7 @@ namespace FurnitureERP.Forms
 
         private void ShowGridRowDetail(string title, DataGridViewRow row)
         {
-            using (var dlg = new Form())
-            {
-                dlg.Text = title;
-                dlg.Size = new Size(620, 420);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var grid = GridHelper.CreateStyledGrid();
-                var dt = new DataTable();
-                dt.Columns.Add("Field");
-                dt.Columns.Add("Value");
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    dt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                grid.DataSource = dt;
-                GridHelper.StyleGrid(grid);
-                dlg.Controls.Add(grid);
-                dlg.ShowDialog(this);
-            }
+            DetailViewHelper.ShowKeyValueDetail(this, title, row);
         }
 
         private void DictGrid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)

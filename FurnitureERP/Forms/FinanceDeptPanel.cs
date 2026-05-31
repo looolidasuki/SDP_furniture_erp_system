@@ -54,9 +54,12 @@ namespace FurnitureERP.Forms
             var tabRV = new TabPage("🧾 Receipt Vouchers") { BackColor = UITheme.Background };
             BuildRVTab(tabRV);
 
-            _tabs.TabPages.Add(tabDash);
-            _tabs.TabPages.Add(tabPV);
-            _tabs.TabPages.Add(tabRV);
+            if (AppSession.CanView(PermissionModule.PaymentVoucher) || AppSession.CanView(PermissionModule.ReceiptVoucher))
+                _tabs.TabPages.Add(tabDash);
+            if (AppSession.CanView(PermissionModule.PaymentVoucher))
+                _tabs.TabPages.Add(tabPV);
+            if (AppSession.CanView(PermissionModule.ReceiptVoucher))
+                _tabs.TabPages.Add(tabRV);
             Controls.Add(_tabs);
         }
 
@@ -146,11 +149,13 @@ namespace FurnitureERP.Forms
             var btnNew = UITheme.CreatePrimaryButton("+ New Payment Voucher");
             btnNew.Location = new Point(8, 8);
             btnNew.Click += (s, e) => {
+                if (!PermissionGuard.Ensure(PermissionModule.PaymentVoucher, PermissionAction.Create, this)) return;
                 using (var dlg = BuildPVForm("Create Payment Voucher", null))
                 {
                     if (dlg.ShowDialog(this) == DialogResult.OK) LoadAll();
                 }
             };
+            PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.PaymentVoucher);
 
             var lblSearch = new Label { Text = "Search Code:", Location = new Point(240, 14), AutoSize = true };
             _pvSearch = new TextBox { Location = new Point(325, 11), Width = 150 };
@@ -183,6 +188,7 @@ namespace FurnitureERP.Forms
             long id = Convert.ToInt64(_pvGrid.Rows[e.RowIndex].Cells["ID"].Value);
             var pv = _pvCtrl.GetById(id);
             if (pv == null) return;
+            if (!AppSession.CanEdit(PermissionModule.PaymentVoucher)) return;
 
             using (var dlg = BuildPVForm("Payment Voucher Details", pv))
             {
@@ -200,11 +206,13 @@ namespace FurnitureERP.Forms
             var btnNew = UITheme.CreatePrimaryButton("+ New Receipt Voucher");
             btnNew.Location = new Point(8, 8);
             btnNew.Click += (s, e) => {
+                if (!PermissionGuard.Ensure(PermissionModule.ReceiptVoucher, PermissionAction.Create, this)) return;
                 using (var dlg = BuildRVForm("Create Receipt Voucher", null))
                 {
                     if (dlg.ShowDialog(this) == DialogResult.OK) LoadAll();
                 }
             };
+            PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.ReceiptVoucher);
 
             var lblSearch = new Label { Text = "Search Code:", Location = new Point(240, 14), AutoSize = true };
             _rvSearch = new TextBox { Location = new Point(325, 11), Width = 150 };
@@ -237,6 +245,7 @@ namespace FurnitureERP.Forms
             long id = Convert.ToInt64(_rvGrid.Rows[e.RowIndex].Cells["ID"].Value);
             var rv = _rvCtrl.GetById(id);
             if (rv == null) return;
+            if (!AppSession.CanEdit(PermissionModule.ReceiptVoucher)) return;
 
             using (var dlg = BuildRVForm("Receipt Voucher Details", rv))
             {
@@ -308,9 +317,13 @@ namespace FurnitureERP.Forms
             UITheme.AddFormField(layout, 7, "Remark", txtRemark);
 
             var btnSave = UITheme.CreatePrimaryButton("Save");
+            if (isNew) PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.PaymentVoucher);
+            else PermissionGuard.ApplyEditButton(btnSave, PermissionModule.PaymentVoucher);
             var btnCancel = UITheme.CreateSecondaryButton("Cancel");
             btnCancel.Click += (s, e) => dlg.Close();
             btnSave.Click += (s, e) => {
+                var action = isNew ? PermissionAction.Create : PermissionAction.Edit;
+                if (!PermissionGuard.Ensure(PermissionModule.PaymentVoucher, action, dlg)) return;
                 if (!long.TryParse(txtSupplierId.Text.Trim(), out long supplierId) ||
                     !long.TryParse(txtStaffId.Text.Trim(), out long staffId) ||
                     !decimal.TryParse(txtAmount.Text.Trim(), out decimal amount))
@@ -379,10 +392,14 @@ namespace FurnitureERP.Forms
             UITheme.AddFormField(layout, 5, "Status", cmbStatus);
 
             var btnSave = UITheme.CreatePrimaryButton("Save");
+            if (isNew) PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.ReceiptVoucher);
+            else PermissionGuard.ApplyEditButton(btnSave, PermissionModule.ReceiptVoucher);
             var btnCancel = UITheme.CreateSecondaryButton("Cancel");
             btnCancel.Click += (s, e) => dlg.Close();
 
             btnSave.Click += (s, e) => {
+                var action = isNew ? PermissionAction.Create : PermissionAction.Edit;
+                if (!PermissionGuard.Ensure(PermissionModule.ReceiptVoucher, action, dlg)) return;
                 if (!long.TryParse(txtCustomerId.Text.Trim(), out long custId) ||
                     !long.TryParse(txtStaffId.Text.Trim(), out long staffId) ||
                     !decimal.TryParse(txtAmount.Text.Trim(), out decimal amount))

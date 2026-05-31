@@ -14,3 +14,5 @@ C:\Users\user\source\repos\4915M_claude\file_backup\FurnitureERP_backup\obj\Debu
 C:\Users\user\source\repos\4915M_claude\file_backup\FurnitureERP_backup\obj\Debug\FurnitureERP.csproj.CoreCompileInputs.cache
 C:\Users\user\source\repos\4915M_claude\file_backup\FurnitureERP_backup\obj\Debug\FurnitureERP.exe
 C:\Users\user\source\repos\4915M_claude\file_backup\FurnitureERP_backup\obj\Debug\FurnitureERP.pdb
+c:\Users\user\source\repos\4915M_claude\file_backup\FurnitureERP_backup\obj\Debug\FurnitureERP.csproj.SuggestedBindingRedirects.cache
+c:\Users\user\source\repos\4915M_claude\file_backup\FurnitureERP_backup\obj\Debug\FurnitureERP.exe.config

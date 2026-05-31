@@ -104,6 +104,9 @@
     <Compile Include="Forms\DashboardPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="Forms\InternalTransferPanel.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="Forms\SalesPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -126,6 +129,11 @@
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="Helpers\UITheme.cs" />
+    <Compile Include="Helpers\PermissionModule.cs" />
+    <Compile Include="Helpers\PermissionFlags.cs" />
+    <Compile Include="Helpers\PermissionService.cs" />
+    <Compile Include="Helpers\AppSession.cs" />
+    <Compile Include="Helpers\PermissionGuard.cs" />
     <Compile Include="Helpers\ChartHelper.cs">
       <SubType>Component</SubType>
     </Compile>
@@ -198,6 +206,12 @@
     </Compile>
     <Compile Include="..\Models\Customer.cs">
       <Link>Models\Customer.cs</Link>
+    </Compile>
+    <Compile Include="..\Models\ContactPerson.cs">
+      <Link>Models\ContactPerson.cs</Link>
+    </Compile>
+    <Compile Include="..\Models\CustomerDeliveryAddress.cs">
+      <Link>Models\CustomerDeliveryAddress.cs</Link>
     </Compile>
     <Compile Include="..\Models\SalesOrder.cs">
       <Link>Models\SalesOrder.cs</Link>

@@ -41,7 +41,8 @@ namespace FurnitureERP.Forms
             var toolbar = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = UITheme.Background };
             var btnNew = UITheme.CreatePrimaryButton("+ New Warehouse");
             btnNew.Location = new Point(0, 8);
-            btnNew.Click += (s, e) => ShowCreateDialog();
+            btnNew.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.Warehouse, PermissionAction.Create, this)) ShowCreateDialog(); };
+            PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.Warehouse);
             var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefresh.Location = new Point(btnNew.Width + 10, 8);
             btnRefresh.Click += (s, e) => LoadData();
@@ -85,7 +86,8 @@ namespace FurnitureERP.Forms
             var deliveryToolbar = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = UITheme.Background };
             var btnNewDelivery = UITheme.CreatePrimaryButton("+ New Delivery Note");
             btnNewDelivery.Location = new Point(0, 8);
-            btnNewDelivery.Click += (s, e) => ShowCreateDeliveryDialog();
+            btnNewDelivery.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.DeliveryNote, PermissionAction.Create, this)) ShowCreateDeliveryDialog(); };
+            PermissionGuard.ApplyCreateButton(btnNewDelivery, PermissionModule.DeliveryNote);
             var btnRefreshDelivery = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefreshDelivery.Location = new Point(btnNewDelivery.Width + 10, 8);
             btnRefreshDelivery.Click += (s, e) => LoadDeliveryNotes();
@@ -126,13 +128,17 @@ namespace FurnitureERP.Forms
             deliveryContent.Controls.Add(_deliveryGrid);
             deliveryTab.Controls.Add(deliveryContent);
 
-            _tabs.TabPages.Add(warehouseTab);
-            _tabs.TabPages.Add(deliveryTab);
+            if (AppSession.CanView(PermissionModule.Warehouse))
+                _tabs.TabPages.Add(warehouseTab);
+            if (AppSession.CanView(PermissionModule.DeliveryNote))
+                _tabs.TabPages.Add(deliveryTab);
 
             Controls.Add(_tabs);
 
-            LoadData();
-            LoadDeliveryNotes();
+            if (AppSession.CanView(PermissionModule.Warehouse))
+                LoadData();
+            if (AppSession.CanView(PermissionModule.DeliveryNote))
+                LoadDeliveryNotes();
         }
 
         private void LoadData()
@@ -196,8 +202,13 @@ namespace FurnitureERP.Forms
             if (e.RowIndex < 0) return;
             var row = _grid.Rows[e.RowIndex];
             if (row.Cells[0].Value == null) return;
-            long id = Convert.ToInt64(row.Cells[0].Value);
-            ShowEditDialog(id);
+            if (AppSession.CanEdit(PermissionModule.Warehouse))
+            {
+                long id = Convert.ToInt64(row.Cells[0].Value);
+                ShowEditDialog(id);
+            }
+            else
+                ShowWarehouseTableDialog(row);
         }
 
         private void DeliveryGrid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
@@ -205,6 +216,12 @@ namespace FurnitureERP.Forms
             if (e.RowIndex < 0) return;
             var row = _deliveryGrid.Rows[e.RowIndex];
             if (row.Cells[0].Value == null) return;
+
+            if (!AppSession.CanEdit(PermissionModule.DeliveryNote))
+            {
+                ShowDeliveryTableDialog(row);
+                return;
+            }
 
             long id = Convert.ToInt64(row.Cells[0].Value);
             var dn = _deliveryCtrl.GetById(id);
@@ -256,10 +273,12 @@ namespace FurnitureERP.Forms
                 catch { }
 
                 var btnUpdate = UITheme.CreatePrimaryButton("Update");
+                PermissionGuard.ApplyEditButton(btnUpdate, PermissionModule.DeliveryNote);
                 var btnClose = UITheme.CreateSecondaryButton("Close");
                 btnClose.Click += (s, args) => dlg.Close();
                 btnUpdate.Click += (s, args) =>
                 {
+                    if (!PermissionGuard.Ensure(PermissionModule.DeliveryNote, PermissionAction.Edit, dlg)) return;
                     if (!long.TryParse(txtCustomer.Text.Trim(), out long customerId) ||
                         !long.TryParse(txtSalesOrder.Text.Trim(), out long salesOrderId) ||
                         !long.TryParse(txtStaff.Text.Trim(), out long staffId))
@@ -384,10 +403,12 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormRow(layout, 1, "Address", txtAddr);
 
                 var btnSave = UITheme.CreatePrimaryButton("Save");
+                PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.Warehouse);
                 var btnCancel = UITheme.CreateSecondaryButton("Cancel");
                 btnCancel.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
+                    if (!PermissionGuard.Ensure(PermissionModule.Warehouse, PermissionAction.Create, dlg)) return;
                     if (string.IsNullOrWhiteSpace(txtName.Text)) { MessageBox.Show("Warehouse Name is required.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
                     try
                     {
@@ -431,10 +452,12 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormRow(layout, 1, "Address", txtAddr);
 
                 var btnSave = UITheme.CreatePrimaryButton("Update");
+                PermissionGuard.ApplyEditButton(btnSave, PermissionModule.Warehouse);
                 var btnCancel = UITheme.CreateSecondaryButton("Cancel");
                 btnCancel.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
+                    if (!PermissionGuard.Ensure(PermissionModule.Warehouse, PermissionAction.Edit, dlg)) return;
                     if (string.IsNullOrWhiteSpace(txtName.Text)) { MessageBox.Show("Warehouse Name is required.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
                     try
                     {
@@ -485,10 +508,12 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormRow(layout, 4, "Remark", txtRemark);
 
                 var btnSave = UITheme.CreatePrimaryButton("Save");
+                PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.DeliveryNote);
                 var btnCancel = UITheme.CreateSecondaryButton("Cancel");
                 btnCancel.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
+                    if (!PermissionGuard.Ensure(PermissionModule.DeliveryNote, PermissionAction.Create, dlg)) return;
                     if (!long.TryParse(txtCustomerId.Text, out long custId) || !long.TryParse(txtSalesOrderId.Text, out long soId) || !long.TryParse(txtStaffId.Text, out long staffId))
                     { MessageBox.Show("Valid Customer ID, Sales Order ID and Staff ID are required.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
                     try

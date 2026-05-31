@@ -173,7 +173,7 @@ namespace FurnitureERP
                 // Allow root bypass (admin access without database account)
                 if (username == "root" && password == "root")
                 {
-                    var rootUser = new Staff { Username = "root", FirstName = "Root", LastName = "Admin", Title = "Admin", Department = "IT" };
+                    var rootUser = new Staff { Username = "root", FirstName = "Root", LastName = "Admin", Title = "Admin", Department = "Super User" };
                     var main = new MainForm();
                     main.SetCurrentUser(rootUser);
                     main.Show();

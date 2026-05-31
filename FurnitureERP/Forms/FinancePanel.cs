@@ -41,7 +41,8 @@ namespace FurnitureERP.Forms
             Panel invoiceToolbar = new Panel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(0, 8, 0, 8) };
             Button btnNewInvoice = UITheme.CreatePrimaryButton("+ New Invoice");
             btnNewInvoice.Location = new Point(0, 8);
-            btnNewInvoice.Click += (s, e) => ShowCreateInvoiceDialog();
+            btnNewInvoice.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.Invoice, PermissionAction.Create, this)) ShowCreateInvoiceDialog(); };
+            PermissionGuard.ApplyCreateButton(btnNewInvoice, PermissionModule.Invoice);
             Button btnRefreshInvoice = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefreshInvoice.Location = new Point(btnNewInvoice.Width + 10, 8);
             btnRefreshInvoice.Click += (s, e) => LoadInvoices();
@@ -83,7 +84,8 @@ namespace FurnitureERP.Forms
             Panel refundToolbar = new Panel { Dock = DockStyle.Top, Height = 50, Padding = new Padding(0, 8, 0, 8) };
             Button btnNewRefund = UITheme.CreatePrimaryButton("+ New Refund");
             btnNewRefund.Location = new Point(0, 8);
-            btnNewRefund.Click += (s, e) => ShowCreateRefundDialog();
+            btnNewRefund.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.Refund, PermissionAction.Create, this)) ShowCreateRefundDialog(); };
+            PermissionGuard.ApplyCreateButton(btnNewRefund, PermissionModule.Refund);
             Button btnRefreshRefund = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefreshRefund.Location = new Point(btnNewRefund.Width + 10, 8);
             btnRefreshRefund.Click += (s, e) => LoadRefunds();
@@ -122,8 +124,10 @@ namespace FurnitureERP.Forms
             refundPanel.Controls.Add(refundToolbar);
             refundTab.Controls.Add(refundPanel);
 
-            _tabControl.TabPages.Add(invoiceTab);
-            _tabControl.TabPages.Add(refundTab);
+            if (AppSession.CanView(PermissionModule.Invoice))
+                _tabControl.TabPages.Add(invoiceTab);
+            if (AppSession.CanView(PermissionModule.Refund))
+                _tabControl.TabPages.Add(refundTab);
             Controls.Add(_tabControl);
         }
 
@@ -159,6 +163,11 @@ namespace FurnitureERP.Forms
         {
             if (e.RowIndex < 0) return;
             var row = _refundGrid.Rows[e.RowIndex];
+            if (!AppSession.CanEdit(PermissionModule.Refund))
+            {
+                ShowRefundTableDetailFromRow(row);
+                return;
+            }
             string requestCode = row.Cells["Request Code"]?.Value?.ToString();
             if (string.IsNullOrWhiteSpace(requestCode)) return;
             var refund = _refundCtrl.GetByCode(requestCode);
@@ -197,10 +206,12 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormField(layout, 7, "Remark", txtRemark);
 
                 var btnUpdate = UITheme.CreatePrimaryButton("Update");
+                PermissionGuard.ApplyEditButton(btnUpdate, PermissionModule.Refund);
                 var btnClose = UITheme.CreateSecondaryButton("Close");
                 btnClose.Click += (s, args) => dlg.Close();
                 btnUpdate.Click += (s, args) =>
                 {
+                    if (!PermissionGuard.Ensure(PermissionModule.Refund, PermissionAction.Edit, dlg)) return;
                     if (!long.TryParse(txtStaff.Text.Trim(), out long staffId) ||
                         !decimal.TryParse(txtAmount.Text.Trim(), out decimal amount) ||
                         string.IsNullOrWhiteSpace(txtReason.Text))

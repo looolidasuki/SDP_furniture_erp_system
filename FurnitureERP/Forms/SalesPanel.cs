@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
 using System.Linq;
@@ -21,43 +22,61 @@ namespace FurnitureERP.Forms
         {
             Dock = DockStyle.Fill;
             BackColor = UITheme.Background;
+            Tag = module;
             BuildUI();
-            if (module == "Quotations") _tabs.SelectedIndex = 1;
-            else if (module == "Sales Orders") _tabs.SelectedIndex = 2;
+            SelectModuleTab(module);
         }
 
         private void BuildUI()
         {
             _tabs = new TabControl { Dock = DockStyle.Fill };
 
-            _tabs.TabPages.Add(BuildCustomerTab());
-            _tabs.TabPages.Add(BuildQuotationTab());
-            _tabs.TabPages.Add(BuildSalesOrderTab());
+            if (AppSession.CanView(PermissionModule.Customer))
+                _tabs.TabPages.Add(BuildCustomerTab());
+            if (AppSession.CanView(PermissionModule.Quotation))
+                _tabs.TabPages.Add(BuildQuotationTab());
+            if (AppSession.CanView(PermissionModule.SalesOrder))
+                _tabs.TabPages.Add(BuildSalesOrderTab());
 
-            // View Products button floating above tabs
-            Button btnViewProducts = UITheme.CreateSecondaryButton("📦 View Products");
-            btnViewProducts.Dock = DockStyle.Top;
-            btnViewProducts.Height = 36;
-            btnViewProducts.Click += (s, e) => ProductionPanel.ShowProductsViewerDialog(this);
+            if (AppSession.CanView(PermissionModule.Product))
+            {
+                Button btnViewProducts = UITheme.CreateSecondaryButton("📦 View Products");
+                btnViewProducts.Dock = DockStyle.Top;
+                btnViewProducts.Height = 36;
+                btnViewProducts.Click += (s, e) => ProductionPanel.ShowProductsViewerDialog(this);
+                Controls.Add(btnViewProducts);
+            }
 
             Controls.Add(_tabs);
-            Controls.Add(btnViewProducts);
+            SelectModuleTab();
+        }
+
+        private void SelectModuleTab(string module = null)
+        {
+            if (_tabs == null || _tabs.TabPages.Count == 0) return;
+            module = module ?? Tag?.ToString();
+            for (int i = 0; i < _tabs.TabPages.Count; i++)
+            {
+                var text = _tabs.TabPages[i].Text;
+                if (text.StartsWith("Quotation", StringComparison.OrdinalIgnoreCase) && module == "Quotations") { _tabs.SelectedIndex = i; return; }
+                if (text.StartsWith("Sales Order", StringComparison.OrdinalIgnoreCase) && module == "Sales Orders") { _tabs.SelectedIndex = i; return; }
+            }
         }
 
         private TabPage BuildCustomerTab()
         {
             var page = new TabPage("Customers");
-            page.Controls.Add(BuildCrudPanel("Customer",
+            page.Controls.Add(BuildCrudPanel("Customer", PermissionModule.Customer,
                 () => _customerCtrl.GetAllCustomers(),
                 ShowCreateCustomerDialog,
-                row => ShowCustomerDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
+                row => OpenCustomerRow(row)));
             return page;
         }
 
         private TabPage BuildQuotationTab()
         {
             var page = new TabPage("Quotations");
-            page.Controls.Add(BuildCrudPanel("Quotation",
+            page.Controls.Add(BuildCrudPanel("Quotation", PermissionModule.Quotation,
                 () => _quotationCtrl.GetAllQuotations(),
                 ShowCreateQuotationDialog,
                 row => ShowGenericDetailDialog("Quotation Details", row)));
@@ -67,21 +86,38 @@ namespace FurnitureERP.Forms
         private TabPage BuildSalesOrderTab()
         {
             var page = new TabPage("Sales Orders");
-            page.Controls.Add(BuildCrudPanel("Sales Order",
+            page.Controls.Add(BuildCrudPanel("Sales Order", PermissionModule.SalesOrder,
                 () => _salesOrderCtrl.GetAllSalesOrders(),
                 ShowCreateSalesOrderDialog,
-                row => ShowSalesOrderDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
+                row => OpenSalesOrderRow(row)));
             return page;
         }
 
-        private Panel BuildCrudPanel(string entity, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onRowOpen)
+        private void OpenCustomerRow(DataGridViewRow row)
+        {
+            if (AppSession.CanEdit(PermissionModule.Customer))
+                ShowCustomerDetailDialog(Convert.ToInt64(row.Cells[0].Value));
+            else
+                ShowGenericDetailDialog("Customer Details", row);
+        }
+
+        private void OpenSalesOrderRow(DataGridViewRow row)
+        {
+            if (AppSession.CanEdit(PermissionModule.SalesOrder))
+                ShowSalesOrderDetailDialog(Convert.ToInt64(row.Cells[0].Value));
+            else
+                ShowGenericDetailDialog("Sales Order Details", row);
+        }
+
+        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onRowOpen)
         {
             Panel panel = new Panel { Dock = DockStyle.Fill };
 
             Panel toolbar = new Panel { Dock = DockStyle.Top, Height = 50 };
             Button btnNew = UITheme.CreatePrimaryButton($"+ New {entity}");
             btnNew.Location = new Point(8, 8);
-            btnNew.Click += (s, e) => onCreate();
+            btnNew.Click += (s, e) => { if (PermissionGuard.Ensure(permissionModule, PermissionAction.Create, this)) onCreate(); };
+            PermissionGuard.ApplyCreateButton(btnNew, permissionModule);
             DataGridView grid = GridHelper.CreateStyledGrid();
             Button btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefresh.Location = new Point(btnNew.Width + 18, 8);
@@ -143,44 +179,8 @@ namespace FurnitureERP.Forms
 
         private void ShowCreateCustomerDialog()
         {
-            using (var dlg = new Form())
-            {
-                dlg.Text = "New Customer";
-                dlg.Size = new Size(480, 280);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-                dlg.MaximizeBox = false;
-                dlg.BackColor = UITheme.Background;
-
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(16) };
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-                var txtName = new TextBox(); var txtAddr = new TextBox(); var txtTerm = new TextBox();
-                UITheme.AddFormRow(layout, 0, "Customer Name *", txtName);
-                UITheme.AddFormRow(layout, 1, "Billing Address", txtAddr);
-                UITheme.AddFormRow(layout, 2, "Payment Term", txtTerm);
-
-                var btnSave = UITheme.CreatePrimaryButton("Save");
-                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
-                btnCancel.Click += (s, e) => dlg.Close();
-                btnSave.Click += (s, e) =>
-                {
-                    if (string.IsNullOrWhiteSpace(txtName.Text)) { MessageBox.Show("Customer Name is required.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-                    try
-                    {
-                        _customerCtrl.Insert(new Customer { CustomerName = txtName.Text.Trim(), BillingAddress = txtAddr.Text.Trim(), PaymentTerm = txtTerm.Text.Trim() });
-                        MessageBox.Show("Customer created successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        dlg.DialogResult = DialogResult.OK; dlg.Close();
-                    }
-                    catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-                };
-
-                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-                btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
-                dlg.Controls.Add(layout); dlg.Controls.Add(btnPanel);
-                dlg.ShowDialog(this);
-            }
+            if (!PermissionGuard.Ensure(PermissionModule.Customer, PermissionAction.Create, this)) return;
+            ShowCustomerFormDialog(null);
         }
 
         private void ShowGenericDetailDialog(string title, DataGridViewRow row)
@@ -192,54 +192,235 @@ namespace FurnitureERP.Forms
         {
             var customer = _customerCtrl.GetById(id);
             if (customer == null) return;
+            ShowCustomerFormDialog(customer);
+        }
+
+        private void ShowCustomerFormDialog(Customer existing)
+        {
+            bool isEdit = existing != null;
+            var originalContactIds = isEdit
+                ? _customerCtrl.GetContactPersons(existing.CustomerID).Select(c => c.ContactPersonID).ToList()
+                : new List<long>();
+            var originalAddressIds = isEdit
+                ? _customerCtrl.GetDeliveryAddresses(existing.CustomerID).Select(a => a.AddressID).ToList()
+                : new List<long>();
+
             using (var dlg = new Form())
             {
-                dlg.Text = "Customer Details / Edit";
-                dlg.Size = new Size(480, 300);
+                dlg.Text = isEdit ? "Customer Details / Edit" : "New Customer";
+                dlg.Size = new Size(780, 560);
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.BackColor = UITheme.Background;
 
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(16) };
+                var tabs = new TabControl { Dock = DockStyle.Fill };
+
+                var generalPage = new TabPage("General");
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(16) };
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
 
-                var txtName = new TextBox { Text = customer.CustomerName ?? "" };
-                var txtAddr = new TextBox { Text = customer.BillingAddress ?? "" };
-                var txtTerm = new TextBox { Text = customer.PaymentTerm ?? "" };
+                var txtName = new TextBox { Text = existing?.CustomerName ?? "" };
+                var txtAddr = new TextBox { Text = existing?.BillingAddress ?? "" };
+                var txtTerm = new TextBox { Text = existing?.PaymentTerm ?? "" };
                 UITheme.AddFormRow(layout, 0, "Customer Name *", txtName);
                 UITheme.AddFormRow(layout, 1, "Billing Address", txtAddr);
                 UITheme.AddFormRow(layout, 2, "Payment Term", txtTerm);
+                generalPage.Controls.Add(layout);
 
-                var btnSave = UITheme.CreatePrimaryButton("Update");
+                var contactGrid = CreateCustomerChildGrid(
+                    new[] { ("ID", "ID"), ("Contact Person", "ContactPerson"), ("Title", "Title"), ("Phone", "Phone"), ("Email", "Email") },
+                    "ID");
+                if (isEdit)
+                    LoadContactPersonGrid(contactGrid, _customerCtrl.GetContactPersons(existing.CustomerID));
+                var contactPage = new TabPage("Contact Persons");
+                contactPage.Controls.Add(WrapEditableGrid(contactGrid, "Add or edit contact persons for this customer."));
+
+                var deliveryGrid = CreateCustomerChildGrid(
+                    new[] { ("ID", "ID"), ("Delivery Address", "DeliveryAddress"), ("Contact Person", "ContactPerson"), ("Phone", "Phone"), ("Email", "Email") },
+                    "ID");
+                if (isEdit)
+                    LoadDeliveryAddressGrid(deliveryGrid, _customerCtrl.GetDeliveryAddresses(existing.CustomerID));
+                var deliveryPage = new TabPage("Delivery Addresses");
+                deliveryPage.Controls.Add(WrapEditableGrid(deliveryGrid, "Add or edit delivery addresses for this customer."));
+
+                tabs.TabPages.Add(generalPage);
+                tabs.TabPages.Add(contactPage);
+                tabs.TabPages.Add(deliveryPage);
+
+                var btnSave = UITheme.CreatePrimaryButton(isEdit ? "Update" : "Save");
+                PermissionGuard.ApplyEditButton(btnSave, PermissionModule.Customer);
+                if (!isEdit) PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.Customer);
                 var btnClose = UITheme.CreateSecondaryButton("Close");
                 btnClose.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
+                    var action = isEdit ? PermissionAction.Edit : PermissionAction.Create;
+                    if (!PermissionGuard.Ensure(PermissionModule.Customer, action, dlg)) return;
                     if (string.IsNullOrWhiteSpace(txtName.Text))
                     {
                         UITheme.ShowWarning("Customer Name is required.");
                         return;
                     }
-                    customer.CustomerName = txtName.Text.Trim();
-                    customer.BillingAddress = txtAddr.Text.Trim();
-                    customer.PaymentTerm = txtTerm.Text.Trim();
-                    if (_customerCtrl.Update(customer))
+                    try
                     {
-                        UITheme.ShowSuccess("Customer updated.");
+                        long customerId;
+                        if (isEdit)
+                        {
+                            existing.CustomerName = txtName.Text.Trim();
+                            existing.BillingAddress = txtAddr.Text.Trim();
+                            existing.PaymentTerm = txtTerm.Text.Trim();
+                            if (!_customerCtrl.Update(existing))
+                            {
+                                UITheme.ShowWarning("Failed to update customer.");
+                                return;
+                            }
+                            customerId = existing.CustomerID;
+                        }
+                        else
+                        {
+                            customerId = _customerCtrl.Insert(new Customer
+                            {
+                                CustomerName = txtName.Text.Trim(),
+                                BillingAddress = txtAddr.Text.Trim(),
+                                PaymentTerm = txtTerm.Text.Trim()
+                            });
+                        }
+
+                        _customerCtrl.SyncContactPersons(customerId, ReadContactPersonsFromGrid(contactGrid), originalContactIds);
+                        _customerCtrl.SyncDeliveryAddresses(customerId, ReadDeliveryAddressesFromGrid(deliveryGrid), originalAddressIds);
+
+                        UITheme.ShowSuccess(isEdit ? "Customer updated." : "Customer created successfully.");
                         dlg.DialogResult = DialogResult.OK;
                         dlg.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError(ex.Message);
                     }
                 };
 
                 var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
                 btnPanel.Controls.Add(btnSave);
                 btnPanel.Controls.Add(btnClose);
-                dlg.Controls.Add(layout);
+                dlg.Controls.Add(tabs);
                 dlg.Controls.Add(btnPanel);
-                if (dlg.ShowDialog(this) == DialogResult.OK) BuildUIRefresh();
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    BuildUIRefresh();
             }
+        }
+
+        private static Panel WrapEditableGrid(DataGridView grid, string hint)
+        {
+            var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
+            var lbl = new Label
+            {
+                Text = hint,
+                Dock = DockStyle.Top,
+                Height = 28,
+                ForeColor = UITheme.TextGray,
+                Font = new Font("Segoe UI", 8.5f)
+            };
+            panel.Controls.Add(grid);
+            panel.Controls.Add(lbl);
+            return panel;
+        }
+
+        private static DataGridView CreateCustomerChildGrid(IEnumerable<(string Header, string Name)> columns, string hiddenColumnName)
+        {
+            var grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                AllowUserToAddRows = true,
+                AllowUserToDeleteRows = true,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                BackgroundColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                RowHeadersVisible = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect
+            };
+            foreach (var col in columns)
+            {
+                grid.Columns.Add(col.Name, col.Header);
+            }
+            grid.Columns[hiddenColumnName].Visible = false;
+            GridHelper.ApplyStyle(grid);
+            return grid;
+        }
+
+        private static void LoadContactPersonGrid(DataGridView grid, IEnumerable<ContactPerson> contacts)
+        {
+            grid.Rows.Clear();
+            foreach (var cp in contacts)
+            {
+                grid.Rows.Add(cp.ContactPersonID, cp.Name ?? "", cp.Title ?? "", cp.Phone ?? "", cp.Email ?? "");
+            }
+        }
+
+        private static void LoadDeliveryAddressGrid(DataGridView grid, IEnumerable<CustomerDeliveryAddress> addresses)
+        {
+            grid.Rows.Clear();
+            foreach (var addr in addresses)
+            {
+                grid.Rows.Add(addr.AddressID, addr.DeliveryAddress ?? "", addr.ContactPerson ?? "", addr.Phone ?? "", addr.Email ?? "");
+            }
+        }
+
+        private static List<ContactPerson> ReadContactPersonsFromGrid(DataGridView grid)
+        {
+            var list = new List<ContactPerson>();
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                string name = row.Cells["ContactPerson"].Value?.ToString();
+                string title = row.Cells["Title"].Value?.ToString();
+                string phone = row.Cells["Phone"].Value?.ToString();
+                string email = row.Cells["Email"].Value?.ToString();
+                long id = 0;
+                long.TryParse(row.Cells["ID"].Value?.ToString(), out id);
+                if (id == 0 && string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(phone) && string.IsNullOrWhiteSpace(email))
+                    continue;
+                list.Add(new ContactPerson
+                {
+                    ContactPersonID = id,
+                    Name = name?.Trim(),
+                    Title = title?.Trim(),
+                    Phone = phone?.Trim(),
+                    Email = email?.Trim()
+                });
+            }
+            return list;
+        }
+
+        private static List<CustomerDeliveryAddress> ReadDeliveryAddressesFromGrid(DataGridView grid)
+        {
+            var list = new List<CustomerDeliveryAddress>();
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                string address = row.Cells["DeliveryAddress"].Value?.ToString();
+                string contact = row.Cells["ContactPerson"].Value?.ToString();
+                string phone = row.Cells["Phone"].Value?.ToString();
+                string email = row.Cells["Email"].Value?.ToString();
+                long id = 0;
+                long.TryParse(row.Cells["ID"].Value?.ToString(), out id);
+                if (id == 0 && string.IsNullOrWhiteSpace(address) && string.IsNullOrWhiteSpace(contact))
+                    continue;
+                list.Add(new CustomerDeliveryAddress
+                {
+                    AddressID = id,
+                    DeliveryAddress = address?.Trim(),
+                    ContactPerson = contact?.Trim(),
+                    Phone = phone?.Trim(),
+                    Email = email?.Trim()
+                });
+            }
+            return list;
         }
 
         private void ShowSalesOrderDetailDialog(long id)
@@ -273,10 +454,12 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormRow(layout, 4, "Remark", txtRemark);
 
                 var btnSave = UITheme.CreatePrimaryButton("Update");
+                PermissionGuard.ApplyEditButton(btnSave, PermissionModule.SalesOrder);
                 var btnClose = UITheme.CreateSecondaryButton("Close");
                 btnClose.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
+                    if (!PermissionGuard.Ensure(PermissionModule.SalesOrder, PermissionAction.Edit, dlg)) return;
                     if (!decimal.TryParse(txtDiscount.Text.Trim(), out decimal discount))
                     {
                         UITheme.ShowWarning("Discount must be a valid number.");
@@ -311,6 +494,7 @@ namespace FurnitureERP.Forms
 
         private void ShowCreateQuotationDialog()
         {
+            if (!PermissionGuard.Ensure(PermissionModule.Quotation, PermissionAction.Create, this)) return;
             using (var dlg = UITheme.BuildInputDialog("New Quotation",
                 new[] { "Customer ID *", "Staff ID *", "Currency ID", "Status (0-3)", "Remark" }))
             {
@@ -340,6 +524,7 @@ namespace FurnitureERP.Forms
 
         private void ShowCreateSalesOrderDialog()
         {
+            if (!PermissionGuard.Ensure(PermissionModule.SalesOrder, PermissionAction.Create, this)) return;
             using (var dlg = UITheme.BuildInputDialog("New Sales Order",
                 new[] { "Customer ID *", "Staff ID *", "Currency ID", "Delivery Address *", "Discount", "Status", "Remark" }))
             {
