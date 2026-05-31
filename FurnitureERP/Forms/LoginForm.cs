@@ -76,7 +76,7 @@ namespace FurnitureERP
 
             Label lblUser = new Label
             {
-                Text = "Username",
+                Text = "Username or Email",
                 Font = new Font("Segoe UI", 9),
                 ForeColor = Color.FromArgb(80, 90, 110),
                 Location = new Point(40, 80),
@@ -170,17 +170,6 @@ namespace FurnitureERP
 
             try
             {
-                // Allow root bypass (admin access without database account)
-                if (username == "root" && password == "root")
-                {
-                    var rootUser = new Staff { Username = "root", FirstName = "Root", LastName = "Admin", Title = "Admin", Department = "Super User" };
-                    var main = new MainForm();
-                    main.SetCurrentUser(rootUser);
-                    main.Show();
-                    Hide();
-                    return;
-                }
-
                 Staff user = _staffCtrl.Login(username, password);
                 if (user != null)
                 {
@@ -191,7 +180,7 @@ namespace FurnitureERP
                 }
                 else
                 {
-                    _lblError.Text = "Invalid username or password.";
+                    _lblError.Text = "Invalid username/email or password.";
                     _txtPassword.Clear();
                 }
             }

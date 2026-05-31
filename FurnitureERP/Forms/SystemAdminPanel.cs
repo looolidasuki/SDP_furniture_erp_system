@@ -53,7 +53,7 @@ namespace FurnitureERP.Forms
 
                 _productGrid = GridHelper.CreateStyledGrid();
                 _productGrid.Dock = DockStyle.Fill;
-                try { _productGrid.DataSource = _productCtrl.GetAllProducts(); GridHelper.StyleGrid(_productGrid); } catch { }
+                try { _productGrid.DataSource = _productCtrl.GetAllProductsWithStock(StockAlertHelper.DefaultProductMinStock); GridHelper.StyleGridWithStockAlert(_productGrid, "Available Stock", "Min Stock Level"); } catch { }
                 prodCard.Controls.Add(_productGrid);
 
                 // 放入主佈局

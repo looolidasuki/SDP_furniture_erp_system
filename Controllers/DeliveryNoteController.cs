@@ -100,5 +100,26 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@id", note.DeliveryNoteID)
             }) > 0;
         }
+
+        public bool InsertProductLine(long deliveryNoteId, long productId, int shipQuantity)
+        {
+            return DatabaseConnect.ExecuteNonQuery(
+                @"INSERT INTO DeliveryProductLine (deliveryNoteID, productID, shipQuantity)
+                  VALUES (@dnId, @productId, @qty)",
+                new[]
+                {
+                    new MySqlParameter("@dnId", deliveryNoteId),
+                    new MySqlParameter("@productId", productId),
+                    new MySqlParameter("@qty", shipQuantity)
+                }) > 0;
+        }
+
+        public DataTable GetProductLinesInternal(long deliveryNoteId)
+        {
+            string sql = @"SELECT productID, shipQuantity
+                           FROM DeliveryProductLine
+                           WHERE deliveryNoteID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", deliveryNoteId) });
+        }
     }
 }

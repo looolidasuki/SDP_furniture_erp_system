@@ -15,6 +15,7 @@ namespace FurnitureERP.Forms
         private readonly PurchaseOrderController _purchaseOrderCtrl = new PurchaseOrderController();
         private readonly GoodsReceivedNoteController _grnCtrl = new GoodsReceivedNoteController();
         private readonly SupplierController _supplierCtrl = new SupplierController();
+        private readonly InventoryWorkflowService _inventoryWorkflow = new InventoryWorkflowService();
 
         private TabControl _tabs;
 
@@ -62,7 +63,12 @@ namespace FurnitureERP.Forms
             var grid = GridHelper.CreateStyledGrid();
 
             var toolbar = BuildToolbar("+ New Raw Material", PermissionModule.RawMaterial, () => ShowRawMaterialDialog(), grid, () => {
-                try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterials(); GridHelper.ApplyStyle(grid); } catch { }
+                try
+                {
+                    grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock();
+                    GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock");
+                }
+                catch { }
             }, () =>
             {
                 if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a raw material first."); return; }
@@ -79,7 +85,12 @@ namespace FurnitureERP.Forms
                 else ShowRowDetail(grid.Rows[e.RowIndex], "Raw Material Details");
             };
 
-            try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterials(); GridHelper.ApplyStyle(grid); } catch { }
+            try
+            {
+                grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock();
+                GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock");
+            }
+            catch { }
 
             tab.Controls.Add(toolbar);
             tab.Controls.Add(grid);
@@ -123,12 +134,49 @@ namespace FurnitureERP.Forms
             var grid = GridHelper.CreateStyledGrid();
 
             var toolbar = BuildToolbar("+ New GRN", PermissionModule.GoodsReceivedNote, () => ShowGrnDialog(), grid, () => {
-                try { grid.DataSource = _grnCtrl.GetAllGoodsReceivedNotes(); GridHelper.ApplyStyle(grid); } catch { }
+                try
+                {
+                    grid.DataSource = DictionaryService.DecorateStatusColumn(_grnCtrl.GetAllGoodsReceivedNotes(), "Status", DictionaryService.Categories.PurchaseOrder);
+                    GridHelper.ApplyStyle(grid);
+                }
+                catch { }
             }, () =>
             {
                 if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a GRN first."); return; }
                 ShowGrnTableDialog(Convert.ToInt64(grid.CurrentRow.Cells[0].Value), grid.CurrentRow);
             });
+
+            var btnConfirm = UITheme.CreateSecondaryButton("Confirm Receipt");
+            btnConfirm.Location = new Point(420, 8);
+            btnConfirm.Click += (s, e) =>
+            {
+                if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a GRN first."); return; }
+                if (!PermissionGuard.Ensure(PermissionModule.GoodsReceivedNote, PermissionAction.Edit, this)) return;
+                using (var dlg = UITheme.BuildInputDialog("Confirm Goods Receipt", new[] { "Warehouse ID *" }))
+                {
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                    if (!long.TryParse(UITheme.GetDialogValues(dlg)[0], out long warehouseId))
+                    {
+                        UITheme.ShowWarning("Valid warehouse ID is required.");
+                        return;
+                    }
+                    long grnId = Convert.ToInt64(grid.CurrentRow.Cells[0].Value);
+                    var result = _inventoryWorkflow.ConfirmGoodsReceived(grnId, warehouseId);
+                    if (result.Success)
+                    {
+                        UITheme.ShowSuccess(result.Message);
+                        try
+                        {
+                            grid.DataSource = DictionaryService.DecorateStatusColumn(_grnCtrl.GetAllGoodsReceivedNotes(), "Status", DictionaryService.Categories.PurchaseOrder);
+                            GridHelper.ApplyStyle(grid);
+                        }
+                        catch { }
+                    }
+                    else UITheme.ShowWarning(result.Message);
+                }
+            };
+            PermissionGuard.ApplyEditButton(btnConfirm, PermissionModule.GoodsReceivedNote);
+            toolbar.Controls.Add(btnConfirm);
             AttachSearchAndFilter(toolbar, grid);
             grid.CellDoubleClick += (s, e) =>
             {

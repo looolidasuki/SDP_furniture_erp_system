@@ -102,6 +102,36 @@ namespace Sales_user.Controllers
             };
         }
 
+        public SalesOrder GetFullById(long salesOrderId)
+        {
+            string sql = @"SELECT salesOrderID, salesOrderCode, customerID, staffID, currencyCurrencyID,
+                                  deliveryAddress, status, discount, discountType, remark
+                           FROM SalesOrder WHERE salesOrderID = @id";
+            DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", salesOrderId) });
+            if (dt == null || dt.Rows.Count == 0) return null;
+            var row = dt.Rows[0];
+            return new SalesOrder
+            {
+                SalesOrderID = System.Convert.ToInt64(row["salesOrderID"]),
+                SalesOrderCode = row["salesOrderCode"].ToString(),
+                CustomerID = System.Convert.ToInt64(row["customerID"]),
+                StaffID = System.Convert.ToInt64(row["staffID"]),
+                CurrencyCurrencyID = System.Convert.ToInt64(row["currencyCurrencyID"]),
+                DeliveryAddress = row["deliveryAddress"].ToString(),
+                Status = System.Convert.ToInt32(row["status"]),
+                Discount = System.Convert.ToDecimal(row["discount"]),
+                DiscountType = row["discountType"] == System.DBNull.Value ? null : row["discountType"].ToString(),
+                Remark = row["remark"] == System.DBNull.Value ? null : row["remark"].ToString()
+            };
+        }
+
+        public DataTable GetProductLinesInternal(long salesOrderId)
+        {
+            string sql = @"SELECT productID, price, orderQuantity, warehouseReservedQty, shippedQuantity, invoicedQuantity
+                           FROM SalesOrderProductLine WHERE salesOrderID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", salesOrderId) });
+        }
+
         public bool Update(SalesOrder order)
         {
             string sql = @"UPDATE SalesOrder SET deliveryAddress = @address, status = @status,

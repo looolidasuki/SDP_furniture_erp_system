@@ -12,6 +12,8 @@ namespace FurnitureERP.Forms
     {
         private readonly InvoiceController _invoiceCtrl = new InvoiceController();
         private readonly RefundRequestController _refundCtrl = new RefundRequestController();
+        private readonly FinanceWorkflowService _financeWorkflow = new FinanceWorkflowService();
+        private readonly DeliveryNoteController _deliveryCtrl = new DeliveryNoteController();
 
         private TabControl _tabControl;
         private DataGridView _invoiceGrid;
@@ -56,7 +58,11 @@ namespace FurnitureERP.Forms
             Button btnPrintInvoice = UITheme.CreateSecondaryButton("Print PDF");
             btnPrintInvoice.Location = new Point(btnDetailInvoice.Right + 10, 8);
             btnPrintInvoice.Click += (s, e) => PrintSelectedInvoice();
-            _invoiceSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnPrintInvoice.Right + 10, 10) };
+            Button btnInvoiceFromDelivery = UITheme.CreateSecondaryButton("Invoice from Delivery");
+            btnInvoiceFromDelivery.Location = new Point(btnPrintInvoice.Right + 10, 8);
+            btnInvoiceFromDelivery.Click += (s, e) => CreateInvoiceFromDelivery();
+            PermissionGuard.ApplyCreateButton(btnInvoiceFromDelivery, PermissionModule.Invoice);
+            _invoiceSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnInvoiceFromDelivery.Right + 10, 10) };
             _invoiceSearchBox.TextChanged += (s, e) => LoadInvoices();
             _invoiceStatusFilter = new ComboBox { Width = 120, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(_invoiceSearchBox.Right + 10, 10) };
             _invoiceStatusFilter.Items.AddRange(new object[] { "All Status", "0", "1", "2", "3", "4" });
@@ -66,6 +72,7 @@ namespace FurnitureERP.Forms
             invoiceToolbar.Controls.Add(btnRefreshInvoice);
             invoiceToolbar.Controls.Add(btnDetailInvoice);
             invoiceToolbar.Controls.Add(btnPrintInvoice);
+            invoiceToolbar.Controls.Add(btnInvoiceFromDelivery);
             invoiceToolbar.Controls.Add(_invoiceSearchBox);
             invoiceToolbar.Controls.Add(_invoiceStatusFilter);
 
@@ -141,7 +148,7 @@ namespace FurnitureERP.Forms
         {
             try
             {
-                _invoiceGrid.DataSource = _invoiceCtrl.GetAllInvoices();
+                _invoiceGrid.DataSource = DictionaryService.DecorateStatusColumn(_invoiceCtrl.GetAllInvoices(), "Status", DictionaryService.Categories.Invoice);
                 ApplyTableFilter(_invoiceGrid, _invoiceSearchBox?.Text, _invoiceStatusFilter?.SelectedIndex ?? 0);
                 GridHelper.StyleGrid(_invoiceGrid);
             }
@@ -533,6 +540,28 @@ namespace FurnitureERP.Forms
                 dlg.Controls.Add(layout);
                 dlg.Controls.Add(btnPanel);
                 dlg.ShowDialog(this);
+            }
+        }
+
+        private void CreateInvoiceFromDelivery()
+        {
+            if (!PermissionGuard.Ensure(PermissionModule.Invoice, PermissionAction.Create, this)) return;
+            using (var dlg = UITheme.BuildInputDialog("Create Invoice from Delivery", new[] { "Delivery Note ID *" }))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                if (!long.TryParse(UITheme.GetDialogValues(dlg)[0], out long deliveryId))
+                {
+                    UITheme.ShowWarning("Valid delivery note ID is required.");
+                    return;
+                }
+                long staffId = AppSession.CurrentUser?.StaffID ?? 1;
+                var result = _financeWorkflow.CreateInvoiceFromDelivery(deliveryId, staffId);
+                if (result.Success)
+                {
+                    UITheme.ShowSuccess(result.Message);
+                    LoadInvoices();
+                }
+                else UITheme.ShowWarning(result.Message);
             }
         }
     }

@@ -26,12 +26,14 @@ namespace Sales_user.Controllers
 
         public long Insert(ReceiptVoucher rv)
         {
-            // 💡 將 SQL 內部的參數宣告也改為 @cusomerID，與資料表欄位完全一致
-            string sql = @"INSERT INTO receiptvoucher (cusomerID, staffID, paymentAmount, paymentMethod, paymentMethodRef, remark, status, currencyID, paymentReceivedDate, createDate)
-                           VALUES (@cusomerID, @staffID, @amount, @method, @ref, @remark, @status, @currencyID, NOW(), NOW())";
+            string sql = @"INSERT INTO receiptvoucher
+                (receiptVoucherCode, cusomerID, staffID, paymentAmount, paymentMethod, paymentMethodRef,
+                 remark, status, currencyID, paymentReceivedDate, createDate)
+                VALUES (@code, @cusomerID, @staffID, @amount, @method, @ref, @remark, @status, @currencyID, @receivedDate, NOW())";
 
-            long id = DatabaseConnect.ExecuteNonQuery(sql, new[] {
-                new MySqlParameter("@cusomerID", rv.CusomerID), // 💡 移除參數裡的 t
+            long id = DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                new MySqlParameter("@code", rv.ReceiptVoucherCode ?? "RV-TEMP"),
+                new MySqlParameter("@cusomerID", rv.CusomerID),
                 new MySqlParameter("@staffID", rv.StaffID),
                 new MySqlParameter("@amount", rv.PaymentAmount),
                 new MySqlParameter("@method", rv.PaymentMethod.ToString()),
@@ -39,7 +41,7 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@remark", rv.Remark ?? (object)DBNull.Value),
                 new MySqlParameter("@status", rv.Status),
                 new MySqlParameter("@currencyID", rv.CurrencyID == 0 ? 1 : rv.CurrencyID),
-                new MySqlParameter("@paymentReceivedDate", DateTime.Now)
+                new MySqlParameter("@receivedDate", DateTime.Today)
             });
 
             if (id > 0)
@@ -112,13 +114,20 @@ namespace Sales_user.Controllers
 
         public DataTable GetIncomeByMethod()
         {
-            // 統計各類支付方式的佔比 (0=Cash, 1=Bank Transfer...)
             string sql = @"SELECT paymentMethod AS 'Method',
                           SUM(paymentAmount) AS 'Total'
                    FROM receiptvoucher
                    WHERE status != 2
                    GROUP BY paymentMethod";
             return DatabaseConnect.ExecuteQuery(sql);
+        }
+
+        public DataTable GetInvoiceAllocations(long receiptVoucherId)
+        {
+            string sql = @"SELECT invoiceID AS 'Invoice ID', receivedAmount AS 'Amount', type AS 'Type'
+                           FROM ReceiptVoucherInvoice
+                           WHERE receiptVoucherID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", receiptVoucherId) });
         }
     }
 }

@@ -159,6 +159,13 @@ namespace FurnitureERP.Forms
 
         public void LoadModule(string module)
         {
+            if (!AppSession.IsLoggedIn)
+            {
+                UITheme.ShowWarning("Session expired. Please log in again.");
+                return;
+            }
+            AppSession.TouchActivity();
+
             if (!CanAccessModule(module))
             {
                 UITheme.ShowWarning("You do not have permission to access this module.");
@@ -188,7 +195,7 @@ namespace FurnitureERP.Forms
                     case "Invoices":
                     case "Refunds": panel = new FinancePanel(module); break;
                     case "Finance Dept": panel = new FinanceDeptPanel(); break;
-                    case "Staff":
+                    case "Staff": panel = new StaffPanel(); break;
                     case "System Admin": panel = new SystemAdminPanel(module); break;
                 }
                 if (panel != null)
@@ -238,7 +245,7 @@ namespace FurnitureERP.Forms
         public void SetCurrentUser(Staff user)
         {
             CurrentUser = user;
-            AppSession.CurrentUser = user;
+            AppSession.StartSession(user);
             if (_headerPanel.Controls["lblUser"] is Label ul && user != null)
             {
                 string roleLabel = AppSession.IsSuperUser ? "Super User" : user.Department;

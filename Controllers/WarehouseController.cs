@@ -53,14 +53,23 @@ namespace Sales_user.Controllers
                 });
         }
 
-        public DataTable GetWarehouseProducts(long warehouseId)
+        public DataTable GetWarehouseProducts(long warehouseId, decimal defaultMinStock = 5)
         {
-            string sql = @"SELECT p.productCode AS 'Product Code', wp.physicalQuantity AS 'Physical Qty',
-                                  wp.reservedQuantity AS 'Reserved', wp.purchasedQuantity AS 'Purchased'
+            string sql = @"SELECT p.productCode AS 'Product Code',
+                                  wp.physicalQuantity AS 'Physical Qty',
+                                  wp.reservedQuantity AS 'Reserved',
+                                  GREATEST(wp.physicalQuantity - wp.reservedQuantity, 0) AS 'Available Qty',
+                                  @minStock AS 'Min Stock Level',
+                                  wp.purchasedQuantity AS 'Purchased'
                            FROM WarehouseProduct wp
                            INNER JOIN Product p ON wp.productID = p.productID
-                           WHERE wp.warehouseID = @id";
-            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", warehouseId) });
+                           WHERE wp.warehouseID = @id
+                           ORDER BY GREATEST(wp.physicalQuantity - wp.reservedQuantity, 0) ASC, p.productCode";
+            return DatabaseConnect.ExecuteQuery(sql, new[]
+            {
+                new MySqlParameter("@id", warehouseId),
+                new MySqlParameter("@minStock", defaultMinStock)
+            });
         }
     }
 }

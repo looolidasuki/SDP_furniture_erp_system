@@ -69,6 +69,46 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", quotationId) });
         }
 
+        public Quotation GetById(long quotationId)
+        {
+            string sql = @"SELECT quotationID, quotationCode, sequenceNumber, staffID, customerID,
+                                  currencyID, status, remark
+                           FROM Quotation WHERE quotationID = @id";
+            DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", quotationId) });
+            if (dt == null || dt.Rows.Count == 0) return null;
+            var row = dt.Rows[0];
+            return new Quotation
+            {
+                QuotationID = System.Convert.ToInt64(row["quotationID"]),
+                QuotationCode = row["quotationCode"]?.ToString(),
+                SequenceNumber = row["sequenceNumber"] == System.DBNull.Value ? 0 : System.Convert.ToInt32(row["sequenceNumber"]),
+                StaffID = System.Convert.ToInt64(row["staffID"]),
+                CustomerID = System.Convert.ToInt64(row["customerID"]),
+                CurrencyID = System.Convert.ToInt64(row["currencyID"]),
+                Status = System.Convert.ToInt32(row["status"]),
+                Remark = row["remark"] == System.DBNull.Value ? null : row["remark"].ToString()
+            };
+        }
+
+        public DataTable GetProductLinesInternal(long quotationId)
+        {
+            string sql = @"SELECT qpl.productID, qpl.price, qpl.quantity, qpl.discountAmount
+                           FROM QuotationProductLine qpl
+                           WHERE qpl.quotationID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", quotationId) });
+        }
+
+        public bool UpdateStatus(long quotationId, int status)
+        {
+            return DatabaseConnect.ExecuteNonQuery(
+                "UPDATE Quotation SET status = @status, lastModifyDate = NOW() WHERE quotationID = @id",
+                new[]
+                {
+                    new MySqlParameter("@status", status),
+                    new MySqlParameter("@id", quotationId)
+                }) > 0;
+        }
+
         public DataTable GetProductionOrdersByQuotationCustomer(long customerId)
         {
             string sql = @"SELECT po.productionOrderCode AS 'Production Code', po.createDate AS 'Create Date', po.status AS 'Status'

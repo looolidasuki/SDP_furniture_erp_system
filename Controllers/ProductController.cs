@@ -22,6 +22,35 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql);
         }
 
+        public DataTable GetAllProductsWithStock(decimal defaultMinStock = 5)
+        {
+            string sql = @"SELECT p.productID AS 'Product ID',
+                                  p.productCode AS 'Product Code',
+                                  p.category AS 'Category',
+                                  p.styleNumber AS 'Style Number',
+                                  p.size AS 'Size',
+                                  p.color AS 'Color',
+                                  p.basePriceByCurrency AS 'Base Price',
+                                  p.unit AS 'Unit',
+                                  p.status AS 'Status',
+                                  COALESCE(st.totalPhysical, 0) AS 'Total Stock',
+                                  COALESCE(st.totalAvailable, 0) AS 'Available Stock',
+                                  @minStock AS 'Min Stock Level'
+                           FROM Product p
+                           LEFT JOIN (
+                               SELECT productID,
+                                      SUM(physicalQuantity) AS totalPhysical,
+                                      SUM(GREATEST(physicalQuantity - reservedQuantity, 0)) AS totalAvailable
+                               FROM WarehouseProduct
+                               GROUP BY productID
+                           ) st ON p.productID = st.productID
+                           ORDER BY COALESCE(st.totalAvailable, 0) ASC, p.productCode";
+            return DatabaseConnect.ExecuteQuery(sql, new[]
+            {
+                new MySqlParameter("@minStock", defaultMinStock)
+            });
+        }
+
         public DataTable GetProductsForPicker()
         {
             return GetAllProducts();

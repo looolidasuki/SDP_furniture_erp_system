@@ -13,6 +13,8 @@ namespace FurnitureERP.Forms
     {
         private readonly PaymentVoucherController _pvCtrl = new PaymentVoucherController();
         private readonly ReceiptVoucherController _rvCtrl = new ReceiptVoucherController();
+        private readonly FinanceWorkflowService _financeWorkflow = new FinanceWorkflowService();
+        private readonly InvoiceController _invoiceCtrl = new InvoiceController();
 
         private TabControl _tabs;
         private DataGridView _pvGrid;
@@ -214,18 +216,24 @@ namespace FurnitureERP.Forms
             };
             PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.ReceiptVoucher);
 
-            var lblSearch = new Label { Text = "Search Code:", Location = new Point(240, 14), AutoSize = true };
-            _rvSearch = new TextBox { Location = new Point(325, 11), Width = 150 };
+            var btnVerify = UITheme.CreateSecondaryButton("Verify & Allocate");
+            btnVerify.Location = new Point(190, 8);
+            btnVerify.Click += (s, e) => VerifySelectedReceipt();
+            PermissionGuard.ApplyEditButton(btnVerify, PermissionModule.ReceiptVoucher);
+
+            var lblSearch = new Label { Text = "Search Code:", Location = new Point(330, 14), AutoSize = true };
+            _rvSearch = new TextBox { Location = new Point(415, 11), Width = 150 };
             _rvSearch.TextChanged += (s, e) => FilterRV();
 
-            var lblFilter = new Label { Text = "Status:", Location = new Point(490, 14), AutoSize = true };
-            _rvStatusFilter = new ComboBox { Location = new Point(540, 11), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
+            var lblFilter = new Label { Text = "Status:", Location = new Point(580, 14), AutoSize = true };
+            _rvStatusFilter = new ComboBox { Location = new Point(630, 11), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
             _rvStatusFilter.Items.Add("All");
             _rvStatusFilter.Items.AddRange(RVStatusNames);
             _rvStatusFilter.SelectedIndex = 0;
             _rvStatusFilter.SelectedIndexChanged += (s, e) => FilterRV();
 
             toolbar.Controls.Add(btnNew);
+            toolbar.Controls.Add(btnVerify);
             toolbar.Controls.Add(lblSearch);
             toolbar.Controls.Add(_rvSearch);
             toolbar.Controls.Add(lblFilter);
@@ -633,6 +641,86 @@ namespace FurnitureERP.Forms
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("Chart Data Transform Error: " + ex.Message);
+            }
+        }
+
+        private void VerifySelectedReceipt()
+        {
+            if (_rvGrid?.CurrentRow == null)
+            {
+                UITheme.ShowWarning("Please select a receipt voucher first.");
+                return;
+            }
+            if (!PermissionGuard.Ensure(PermissionModule.ReceiptVoucher, PermissionAction.Edit, this)) return;
+
+            long rvId = Convert.ToInt64(_rvGrid.CurrentRow.Cells["ID"].Value);
+            var receipt = _rvCtrl.GetById(rvId);
+            if (receipt == null) return;
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Verify Receipt — Allocate to Invoices";
+                dlg.Size = new Size(520, 320);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.BackColor = UITheme.Background;
+
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(16) };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var lblAmount = new Label { Text = "Receipt Amount: " + receipt.PaymentAmount.ToString("N2"), AutoSize = true, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
+                var txtInvoiceId = new TextBox();
+                var txtAllocated = new TextBox { Text = receipt.PaymentAmount.ToString("N2") };
+                var cmbType = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+                cmbType.Items.AddRange(new[] { "1 - Deposit", "2 - Partial Payment", "3 - Final Payment", "4 - Exchange Loss" });
+                cmbType.SelectedIndex = 1;
+
+                UITheme.AddFormRow(layout, 0, "Summary", lblAmount);
+                UITheme.AddFormRow(layout, 1, "Invoice ID *", txtInvoiceId);
+                UITheme.AddFormRow(layout, 2, "Allocated Amount *", txtAllocated);
+                UITheme.AddFormRow(layout, 3, "Clearing Type", cmbType);
+
+                var btnSave = UITheme.CreatePrimaryButton("Verify Receipt");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
+                {
+                    if (!long.TryParse(txtInvoiceId.Text.Trim(), out long invoiceId) ||
+                        !decimal.TryParse(txtAllocated.Text.Trim(), out decimal allocated))
+                    {
+                        UITheme.ShowWarning("Valid invoice ID and allocated amount are required.");
+                        return;
+                    }
+
+                    var allocations = new System.Collections.Generic.List<ReceiptAllocation>
+                    {
+                        new ReceiptAllocation
+                        {
+                            InvoiceId = invoiceId,
+                            ReceivedAmount = allocated,
+                            Type = cmbType.SelectedIndex + 1
+                        }
+                    };
+
+                    var result = _financeWorkflow.ConfirmReceiptWithAllocations(rvId, allocations);
+                    if (result.Success)
+                    {
+                        UITheme.ShowSuccess(result.Message);
+                        dlg.DialogResult = DialogResult.OK;
+                        dlg.Close();
+                        LoadAll();
+                    }
+                    else UITheme.ShowWarning(result.Message);
+                };
+
+                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnCancel);
+                dlg.Controls.Add(layout);
+                dlg.Controls.Add(btnPanel);
+                dlg.ShowDialog(this);
             }
         }
     }

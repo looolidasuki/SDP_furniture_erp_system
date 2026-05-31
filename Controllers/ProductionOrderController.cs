@@ -97,5 +97,18 @@ namespace Sales_user.Controllers
                            WHERE popl.ProductionOrderID = @id";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", productionOrderId) });
         }
+
+        public bool InsertProductLine(long productionOrderId, long productId, int productionQty)
+        {
+            return DatabaseConnect.ExecuteNonQuery(
+                @"INSERT INTO ProductionOrderProductLine (ProductionOrderID, productID, productionQty)
+                  VALUES (@poID, @productID, @qty)",
+                new[]
+                {
+                    new MySqlParameter("@poID", productionOrderId),
+                    new MySqlParameter("@productID", productId),
+                    new MySqlParameter("@qty", productionQty)
+                }) > 0;
+        }
     }
 }

@@ -66,5 +66,43 @@ namespace Sales_user.Controllers
             }
             return 0;
         }
+
+        public Invoice GetById(long invoiceId)
+        {
+            string sql = @"SELECT invoiceID, invoiceCode, customerID, salesOrderID, staffID, invoiceType, status, remark
+                           FROM Invoice WHERE invoiceID = @id";
+            DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", invoiceId) });
+            if (dt == null || dt.Rows.Count == 0) return null;
+            var row = dt.Rows[0];
+            return new Invoice
+            {
+                InvoiceID = System.Convert.ToInt64(row["invoiceID"]),
+                InvoiceCode = row["invoiceCode"]?.ToString(),
+                CustomerID = System.Convert.ToInt64(row["customerID"]),
+                SalesOrderID = System.Convert.ToInt64(row["salesOrderID"]),
+                StaffID = System.Convert.ToInt64(row["staffID"]),
+                InvoiceType = System.Convert.ToInt32(row["invoiceType"]),
+                Status = System.Convert.ToInt32(row["status"]),
+                Remark = row["remark"] == System.DBNull.Value ? null : row["remark"].ToString()
+            };
+        }
+
+        public DataTable GetOpenInvoicesByCustomer(long customerId)
+        {
+            string sql = @"SELECT invoiceID AS 'Invoice ID', invoiceCode AS 'Invoice Code',
+                                  salesOrderID AS 'Sales Order ID', status AS 'Status'
+                           FROM Invoice
+                           WHERE customerID = @cid AND status IN (0, 1, 3)
+                           ORDER BY createDate DESC";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@cid", customerId) });
+        }
+
+        public decimal GetInvoiceTotal(long invoiceId)
+        {
+            object value = DatabaseConnect.ExecuteScalar(
+                "SELECT COALESCE(SUM(amount), 0) FROM InvoiceLine WHERE invoiceID = @id",
+                new[] { new MySqlParameter("@id", invoiceId) });
+            return value == null || value == System.DBNull.Value ? 0 : System.Convert.ToDecimal(value);
+        }
     }
 }

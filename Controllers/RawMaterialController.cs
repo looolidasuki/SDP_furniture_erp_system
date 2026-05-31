@@ -20,6 +20,26 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql);
         }
 
+        public DataTable GetAllRawMaterialsWithStock()
+        {
+            string sql = @"SELECT rm.rawMaterialID AS 'Raw Material ID',
+                                  rm.rawMaterialCode AS 'Raw Material Code',
+                                  rm.category AS 'Category',
+                                  rm.size AS 'Size',
+                                  rm.color AS 'Color',
+                                  COALESCE(st.totalPhysical, 0) AS 'Current Stock',
+                                  rm.minimumStockLevel AS 'Min Stock',
+                                  rm.status AS 'Status'
+                           FROM RawMaterial rm
+                           LEFT JOIN (
+                               SELECT rawMaterialID, SUM(physicalQuantity) AS totalPhysical
+                               FROM RawMaterialWarehouse
+                               GROUP BY rawMaterialID
+                           ) st ON rm.rawMaterialID = st.rawMaterialID
+                           ORDER BY COALESCE(st.totalPhysical, 0) ASC, rm.rawMaterialCode";
+            return DatabaseConnect.ExecuteQuery(sql);
+        }
+
         public long Insert(RawMaterial material)
         {
             string sql = @"INSERT INTO RawMaterial

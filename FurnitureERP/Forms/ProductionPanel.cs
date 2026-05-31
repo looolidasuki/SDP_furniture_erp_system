@@ -156,7 +156,7 @@ namespace FurnitureERP.Forms
 
             var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefresh.Location = new Point(btnNew.Width + 10, 9);
-            btnRefresh.Click += (s, e) => { try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterials(); GridHelper.StyleGrid(grid); } catch { } };
+            btnRefresh.Click += (s, e) => { try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock(); GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock"); } catch { } };
 
             var btnEdit = UITheme.CreateSecondaryButton("✏ Edit");
             btnEdit.Location = new Point(btnRefresh.Right + 10, 9);
@@ -164,7 +164,7 @@ namespace FurnitureERP.Forms
             {
                 if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a raw material first."); return; }
                 var rm = _rawMaterialCtrl.GetById(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
-                if (rm != null) { ShowRawMaterialDialog(rm); try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterials(); GridHelper.StyleGrid(grid); } catch { } }
+                if (rm != null) { ShowRawMaterialDialog(rm); try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock(); GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock"); } catch { } }
             };
 
             toolbar.Controls.Add(btnNew);
@@ -180,7 +180,7 @@ namespace FurnitureERP.Forms
                 if (rm != null) ShowRawMaterialDialog(rm);
             };
 
-            try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterials(); GridHelper.StyleGrid(grid); } catch { }
+            try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock(); GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock"); } catch { }
 
             var content = new Panel { Dock = DockStyle.Fill };
             content.Controls.Add(toolbar);
@@ -219,20 +219,7 @@ namespace FurnitureERP.Forms
                 {
                     var dt = DatabaseConnect.ExecuteQuery(sql);
                     grid.DataSource = dt;
-                    GridHelper.StyleGrid(grid);
-                    // Highlight low stock rows
-                    foreach (DataGridViewRow row in grid.Rows)
-                    {
-                        if (row.IsNewRow) continue;
-                        try
-                        {
-                            decimal current = Convert.ToDecimal(row.Cells["Current Stock"].Value ?? 0);
-                            decimal minLevel = Convert.ToDecimal(row.Cells["Min Stock Level"].Value ?? 0);
-                            if (current < minLevel)
-                                row.DefaultCellStyle.BackColor = Color.FromArgb(255, 235, 235);
-                        }
-                        catch { }
-                    }
+                    GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock Level");
                 }
                 catch { }
             };
@@ -291,16 +278,24 @@ namespace FurnitureERP.Forms
                 grid.Dock = DockStyle.Fill;
                 grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
 
-                var toolbar = new Panel { Dock = DockStyle.Top, Height = 50 };
+                var toolbar = new Panel { Dock = DockStyle.Top, Height = 68 };
                 var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
                 btnRefresh.Location = new Point(0, 9);
                 var txtSearch = new TextBox { Width = 200, Height = 28, Location = new Point(btnRefresh.Width + 10, 12) };
+                var legend = StockAlertHelper.CreateLegendLabel();
+                legend.Location = new Point(0, 38);
                 toolbar.Controls.Add(btnRefresh);
                 toolbar.Controls.Add(txtSearch);
+                toolbar.Controls.Add(legend);
 
                 Action loadProducts = () =>
                 {
-                    try { grid.DataSource = productCtrl.GetAllProducts(); GridHelper.StyleGrid(grid); } catch { }
+                    try
+                    {
+                        grid.DataSource = productCtrl.GetAllProductsWithStock(StockAlertHelper.DefaultProductMinStock);
+                        GridHelper.StyleGridWithStockAlert(grid, "Available Stock", "Min Stock Level");
+                    }
+                    catch { }
                 };
                 btnRefresh.Click += (s, e) => loadProducts();
                 txtSearch.TextChanged += (s, e) =>
@@ -383,7 +378,28 @@ namespace FurnitureERP.Forms
                         valueLabels[4].Text = p.Color ?? "—";
                         valueLabels[5].Text = p.Unit ?? "—";
                         valueLabels[6].Text = p.BasePriceByCurrency.ToString("N2");
-                        valueLabels[7].Text = p.Status == 1 ? "Active" : "Inactive";
+                        var stockRow = grid.CurrentRow;
+                        if (stockRow != null && grid.Columns.Contains("Available Stock"))
+                        {
+                            decimal available = Convert.ToDecimal(stockRow.Cells["Available Stock"].Value ?? 0);
+                            decimal min = StockAlertHelper.DefaultProductMinStock;
+                            if (grid.Columns.Contains("Min Stock Level"))
+                                min = Convert.ToDecimal(stockRow.Cells["Min Stock Level"].Value ?? min);
+                            string stockText = available.ToString("N0");
+                            if (available <= 0)
+                                valueLabels[7].Text = "Out of Stock (" + stockText + " available)";
+                            else if (available < min)
+                                valueLabels[7].Text = "Low Stock (" + stockText + " / min " + min.ToString("N0") + ")";
+                            else
+                                valueLabels[7].Text = "In Stock (" + stockText + " available)";
+                            valueLabels[7].ForeColor = available <= 0 ? StockAlertHelper.CriticalForeColor
+                                : available < min ? StockAlertHelper.LowStockForeColor : UITheme.TextGray;
+                        }
+                        else
+                        {
+                            valueLabels[7].Text = p.Status == 1 ? "Active" : "Inactive";
+                            valueLabels[7].ForeColor = UITheme.TextGray;
+                        }
                         valueLabels[8].Text = p.Remark ?? "—";
                         valueLabels[9].Text = p.LastModifyDate.HasValue ? p.LastModifyDate.Value.ToString("yyyy-MM-dd") : "—";
 

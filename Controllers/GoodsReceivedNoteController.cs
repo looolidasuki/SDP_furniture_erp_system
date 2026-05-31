@@ -87,5 +87,26 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@id", note.GoodsReceivedNoteID)
             }) > 0;
         }
+
+        public bool InsertRawMaterialLine(long grnId, long rawMaterialId, decimal receivedQty)
+        {
+            return DatabaseConnect.ExecuteNonQuery(
+                @"INSERT INTO GoodsReceivedNoteRawMaterialLine (goodsReceivedNoteID, rawMaterialID, receivedQuantity)
+                  VALUES (@grnId, @rmId, @qty)",
+                new[]
+                {
+                    new MySqlParameter("@grnId", grnId),
+                    new MySqlParameter("@rmId", rawMaterialId),
+                    new MySqlParameter("@qty", receivedQty)
+                }) > 0;
+        }
+
+        public DataTable GetRawMaterialLinesInternal(long grnId)
+        {
+            string sql = @"SELECT rawMaterialID, receivedQuantity
+                           FROM GoodsReceivedNoteRawMaterialLine
+                           WHERE goodsReceivedNoteID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", grnId) });
+        }
     }
 }

@@ -51,5 +51,11 @@ namespace FurnitureERP.Helpers
             };
             grid.EnableHeadersVisualStyles = false;
         }
+
+        public static void StyleGridWithStockAlert(DataGridView grid, string stockColumn, string minStockColumn)
+        {
+            StyleGrid(grid);
+            StockAlertHelper.ApplyStockLevelHighlight(grid, stockColumn, minStockColumn);
+        }
     }
 }

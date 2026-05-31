@@ -15,6 +15,7 @@ namespace FurnitureERP.Forms
         private readonly CustomerController _customerCtrl = new CustomerController();
         private readonly SalesOrderController _salesOrderCtrl = new SalesOrderController();
         private readonly QuotationController _quotationCtrl = new QuotationController();
+        private readonly SalesWorkflowService _salesWorkflow = new SalesWorkflowService();
 
         private TabControl _tabs;
 
@@ -77,9 +78,20 @@ namespace FurnitureERP.Forms
         {
             var page = new TabPage("Quotations");
             page.Controls.Add(BuildCrudPanel("Quotation", PermissionModule.Quotation,
-                () => _quotationCtrl.GetAllQuotations(),
+                () => DictionaryUIHelper.LoadWithStatusLabels(() => _quotationCtrl.GetAllQuotations(), "Status", DictionaryService.Categories.Quotation),
                 ShowCreateQuotationDialog,
-                row => ShowGenericDetailDialog("Quotation Details", row)));
+                row => OpenQuotationRow(row),
+                DictionaryService.Categories.Quotation,
+                grid =>
+                {
+                    var btnConvert = UITheme.CreateSecondaryButton("Convert to SO");
+                    btnConvert.Click += (s, e) =>
+                    {
+                        if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a quotation first."); return; }
+                        ConvertQuotationToSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                    };
+                    return btnConvert;
+                }));
             return page;
         }
 
@@ -87,10 +99,93 @@ namespace FurnitureERP.Forms
         {
             var page = new TabPage("Sales Orders");
             page.Controls.Add(BuildCrudPanel("Sales Order", PermissionModule.SalesOrder,
-                () => _salesOrderCtrl.GetAllSalesOrders(),
+                () => DictionaryUIHelper.LoadWithStatusLabels(() => _salesOrderCtrl.GetAllSalesOrders(), "Status", DictionaryService.Categories.SalesOrder),
                 ShowCreateSalesOrderDialog,
-                row => OpenSalesOrderRow(row)));
+                row => OpenSalesOrderRow(row),
+                DictionaryService.Categories.SalesOrder,
+                grid =>
+                {
+                    var btnProduction = UITheme.CreateSecondaryButton("Create Production");
+                    btnProduction.Click += (s, e) =>
+                    {
+                        if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a sales order first."); return; }
+                        CreateProductionFromSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                    };
+                    return btnProduction;
+                }));
             return page;
+        }
+
+        private void OpenQuotationRow(DataGridViewRow row)
+        {
+            long id = Convert.ToInt64(row.Cells[0].Value);
+            var quotation = _quotationCtrl.GetById(id);
+            if (quotation == null) return;
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Quotation Details";
+                dlg.Size = new Size(640, 480);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var info = new Label
+                {
+                    Text = quotation.QuotationCode + "  |  Status: " + DictionaryService.GetDisplayName(DictionaryService.Categories.Quotation, quotation.Status),
+                    Dock = DockStyle.Top,
+                    Height = 32,
+                    Padding = new Padding(12, 8, 0, 0),
+                    Font = new Font("Segoe UI", 10, FontStyle.Bold)
+                };
+
+                var lineGrid = GridHelper.CreateStyledGrid();
+                lineGrid.Dock = DockStyle.Fill;
+                try
+                {
+                    lineGrid.DataSource = _quotationCtrl.GetProductLines(id);
+                    GridHelper.StyleGrid(lineGrid);
+                }
+                catch { }
+
+                var btnConvert = UITheme.CreatePrimaryButton("Convert to Sales Order");
+                btnConvert.Click += (s, e) =>
+                {
+                    ConvertQuotationToSalesOrder(id);
+                    dlg.Close();
+                };
+                PermissionGuard.ApplyEditButton(btnConvert, PermissionModule.Quotation);
+
+                var btnClose = UITheme.CreateSecondaryButton("Close");
+                btnClose.Click += (s, e) => dlg.Close();
+                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+                btnPanel.Controls.Add(btnConvert);
+                btnPanel.Controls.Add(btnClose);
+
+                dlg.Controls.Add(lineGrid);
+                dlg.Controls.Add(btnPanel);
+                dlg.Controls.Add(info);
+                dlg.ShowDialog(this);
+                BuildUIRefresh();
+            }
+        }
+
+        private void ConvertQuotationToSalesOrder(long quotationId)
+        {
+            if (!PermissionGuard.Ensure(PermissionModule.Quotation, PermissionAction.Edit, this)) return;
+            long staffId = AppSession.CurrentUser?.StaffID ?? 1;
+            var result = _salesWorkflow.ConvertQuotationToSalesOrder(quotationId, staffId);
+            if (result.Success) UITheme.ShowSuccess(result.Message);
+            else UITheme.ShowWarning(result.Message);
+            BuildUIRefresh();
+        }
+
+        private void CreateProductionFromSalesOrder(long salesOrderId)
+        {
+            if (!PermissionGuard.Ensure(PermissionModule.ProductionOrder, PermissionAction.Create, this)) return;
+            long staffId = AppSession.CurrentUser?.StaffID ?? 1;
+            var result = _salesWorkflow.CreateProductionFromSalesOrder(salesOrderId, staffId, DateTime.Today.AddDays(14));
+            if (result.Success) UITheme.ShowSuccess(result.Message);
+            else UITheme.ShowWarning(result.Message);
         }
 
         private void OpenCustomerRow(DataGridViewRow row)
@@ -109,7 +204,7 @@ namespace FurnitureERP.Forms
                 ShowGenericDetailDialog("Sales Order Details", row);
         }
 
-        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onRowOpen)
+        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Button> extraButtonFactory = null)
         {
             Panel panel = new Panel { Dock = DockStyle.Fill };
 
@@ -129,9 +224,14 @@ namespace FurnitureERP.Forms
                 ShowGenericDetailDialog($"{entity} Details", grid.CurrentRow);
             };
             TextBox txtSearch = new TextBox { Width = 180, Height = 28, Location = new Point(btnDetail.Right + 10, 10) };
-            ComboBox cmbStatus = new ComboBox { Width = 120, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(txtSearch.Right + 10, 10) };
-            cmbStatus.Items.AddRange(new object[] { "All Status", "0", "1", "2", "3", "4" });
-            cmbStatus.SelectedIndex = 0;
+            ComboBox cmbStatus = new ComboBox { Width = 140, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(txtSearch.Right + 10, 10) };
+            if (!string.IsNullOrEmpty(statusCategory))
+                DictionaryUIHelper.BindStatusFilter(cmbStatus, statusCategory);
+            else
+            {
+                cmbStatus.Items.Add("All Status");
+                cmbStatus.SelectedIndex = 0;
+            }
 
             grid.CellDoubleClick += (s, e) =>
             {
@@ -155,10 +255,9 @@ namespace FurnitureERP.Forms
                     string textFilter = string.Join(" OR ", textColumns);
                     if (!string.IsNullOrWhiteSpace(textFilter)) conditions.Add("(" + textFilter + ")");
                 }
-                if (cmbStatus.SelectedIndex > 0 && dt.Columns.Contains("Status"))
-                {
-                    conditions.Add("[Status] = " + (cmbStatus.SelectedIndex - 1));
-                }
+                int? statusCode = DictionaryUIHelper.GetFilterStatusCode(cmbStatus);
+                if (statusCode.HasValue && dt.Columns.Contains("Status"))
+                    conditions.Add("[Status] = " + statusCode.Value);
                 dt.DefaultView.RowFilter = string.Join(" AND ", conditions);
             };
             txtSearch.TextChanged += (s, e) => applyFilter();
@@ -167,13 +266,21 @@ namespace FurnitureERP.Forms
             toolbar.Controls.Add(btnNew);
             toolbar.Controls.Add(btnRefresh);
             toolbar.Controls.Add(btnDetail);
+            if (extraButtonFactory != null)
+            {
+                var extraBtn = extraButtonFactory(grid);
+                extraBtn.Location = new Point(btnDetail.Right + 10, 8);
+                toolbar.Controls.Add(extraBtn);
+                txtSearch.Location = new Point(extraBtn.Right + 10, 10);
+                cmbStatus.Location = new Point(txtSearch.Right + 10, 10);
+            }
             toolbar.Controls.Add(txtSearch);
             toolbar.Controls.Add(cmbStatus);
 
             try { grid.DataSource = loadData(); GridHelper.StyleGrid(grid); } catch { }
 
-            panel.Controls.Add(toolbar);
             panel.Controls.Add(grid);
+            panel.Controls.Add(toolbar);
             return panel;
         }
 
@@ -443,8 +550,7 @@ namespace FurnitureERP.Forms
                 var txtAddress = new TextBox { Text = so.DeliveryAddress ?? "" };
                 var txtDiscount = new TextBox { Text = so.Discount.ToString() };
                 var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-                cmbStatus.Items.AddRange(new object[] { "0", "1", "2", "3", "4" });
-                cmbStatus.SelectedIndex = Math.Max(0, Math.Min(so.Status, 4));
+                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.SalesOrder, so.Status);
                 var txtRemark = new TextBox { Text = so.Remark ?? "", Multiline = true, Height = 70 };
 
                 UITheme.AddFormRow(layout, 0, "Order Code", new Label { Text = so.SalesOrderCode, AutoSize = true, ForeColor = UITheme.TextDark });
@@ -467,7 +573,14 @@ namespace FurnitureERP.Forms
                     }
                     so.DeliveryAddress = txtAddress.Text.Trim();
                     so.Discount = discount;
-                    so.Status = cmbStatus.SelectedIndex;
+                    int newStatus = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
+                    var validateResult = _salesWorkflow.ValidateSalesOrderStatus(so.SalesOrderID, newStatus);
+                    if (!validateResult.Success)
+                    {
+                        UITheme.ShowWarning(validateResult.Message);
+                        return;
+                    }
+                    so.Status = newStatus;
                     so.Remark = txtRemark.Text.Trim();
                     if (_salesOrderCtrl.Update(so))
                     {

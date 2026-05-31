@@ -108,6 +108,13 @@ namespace Sales_user.Controllers
             };
         }
 
+        public DataTable GetRawMaterialLinesInternal(long purchaseOrderId)
+        {
+            string sql = @"SELECT rawMaterialID, orderQuantity, receivedQuantity
+                           FROM PurchaseOrderRawMaterialLine
+                           WHERE purchaseOrderID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", purchaseOrderId) });
+        }
         public bool Update(PurchaseOrder order)
         {
             string sql = @"UPDATE PurchaseOrder

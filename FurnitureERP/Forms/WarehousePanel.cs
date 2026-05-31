@@ -18,6 +18,7 @@ namespace FurnitureERP.Forms
         private TabControl _tabs;
         private DataGridView _deliveryGrid;
         private readonly DeliveryNoteController _deliveryCtrl = new DeliveryNoteController();
+        private readonly InventoryWorkflowService _inventoryWorkflow = new InventoryWorkflowService();
         private TextBox _warehouseSearchBox;
         private ComboBox _warehouseStatusFilter;
         private TextBox _deliverySearchBox;
@@ -102,7 +103,11 @@ namespace FurnitureERP.Forms
                 }
                 ShowDeliveryTableDialog(_deliveryGrid.CurrentRow);
             };
-            _deliverySearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnDetailDelivery.Right + 10, 10) };
+            var btnConfirmDelivery = UITheme.CreateSecondaryButton("Confirm Delivery");
+            btnConfirmDelivery.Location = new Point(btnDetailDelivery.Right + 10, 8);
+            btnConfirmDelivery.Click += (s, e) => ConfirmSelectedDelivery();
+            PermissionGuard.ApplyEditButton(btnConfirmDelivery, PermissionModule.DeliveryNote);
+            _deliverySearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnConfirmDelivery.Right + 10, 10) };
             _deliverySearchBox.TextChanged += (s, e) => LoadDeliveryNotes();
             _deliveryStatusFilter = new ComboBox
             {
@@ -111,12 +116,12 @@ namespace FurnitureERP.Forms
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Location = new Point(_deliverySearchBox.Right + 10, 10)
             };
-            _deliveryStatusFilter.Items.AddRange(new object[] { "All Status", "Draft", "Dispatched", "Delivered" });
-            _deliveryStatusFilter.SelectedIndex = 0;
+            DictionaryUIHelper.BindStatusFilter(_deliveryStatusFilter, DictionaryService.Categories.Delivery);
             _deliveryStatusFilter.SelectedIndexChanged += (s, e) => LoadDeliveryNotes();
             deliveryToolbar.Controls.Add(btnNewDelivery);
             deliveryToolbar.Controls.Add(btnRefreshDelivery);
             deliveryToolbar.Controls.Add(btnDetailDelivery);
+            deliveryToolbar.Controls.Add(btnConfirmDelivery);
             deliveryToolbar.Controls.Add(_deliverySearchBox);
             deliveryToolbar.Controls.Add(_deliveryStatusFilter);
 
@@ -173,7 +178,7 @@ namespace FurnitureERP.Forms
         {
             try
             {
-                var dt = _deliveryCtrl.GetAllDeliveryNotes();
+                var dt = DictionaryService.DecorateStatusColumn(_deliveryCtrl.GetAllDeliveryNotes(), "Status", DictionaryService.Categories.Delivery);
                 if (dt == null) return;
 
                 string keyword = _deliverySearchBox?.Text?.Trim();
@@ -186,9 +191,12 @@ namespace FurnitureERP.Forms
 
                 if (_deliveryStatusFilter != null && _deliveryStatusFilter.SelectedIndex > 0)
                 {
-                    int status = _deliveryStatusFilter.SelectedIndex - 1;
-                    dt.DefaultView.RowFilter = "[Status] = " + status;
-                    dt = dt.DefaultView.ToTable();
+                    int? status = DictionaryUIHelper.GetFilterStatusCode(_deliveryStatusFilter);
+                    if (status.HasValue)
+                    {
+                        dt.DefaultView.RowFilter = "[Status] = " + status.Value;
+                        dt = dt.DefaultView.ToTable();
+                    }
                 }
 
                 _deliveryGrid.DataSource = dt;
@@ -435,13 +443,16 @@ namespace FurnitureERP.Forms
             using (var dlg = new Form())
             {
                 dlg.Text = $"Edit Warehouse — {wh.WarehouseName}";
-                dlg.Size = new Size(460, 240);
+                dlg.Size = new Size(720, 520);
                 dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-                dlg.MaximizeBox = false;
+                dlg.FormBorderStyle = FormBorderStyle.Sizable;
+                dlg.MinimizeBox = false;
                 dlg.BackColor = UITheme.Background;
 
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(16) };
+                var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 160 };
+
+                var topPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(16) };
+                var layout = new TableLayoutPanel { Dock = DockStyle.Top, Height = 90, ColumnCount = 2, RowCount = 2 };
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -450,6 +461,36 @@ namespace FurnitureERP.Forms
 
                 UITheme.AddFormRow(layout, 0, "Warehouse Name *", txtName);
                 UITheme.AddFormRow(layout, 1, "Address", txtAddr);
+                topPanel.Controls.Add(layout);
+
+                var stockGrid = GridHelper.CreateStyledGrid();
+                stockGrid.Dock = DockStyle.Fill;
+                Action loadStock = () =>
+                {
+                    try
+                    {
+                        stockGrid.DataSource = _warehouseCtrl.GetWarehouseProducts(id, StockAlertHelper.DefaultProductMinStock);
+                        GridHelper.StyleGridWithStockAlert(stockGrid, "Available Qty", "Min Stock Level");
+                    }
+                    catch { }
+                };
+                loadStock();
+
+                var stockHeader = new Panel { Dock = DockStyle.Top, Height = 36 };
+                stockHeader.Controls.Add(new Label
+                {
+                    Text = "Product stock in this warehouse",
+                    Dock = DockStyle.Left,
+                    AutoSize = true,
+                    Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                    ForeColor = UITheme.TextDark,
+                    Padding = new Padding(4, 8, 0, 0)
+                });
+                stockHeader.Controls.Add(StockAlertHelper.CreateLegendLabel());
+
+                split.Panel1.Controls.Add(topPanel);
+                split.Panel2.Controls.Add(stockGrid);
+                split.Panel2.Controls.Add(stockHeader);
 
                 var btnSave = UITheme.CreatePrimaryButton("Update");
                 PermissionGuard.ApplyEditButton(btnSave, PermissionModule.Warehouse);
@@ -473,7 +514,8 @@ namespace FurnitureERP.Forms
                 var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
                 btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
 
-                dlg.Controls.Add(layout); dlg.Controls.Add(btnPanel);
+                dlg.Controls.Add(split);
+                dlg.Controls.Add(btnPanel);
                 if (dlg.ShowDialog(this) == DialogResult.OK) LoadData();
             }
         }
@@ -539,6 +581,28 @@ namespace FurnitureERP.Forms
                 btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
                 dlg.Controls.Add(layout); dlg.Controls.Add(btnPanel);
                 if (dlg.ShowDialog(this) == DialogResult.OK) LoadDeliveryNotes();
+            }
+        }
+
+        private void ConfirmSelectedDelivery()
+        {
+            if (_deliveryGrid?.CurrentRow?.Cells[0].Value == null)
+            {
+                UITheme.ShowWarning("Please select a delivery note first.");
+                return;
+            }
+            if (!PermissionGuard.Ensure(PermissionModule.DeliveryNote, PermissionAction.Edit, this)) return;
+
+            long id = Convert.ToInt64(_deliveryGrid.CurrentRow.Cells[0].Value);
+            var result = _inventoryWorkflow.ConfirmDelivery(id);
+            if (result.Success)
+            {
+                UITheme.ShowSuccess(result.Message);
+                LoadDeliveryNotes();
+            }
+            else
+            {
+                UITheme.ShowWarning(result.Message);
             }
         }
     }

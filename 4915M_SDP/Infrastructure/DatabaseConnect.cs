@@ -10,6 +10,8 @@ namespace Sales_user.Controllers
     {
         private static string _connectionString;
 
+        public static string ConnectionString => GetConnectionString();
+
         private static string GetConnectionString()
         {
             if (_connectionString != null) return _connectionString;
@@ -80,6 +82,72 @@ namespace Sales_user.Controllers
                         cmd.Parameters.AddRange(parameters);
                     return cmd.ExecuteScalar();
                 }
+            }
+        }
+
+        public static T ExecuteInTransaction<T>(Func<MySqlConnection, MySqlTransaction, T> action)
+        {
+            using (var conn = new MySqlConnection(GetConnectionString()))
+            {
+                conn.Open();
+                using (var trans = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        T result = action(conn, trans);
+                        trans.Commit();
+                        return result;
+                    }
+                    catch
+                    {
+                        trans.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public static int ExecuteNonQuery(MySqlConnection conn, MySqlTransaction trans, string sql, MySqlParameter[] parameters = null)
+        {
+            using (var cmd = new MySqlCommand(sql, conn, trans))
+            {
+                if (parameters != null)
+                    cmd.Parameters.AddRange(parameters);
+                return cmd.ExecuteNonQuery();
+            }
+        }
+
+        public static long ExecuteInsertReturnId(MySqlConnection conn, MySqlTransaction trans, string sql, MySqlParameter[] parameters = null)
+        {
+            using (var cmd = new MySqlCommand(sql, conn, trans))
+            {
+                if (parameters != null)
+                    cmd.Parameters.AddRange(parameters);
+                cmd.ExecuteNonQuery();
+                return cmd.LastInsertedId;
+            }
+        }
+
+        public static object ExecuteScalar(MySqlConnection conn, MySqlTransaction trans, string sql, MySqlParameter[] parameters = null)
+        {
+            using (var cmd = new MySqlCommand(sql, conn, trans))
+            {
+                if (parameters != null)
+                    cmd.Parameters.AddRange(parameters);
+                return cmd.ExecuteScalar();
+            }
+        }
+
+        public static DataTable ExecuteQuery(MySqlConnection conn, MySqlTransaction trans, string sql, MySqlParameter[] parameters = null)
+        {
+            using (var cmd = new MySqlCommand(sql, conn, trans))
+            {
+                if (parameters != null)
+                    cmd.Parameters.AddRange(parameters);
+                var dt = new DataTable();
+                using (var adapter = new MySqlDataAdapter(cmd))
+                    adapter.Fill(dt);
+                return dt;
             }
         }
     }

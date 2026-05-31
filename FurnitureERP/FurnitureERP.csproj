@@ -128,6 +128,13 @@
     <Compile Include="Forms\SystemAdminPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="Forms\StaffPanel.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="Helpers\DictionaryService.cs" />
+    <Compile Include="Helpers\DictionaryUIHelper.cs" />
+    <Compile Include="Helpers\PasswordHasher.cs" />
+    <Compile Include="Helpers\StockAlertHelper.cs" />
     <Compile Include="Helpers\UITheme.cs" />
     <Compile Include="Helpers\PermissionModule.cs" />
     <Compile Include="Helpers\PermissionFlags.cs" />
@@ -204,6 +211,15 @@
     <Compile Include="..\Controllers\SystemDictionaryController.cs">
       <Link>Controllers\SystemDictionaryController.cs</Link>
     </Compile>
+    <Compile Include="..\Controllers\SalesWorkflowService.cs">
+      <Link>Controllers\SalesWorkflowService.cs</Link>
+    </Compile>
+    <Compile Include="..\Controllers\InventoryWorkflowService.cs">
+      <Link>Controllers\InventoryWorkflowService.cs</Link>
+    </Compile>
+    <Compile Include="..\Controllers\FinanceWorkflowService.cs">
+      <Link>Controllers\FinanceWorkflowService.cs</Link>
+    </Compile>
     <Compile Include="..\Models\Customer.cs">
       <Link>Models\Customer.cs</Link>
     </Compile>
@@ -266,6 +282,9 @@
     </Compile>
     <Compile Include="..\Models\SystemDictionary.cs">
       <Link>Models\SystemDictionary.cs</Link>
+    </Compile>
+    <Compile Include="..\Models\WorkflowResult.cs">
+      <Link>Models\WorkflowResult.cs</Link>
     </Compile>
   </ItemGroup>
   <ItemGroup>
