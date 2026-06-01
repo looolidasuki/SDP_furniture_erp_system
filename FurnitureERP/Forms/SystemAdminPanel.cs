@@ -45,16 +45,16 @@ namespace FurnitureERP.Forms
                 Panel sqCard = CreateSafeCard("Supplier Raw Material Quotes");
                 Panel infoCard = CreateSafeCard("System Information");
 
-                // 填入內容
+                // 填入內容（先加 Fill 控件，再加 Top 标题，避免标题被表格遮挡）
                 _dictGrid = GridHelper.CreateStyledGrid();
                 _dictGrid.Dock = DockStyle.Fill;
                 try { _dictGrid.DataSource = _dictCtrl.GetAllDictionaries(); GridHelper.StyleGrid(_dictGrid); } catch { }
-                dictCard.Controls.Add(_dictGrid);
+                AddCardContent(dictCard, "System Dictionary", _dictGrid);
 
                 _productGrid = GridHelper.CreateStyledGrid();
                 _productGrid.Dock = DockStyle.Fill;
                 try { _productGrid.DataSource = _productCtrl.GetAllProductsWithStock(StockAlertHelper.DefaultProductMinStock); GridHelper.StyleGridWithStockAlert(_productGrid, "Available Stock", "Min Stock Level"); } catch { }
-                prodCard.Controls.Add(_productGrid);
+                AddCardContent(prodCard, "Product Catalog", _productGrid);
 
                 // 放入主佈局
                 mainLayout.Controls.Add(dictCard, 0, 0);
@@ -81,9 +81,21 @@ namespace FurnitureERP.Forms
                 using (var pen = new System.Drawing.Pen(Color.FromArgb(200, 200, 200)))
                     e.Graphics.DrawRectangle(pen, 0, 0, p.Width - 1, p.Height - 1);
             };
-            Label lbl = new Label { Text = title, Dock = DockStyle.Top, Font = new Font("Segoe UI", 9, FontStyle.Bold), Height = 25 };
-            p.Controls.Add(lbl);
             return p;
+        }
+
+        private static void AddCardContent(Panel card, string title, Control content)
+        {
+            content.Dock = DockStyle.Fill;
+            var lbl = new Label
+            {
+                Text = title,
+                Dock = DockStyle.Top,
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                Height = 25
+            };
+            card.Controls.Add(content);
+            card.Controls.Add(lbl);
         }
     }
 }

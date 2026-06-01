@@ -71,7 +71,7 @@ namespace FurnitureERP.Forms
             PermissionGuard.ApplyCreateButton(btnQuickNew, PermissionModule.ProductionOrder);
 
             Button btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
-            btnRefresh.Location = new Point(btnNew.Width + btnQuickNew.Width + 20, 9);
+            btnRefresh.Location = new Point(btnQuickNew.Right + 10, 9);
             btnRefresh.Click += (s, e) => LoadData();
 
             Button btnDetail = UITheme.CreateSecondaryButton("View Detail");
@@ -119,8 +119,8 @@ namespace FurnitureERP.Forms
             };
 
             var content = new Panel { Dock = DockStyle.Fill };
-            content.Controls.Add(toolbar);
             content.Controls.Add(_grid);
+            content.Controls.Add(toolbar);
             page.Controls.Add(content);
 
             LoadData();
@@ -183,8 +183,8 @@ namespace FurnitureERP.Forms
             try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock(); GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock"); } catch { }
 
             var content = new Panel { Dock = DockStyle.Fill };
-            content.Controls.Add(toolbar);
             content.Controls.Add(grid);
+            content.Controls.Add(toolbar);
             page.Controls.Add(content);
             return page;
         }
@@ -194,9 +194,11 @@ namespace FurnitureERP.Forms
             var page = new TabPage("🏭 Warehouse Stock") { BackColor = UITheme.Background };
             var grid = GridHelper.CreateStyledGrid();
 
-            var toolbar = new Panel { Dock = DockStyle.Top, Height = 50 };
+            var toolbar = new Panel { Dock = DockStyle.Top, Height = 68 };
             var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefresh.Location = new Point(0, 9);
+            var legend = StockAlertHelper.CreateLegendLabel();
+            legend.Location = new Point(0, 38);
 
             string sql = @"SELECT rm.rawMaterialCode AS 'Code',
                                   rm.category AS 'Category',
@@ -219,19 +221,20 @@ namespace FurnitureERP.Forms
                 {
                     var dt = DatabaseConnect.ExecuteQuery(sql);
                     grid.DataSource = dt;
-                    GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock Level");
+                    GridHelper.StyleGridWithStockAlert(grid, "Available Stock", "Min Stock Level");
                 }
                 catch { }
             };
 
             btnRefresh.Click += (s, e) => loadStock();
             toolbar.Controls.Add(btnRefresh);
+            toolbar.Controls.Add(legend);
 
             loadStock();
 
             var content = new Panel { Dock = DockStyle.Fill };
-            content.Controls.Add(toolbar);
             content.Controls.Add(grid);
+            content.Controls.Add(toolbar);
             page.Controls.Add(content);
             return page;
         }
@@ -306,8 +309,8 @@ namespace FurnitureERP.Forms
                         $"[Product Code] LIKE '%{kw}%' OR [Category] LIKE '%{kw}%' OR [Style Number] LIKE '%{kw}%'";
                 };
 
-                listPanel.Controls.Add(toolbar);
                 listPanel.Controls.Add(grid);
+                listPanel.Controls.Add(toolbar);
 
                 // Right: detail panel
                 var detailPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(16) };
@@ -422,8 +425,8 @@ namespace FurnitureERP.Forms
 
                 loadProducts();
 
-                dlg.Controls.Add(detailPanel);
                 dlg.Controls.Add(listPanel);
+                dlg.Controls.Add(detailPanel);
                 dlg.ShowDialog(owner);
             }
         }

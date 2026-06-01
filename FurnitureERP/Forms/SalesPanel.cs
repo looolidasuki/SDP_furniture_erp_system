@@ -39,16 +39,24 @@ namespace FurnitureERP.Forms
             if (AppSession.CanView(PermissionModule.SalesOrder))
                 _tabs.TabPages.Add(BuildSalesOrderTab());
 
+            Controls.Add(_tabs);
+
             if (AppSession.CanView(PermissionModule.Product))
             {
+                var productBar = new Panel
+                {
+                    Dock = DockStyle.Top,
+                    Height = 44,
+                    BackColor = UITheme.Background,
+                    Padding = new Padding(8, 6, 8, 4)
+                };
                 Button btnViewProducts = UITheme.CreateSecondaryButton("📦 View Products");
-                btnViewProducts.Dock = DockStyle.Top;
-                btnViewProducts.Height = 36;
+                btnViewProducts.Location = new Point(8, 6);
                 btnViewProducts.Click += (s, e) => ProductionPanel.ShowProductsViewerDialog(this);
-                Controls.Add(btnViewProducts);
+                productBar.Controls.Add(btnViewProducts);
+                Controls.Add(productBar);
             }
 
-            Controls.Add(_tabs);
             SelectModuleTab();
         }
 

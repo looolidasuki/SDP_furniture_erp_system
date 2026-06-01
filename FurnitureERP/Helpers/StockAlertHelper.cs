@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -14,6 +15,30 @@ namespace FurnitureERP.Helpers
         public static readonly Color CriticalForeColor = Color.FromArgb(140, 20, 20);
         public static readonly Color LowStockForeColor = Color.FromArgb(120, 80, 0);
 
+        public static void WireStockLevelHighlight(
+            DataGridView grid,
+            string stockColumn,
+            string minStockColumn,
+            decimal fallbackMinStock = DefaultProductMinStock)
+        {
+            if (grid == null || string.IsNullOrWhiteSpace(stockColumn))
+                return;
+
+            grid.Tag = new StockHighlightContext(stockColumn, minStockColumn, fallbackMinStock);
+            grid.DataBindingComplete -= Grid_DataBindingComplete;
+            grid.DataBindingComplete += Grid_DataBindingComplete;
+            ApplyStockLevelHighlight(grid, stockColumn, minStockColumn, fallbackMinStock);
+        }
+
+        private static void Grid_DataBindingComplete(object sender, DataGridViewBindingCompleteEventArgs e)
+        {
+            if (e.ListChangedType != ListChangedType.Reset)
+                return;
+            if (!(sender is DataGridView grid) || !(grid.Tag is StockHighlightContext ctx))
+                return;
+            ApplyStockLevelHighlight(grid, ctx.StockColumn, ctx.MinStockColumn, ctx.FallbackMinStock);
+        }
+
         public static void ApplyStockLevelHighlight(
             DataGridView grid,
             string stockColumn,
@@ -23,13 +48,15 @@ namespace FurnitureERP.Helpers
             if (grid == null || string.IsNullOrWhiteSpace(stockColumn))
                 return;
 
+            if (!grid.Columns.Contains(stockColumn))
+                return;
+
             bool hasMinColumn = !string.IsNullOrWhiteSpace(minStockColumn)
                 && grid.Columns.Contains(minStockColumn);
 
             foreach (DataGridViewRow row in grid.Rows)
             {
                 if (row.IsNewRow) continue;
-                if (!grid.Columns.Contains(stockColumn)) continue;
 
                 try
                 {
@@ -37,10 +64,38 @@ namespace FurnitureERP.Helpers
                     decimal min = hasMinColumn ? ToDecimal(row.Cells[minStockColumn].Value) : fallbackMinStock;
                     if (min <= 0) min = fallbackMinStock;
 
+                    ResetRowStyle(row, row.Index % 2 == 1);
                     ApplyRowAlertStyle(row, current, min);
                 }
                 catch { }
             }
+        }
+
+        private static void ResetRowStyle(DataGridViewRow row, bool alternate)
+        {
+            row.DefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = alternate ? Color.FromArgb(248, 250, 255) : Color.White,
+                ForeColor = UITheme.TextDark,
+                Font = new Font("Segoe UI", 8.5f),
+                Padding = new Padding(4, 0, 0, 0),
+                SelectionBackColor = Color.FromArgb(210, 225, 255),
+                SelectionForeColor = UITheme.TextDark
+            };
+        }
+
+        private sealed class StockHighlightContext
+        {
+            public StockHighlightContext(string stockColumn, string minStockColumn, decimal fallbackMinStock)
+            {
+                StockColumn = stockColumn;
+                MinStockColumn = minStockColumn;
+                FallbackMinStock = fallbackMinStock;
+            }
+
+            public string StockColumn { get; }
+            public string MinStockColumn { get; }
+            public decimal FallbackMinStock { get; }
         }
 
         public static void ApplyRowAlertStyle(DataGridViewRow row, decimal currentStock, decimal minStock)

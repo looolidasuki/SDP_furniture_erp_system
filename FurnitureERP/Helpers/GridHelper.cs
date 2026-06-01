@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -55,7 +56,7 @@ namespace FurnitureERP.Helpers
         public static void StyleGridWithStockAlert(DataGridView grid, string stockColumn, string minStockColumn)
         {
             StyleGrid(grid);
-            StockAlertHelper.ApplyStockLevelHighlight(grid, stockColumn, minStockColumn);
+            StockAlertHelper.WireStockLevelHighlight(grid, stockColumn, minStockColumn);
         }
     }
 }
