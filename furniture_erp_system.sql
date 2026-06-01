@@ -36,6 +36,13 @@ CREATE TABLE `contactperson` (
   `email` varchar(255) DEFAULT NULL COMMENT '邮箱'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户联系人明细表';
 
+INSERT INTO `contactperson` (`contactPersonID`, `customerID`, `contactPerson`, `title`, `phone`, `email`) VALUES
+(1, 1, 'Alice Wong', 'Purchasing Manager', '2123-4501', 'alice.wong@abcfurniture.hk'),
+(2, 2, 'Ben Lee', 'Director', '2987-1200', 'ben.lee@pacifichome.hk'),
+(3, 3, 'Cindy Ho', 'Owner', '2655-8800', 'cindy@urbanliving.hk'),
+(4, 4, 'David Cheung', 'Procurement', '2398-7701', 'david.cheung@greenoffice.hk'),
+(5, 5, 'Emily Ng', 'Sales Contact', '2722-3300', 'emily.ng@eliteinteriors.hk');
+
 -- --------------------------------------------------------
 
 --
@@ -54,7 +61,11 @@ CREATE TABLE `currency` (
 --
 
 INSERT INTO `currency` (`currencyID`, `currencyCode`, `currencySymbol`, `rateToBase`) VALUES
-(1, 'HKD', '$', 1.00);
+(1, 'HKD', '$', 1.00),
+(2, 'USD', 'US$', 7.80),
+(3, 'CNY', '¥', 1.08),
+(4, 'EUR', '€', 8.50),
+(5, 'GBP', '£', 9.90);
 
 -- --------------------------------------------------------
 
@@ -76,7 +87,11 @@ CREATE TABLE `customer` (
 --
 
 INSERT INTO `customer` (`customerID`, `customerName`, `billingAddress`, `paymentTerm`, `createDate`, `lastModifyDate`) VALUES
-(1, 'ABC Clothing Ltd', NULL, NULL, '2026-05-25 17:16:09', '2026-05-25 17:16:09');
+(1, 'ABC Furniture Ltd', '88 Queensway, Central, Hong Kong', '30 Days', '2026-05-25 17:16:09', '2026-05-25 17:16:09'),
+(2, 'Pacific Home Co', '12 Harbour Road, Wanchai, HK', '60 Days', '2026-05-26 09:00:00', '2026-05-26 09:00:00'),
+(3, 'Urban Living Studio', '5 Science Park, Shatin, NT', 'Cash', '2026-05-26 10:00:00', '2026-05-26 10:00:00'),
+(4, 'Green Office Supplies', '200 Nathan Road, Mongkok, HK', '30 Days', '2026-05-26 11:00:00', '2026-05-26 11:00:00'),
+(5, 'Elite Interiors HK', '1 Austin Road, Tsim Sha Tsui, HK', '90 Days', '2026-05-26 12:00:00', '2026-05-26 12:00:00');
 
 -- --------------------------------------------------------
 
@@ -92,6 +107,13 @@ CREATE TABLE `customerdeliveryaddress` (
   `phone` varchar(30) DEFAULT NULL COMMENT '收货电话',
   `email` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户收货地址表';
+
+INSERT INTO `customerdeliveryaddress` (`addressID`, `customerID`, `deliveryAddress`, `contactPerson`, `phone`, `email`) VALUES
+(1, 1, 'Flat B, 5/F, Kwun Tong Industrial Building', 'Alice Wong', '2123-4501', 'alice.wong@abcfurniture.hk'),
+(2, 2, 'Warehouse 3, Tuen Mun Logistics Centre', 'Ben Lee', '2987-1200', 'ben.lee@pacifichome.hk'),
+(3, 3, 'Shop 12, Festival Walk, Kowloon Tong', 'Cindy Ho', '2655-8800', 'cindy@urbanliving.hk'),
+(4, 4, 'Loading Bay, Mongkok Commercial Tower', 'David Cheung', '2398-7701', 'david.cheung@greenoffice.hk'),
+(5, 5, '15/F, TST Plaza, Tsim Sha Tsui', 'Emily Ng', '2722-3300', 'emily.ng@eliteinteriors.hk');
 
 -- --------------------------------------------------------
 
@@ -180,7 +202,11 @@ CREATE TABLE `invoice` (
 --
 
 INSERT INTO `invoice` (`invoiceID`, `invoiceCode`, `customerID`, `salesOrderID`, `staffID`, `invoiceType`, `createDate`, `lastModifyDate`, `remark`, `status`) VALUES
-(1, 'INV-1', 1, 2, 1, 4, '2026-05-25 20:06:43', '2026-05-25 20:06:43', 'eqw', 1);
+(1, 'INV-2026052601', 1, 1, 1, 1, '2026-05-25 20:06:43', '2026-05-25 20:06:43', 'Deposit invoice for SO-1', 0),
+(2, 'INV-2026052602', 2, 2, 1, 1, '2026-05-26 09:00:00', '2026-05-26 09:00:00', 'Deposit for Pacific Home', 0),
+(3, 'INV-2026052603', 3, 3, 1, 2, '2026-05-26 10:00:00', '2026-05-26 10:00:00', 'Partial shipment billing', 1),
+(4, 'INV-2026052604', 4, 4, 1, 2, '2026-05-26 11:00:00', '2026-05-26 11:00:00', 'Normal invoice', 0),
+(5, 'INV-2026052605', 5, 5, 1, 1, '2026-05-26 12:00:00', '2026-05-26 12:00:00', 'Draft deposit', 0);
 
 -- --------------------------------------------------------
 
@@ -258,7 +284,11 @@ CREATE TABLE `product` (
 --
 
 INSERT INTO `product` (`productID`, `productCode`, `category`, `sequenceNumber`, `styleNumber`, `size`, `color`, `basePriceByCurrency`, `currencyID`, `staffID`, `unit`, `createDate`, `lastModifyDate`, `status`, `remark`) VALUES
-(2, 'P-Chair-2001', 'Chair', 2001, 'ERG-CHAIR-01', 'Standard High-Back', 'Matte Black', 1250.00, 1, 1, 'PCS', '2026-05-25 17:26:01', NULL, 1, 'Ergonomic office chair with adjustable mesh armrests and lumbar support.');
+(1, 'P-Desk-1001', 'Desk', 1001, 'OAK-DESK-01', '160x80cm', 'Natural Oak', 3200.00, 1, 1, 'PCS', '2026-05-25 17:20:01', NULL, 1, 'Solid oak executive desk.'),
+(2, 'P-Chair-2001', 'Chair', 2001, 'ERG-CHAIR-01', 'Standard High-Back', 'Matte Black', 1250.00, 1, 1, 'PCS', '2026-05-25 17:26:01', NULL, 1, 'Ergonomic office chair with adjustable mesh armrests and lumbar support.'),
+(3, 'P-Sofa-3001', 'Sofa', 3001, 'L-SOFA-01', '3-Seater', 'Grey Fabric', 5800.00, 1, 2, 'PCS', '2026-05-26 09:30:00', NULL, 1, 'L-shaped lounge sofa.'),
+(4, 'P-Cabinet-4001', 'Cabinet', 4001, 'FILE-CAB-01', '4-Drawer', 'White', 980.00, 1, 2, 'PCS', '2026-05-26 10:00:00', NULL, 1, 'Metal filing cabinet.'),
+(5, 'P-Table-5001', 'Table', 5001, 'DIN-TBL-01', '180x90cm', 'Walnut', 4500.00, 1, 3, 'PCS', '2026-05-26 11:00:00', NULL, 1, 'Dining table with walnut veneer.');
 
 -- --------------------------------------------------------
 
@@ -535,7 +565,11 @@ CREATE TABLE `refundrequest` (
 --
 
 INSERT INTO `refundrequest` (`refundRequestID`, `refundRequestCode`, `staffID`, `createDate`, `ReceiptVoucherID`, `InvoiceID`, `refundAmount`, `refundMethod`, `refundRef`, `refundReason`, `status`, `lastModifyDate`, `remark`) VALUES
-(2, 'RF-2026052601', 1, '2026-05-25 16:25:50', 0, 0, 250.50, 1, 'REF-XYZ123', 'damage', 1, '2026-05-25 16:25:50', 'Test refund request');
+(1, 'RF-2026052601', 1, '2026-05-25 16:25:50', NULL, 1, 250.50, 1, 'REF-XYZ123', 'damage', 1, '2026-05-25 16:25:50', 'Damaged chair refund'),
+(2, 'RF-2026052602', 2, '2026-05-26 09:00:00', 2, 2, 500.00, 2, 'REF-FPS001', 'wrong shipment', 1, '2026-05-26 09:00:00', 'Wrong model shipped'),
+(3, 'RF-2026052603', 1, '2026-05-26 10:00:00', NULL, 3, 120.00, 1, 'REF-BT003', 'sizing issue', 0, '2026-05-26 10:00:00', 'Size mismatch'),
+(4, 'RF-2026052604', 3, '2026-05-26 11:00:00', 4, 4, 80.00, 3, 'REF-CHQ004', 'order cancelled', 1, '2026-05-26 11:00:00', 'Order cancelled'),
+(5, 'RF-2026052605', 2, '2026-05-26 12:00:00', 5, 5, 300.00, 1, 'REF-BT005', 'customer dissatisfaction', 0, '2026-05-26 12:00:00', 'Quality complaint');
 
 -- --------------------------------------------------------
 
@@ -563,8 +597,11 @@ CREATE TABLE `salesorder` (
 --
 
 INSERT INTO `salesorder` (`salesOrderID`, `salesOrderCode`, `customerID`, `staffID`, `currencyCurrencyID`, `deliveryAddress`, `createDate`, `lastModifyDate`, `discountType`, `discount`, `status`, `remark`) VALUES
-(1, 'SO-2026052601', 1, 1, 1, 'Flat B, 5/F, Industrial Building, Kwun Tong, Hong Kong', '2026-05-25 17:17:02', '2026-05-25 17:17:02', 'Percentage', 500.00, 1, 'First test sales order for system integration.'),
-(2, 'SO-2', 1, 1, 1, 'TBD', '2026-05-25 20:05:57', '2026-05-25 20:05:57', NULL, 0.00, 0, NULL);
+(1, 'SO-2026052601', 1, 2, 1, 'Flat B, 5/F, Kwun Tong Industrial Building', '2026-05-25 17:17:02', '2026-05-25 17:17:02', 'Percentage', 500.00, 1, 'Office fit-out package for ABC Furniture.'),
+(2, 'SO-2026052602', 2, 2, 1, 'Warehouse 3, Tuen Mun Logistics Centre', '2026-05-25 20:05:57', '2026-05-25 20:05:57', NULL, 0.00, 1, 'Pacific Home showroom order.'),
+(3, 'SO-2026052603', 3, 2, 1, 'Shop 12, Festival Walk, Kowloon Tong', '2026-05-26 09:00:00', '2026-05-26 09:00:00', 'Fixed Amount', 200.00, 2, 'Urban Living retail stock.'),
+(4, 'SO-2026052604', 4, 2, 1, 'Loading Bay, Mongkok Commercial Tower', '2026-05-26 10:00:00', '2026-05-26 10:00:00', NULL, 0.00, 1, 'Green Office bulk chairs.'),
+(5, 'SO-2026052605', 5, 2, 1, '15/F, TST Plaza, Tsim Sha Tsui', '2026-05-26 11:00:00', '2026-05-26 11:00:00', NULL, 100.00, 0, 'Elite Interiors draft order.');
 
 -- --------------------------------------------------------
 
@@ -622,7 +659,11 @@ CREATE TABLE `staff` (
 --
 
 INSERT INTO `staff` (`staffID`, `username`, `password`, `title`, `department`, `firstName`, `lastName`, `employDate`, `phone`, `email`, `status`) VALUES
-(1, 'admin', '123456', 'Manager', 'Finance', 'John', 'Doe', '2026-05-26', '12345678', 'john.doe@erp.com', 1);
+(1, 'admin', '123456', 'Manager', 'Finance', 'John', 'Doe', '2026-01-15', '21234567', 'john.doe@erp.com', 1),
+(2, 'sales01', '123456', 'Officer', 'Sales', 'Mary', 'Chan', '2026-02-01', '29876543', 'mary.chan@erp.com', 1),
+(3, 'prod01', '123456', 'Officer', 'Production', 'Peter', 'Lam', '2026-02-15', '25551234', 'peter.lam@erp.com', 1),
+(4, 'wh01', '123456', 'Clerk', 'Warehouse', 'Sandy', 'Yuen', '2026-03-01', '26667890', 'sandy.yuen@erp.com', 1),
+(5, 'pur01', '123456', 'Officer', 'Purchasing', 'Tom', 'Wong', '2026-03-15', '27773456', 'tom.wong@erp.com', 1);
 
 -- --------------------------------------------------------
 
@@ -774,6 +815,213 @@ CREATE TABLE `warehouseproduct` (
   `reservedQuantity` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '被销售单预留锁定的库存',
   `purchasedQuantity` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '已下单采购但尚未入库的数量'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='仓库成品物理与逻辑库存对账表';
+
+--
+-- 种子数据：各业务表至少 5 笔（systemdictionary 已有 74 笔字典项）
+--
+
+INSERT INTO `warehouse` (`warehouseID`, `warehouseName`, `warehouseAddress`) VALUES
+(1, 'Kowloon Main WH', '88 Kwun Tong Road, Kowloon'),
+(2, 'NT Raw Material WH', '12 Tai Po Industrial Estate, NT'),
+(3, 'HK Island Showroom', '1 Queens Road Central, HK'),
+(4, 'Tuen Mun Finished WH', '200 Tuen Mun Heung Sze Wui Road'),
+(5, 'Airport Logistics WH', '7 Chek Lap Kok Road, Lantau');
+
+INSERT INTO `supplier` (`supplierID`, `supplierName`, `billingAddress`, `contactPerson`, `phone`, `email`, `paymentTerm`, `bankAccount`, `status`) VALUES
+(1, 'Oak Timber Supplies Ltd', '100 Timber Lane, Dongguan', 'Mr. Zhang', '+86-769-1234567', 'zhang@oaktimber.cn', '30 Days', 'CN88-1234-5678', 1),
+(2, 'Metal Works HK', '50 San Po Kong, Kowloon', 'Ms. Lau', '2345-6789', 'lau@metalworks.hk', '60 Days', 'HK12-3456-7890', 1),
+(3, 'Fabric World Asia', '88 Guangzhou Ave, Guangzhou', 'Mr. Chen', '+86-20-8765432', 'chen@fabricworld.cn', '30 Days', 'CN99-8765-4321', 1),
+(4, 'Hardware Components Co', '15 Fanling, NT', 'Mr. Ng', '2654-3210', 'ng@hardware.hk', 'Cash', 'HK98-7654-3210', 1),
+(5, 'Foam & Cushion Factory', '200 Foshan Rd, Foshan', 'Ms. Li', '+86-757-1122334', 'li@foamfactory.cn', '90 Days', 'CN55-1122-3344', 1);
+
+INSERT INTO `rawmaterial` (`rawMaterialID`, `rawMaterialCode`, `category`, `SequenceNumber`, `size`, `color`, `minimumStockLevel`, `status`) VALUES
+(1, 'RM-Wood-1001', 'Wood', 1001, '2400x600mm', 'Natural Oak', 50.00, 1),
+(2, 'RM-Fabric-2001', 'Fabric', 2001, 'Roll 50m', 'Grey', 20.00, 1),
+(3, 'RM-Metal-3001', 'Metal', 3001, 'Tube 25mm', 'Chrome', 100.00, 1),
+(4, 'RM-Foam-4001', 'Foam', 4001, 'Sheet 50mm', 'White', 30.00, 1),
+(5, 'RM-Hardware-5001', 'Hardware', 5001, 'Box M6', 'Silver', 200.00, 1);
+
+INSERT INTO `productimage` (`productID`, `productImageUrl`) VALUES
+(1, 'https://cdn.example.com/products/desk-oak-01.jpg'),
+(2, 'https://cdn.example.com/products/chair-erg-01.jpg'),
+(3, 'https://cdn.example.com/products/sofa-l-01.jpg'),
+(4, 'https://cdn.example.com/products/cabinet-file-01.jpg'),
+(5, 'https://cdn.example.com/products/table-dining-01.jpg');
+
+INSERT INTO `productrawmaterialline` (`productID`, `rawMaterialID`, `rawMaterialNeedQty`, `createDate`, `lastModifyDate`) VALUES
+(1, 1, 2.50, '2026-05-26 08:00:00', '2026-05-26 08:00:00'),
+(2, 3, 8.00, '2026-05-26 08:00:00', '2026-05-26 08:00:00'),
+(2, 4, 1.20, '2026-05-26 08:00:00', '2026-05-26 08:00:00'),
+(3, 2, 12.00, '2026-05-26 08:00:00', '2026-05-26 08:00:00'),
+(3, 4, 3.50, '2026-05-26 08:00:00', '2026-05-26 08:00:00');
+
+INSERT INTO `rawmaterialsupplier` (`rawMaterialID`, `supplierID`, `supplierStyleNumber`, `basePrice`, `currencyID`, `unit`, `minimumOrderQuantity`, `quoteDate`, `status`) VALUES
+(1, 1, 'OAK-PLT-24', 450.00, 1, 'sheet', 10, '2026-01-01', 1),
+(2, 3, 'FAB-GRY-50', 120.00, 1, 'roll', 5, '2026-01-01', 1),
+(3, 2, 'CHR-TUBE-25', 35.00, 1, 'pcs', 50, '2026-01-01', 1),
+(4, 5, 'FOAM-50-W', 88.00, 1, 'sheet', 20, '2026-01-01', 1),
+(5, 4, 'HW-M6-BOX', 15.00, 1, 'box', 100, '2026-01-01', 1);
+
+INSERT INTO `rawmaterialwarehouse` (`rawMaterialID`, `warehouseID`, `physicalQuantity`, `reservedQuantity`, `purchasedQuantity`) VALUES
+(1, 2, 120.00, 10.00, 20.00),
+(2, 2, 8.00, 2.00, 15.00),
+(3, 2, 250.00, 30.00, 0.00),
+(4, 2, 45.00, 5.00, 10.00),
+(5, 2, 500.00, 50.00, 0.00);
+
+INSERT INTO `warehouseproduct` (`warehouseID`, `productID`, `physicalQuantity`, `reservedQuantity`, `purchasedQuantity`) VALUES
+(1, 1, 15.00, 2.00, 5.00),
+(1, 2, 80.00, 10.00, 20.00),
+(1, 3, 6.00, 1.00, 2.00),
+(4, 4, 25.00, 3.00, 0.00),
+(4, 5, 10.00, 0.00, 4.00);
+
+INSERT INTO `quotation` (`quotationID`, `quotationCode`, `sequenceNumber`, `staffID`, `customerID`, `currencyID`, `createDate`, `lastModifyDate`, `status`, `remark`) VALUES
+(1, 'QT-2026052601', 1, 2, 1, 1, '2026-05-26 08:00:00', '2026-05-26 08:00:00', 0, 'ABC office proposal'),
+(2, 'QT-2026052602', 1, 2, 2, 1, '2026-05-26 09:00:00', '2026-05-26 09:00:00', 1, 'Pacific Home quote'),
+(3, 'QT-2026052603', 1, 2, 3, 1, '2026-05-26 10:00:00', '2026-05-26 10:00:00', 2, 'Converted to SO-3'),
+(4, 'QT-2026052604', 1, 2, 4, 1, '2026-05-26 11:00:00', '2026-05-26 11:00:00', 0, 'Green Office chairs'),
+(5, 'QT-2026052605', 1, 2, 5, 1, '2026-05-26 12:00:00', '2026-05-26 12:00:00', 0, 'Elite draft quote');
+
+INSERT INTO `quotationproductline` (`quotationID`, `productID`, `price`, `quantity`, `discountAmount`) VALUES
+(1, 1, 3200.00, 2.00, 0.00),
+(2, 2, 1250.00, 20.00, 500.00),
+(3, 3, 5800.00, 1.00, 0.00),
+(4, 2, 1200.00, 50.00, 1000.00),
+(5, 5, 4500.00, 2.00, 200.00);
+
+INSERT INTO `salesorderproductline` (`salesOrderID`, `productID`, `price`, `orderQuantity`, `discountAmount`, `warehouseReservedQty`, `shippedQuantity`, `invoicedQuantity`) VALUES
+(1, 1, 3200.00, 2.00, 0.00, 2, 0, 0),
+(2, 2, 1250.00, 10.00, 0.00, 5, 3, 3),
+(3, 3, 5800.00, 1.00, 200.00, 1, 0, 0),
+(4, 2, 1250.00, 30.00, 500.00, 10, 10, 5),
+(5, 4, 980.00, 5.00, 0.00, 0, 0, 0);
+
+INSERT INTO `productionorder` (`productionOrderID`, `productionOrderCode`, `salesOrderID`, `staffID`, `createDate`, `estFinishDate`, `lastModifyDate`, `status`, `remark`) VALUES
+(1, 'PO-2026052601', 1, 3, '2026-05-26 08:00:00', '2026-06-15 00:00:00', '2026-05-26 08:00:00', 1, 'Desks for ABC'),
+(2, 'PO-2026052602', 2, 3, '2026-05-26 09:00:00', '2026-06-20 00:00:00', '2026-05-26 09:00:00', 1, 'Chairs batch 1'),
+(3, 'PO-2026052603', 3, 3, '2026-05-26 10:00:00', '2026-06-25 00:00:00', '2026-05-26 10:00:00', 0, 'Sofa order'),
+(4, 'PO-2026052604', 4, 3, '2026-05-26 11:00:00', '2026-06-10 00:00:00', '2026-05-26 11:00:00', 2, 'QC in progress'),
+(5, 'PO-2026052605', 5, 3, '2026-05-26 12:00:00', '2026-07-01 00:00:00', '2026-05-26 12:00:00', 0, 'Pending scheduling');
+
+INSERT INTO `productionorderproductline` (`ProductionOrderID`, `productID`, `productionQty`) VALUES
+(1, 1, 2),
+(2, 2, 10),
+(3, 3, 1),
+(4, 2, 30),
+(5, 4, 5);
+
+INSERT INTO `purchaseorder` (`purchaseOrderID`, `purchaseOrderCode`, `supplierID`, `staffID`, `relatedShortageReport`, `createDate`, `lastModifyDate`, `requestDeliveryDate`, `status`, `remark`) VALUES
+(1, 'PUR-2026052601', 1, 5, NULL, '2026-05-26 08:00:00', '2026-05-26 08:00:00', '2026-06-05', 4, 'Oak panels replenishment'),
+(2, 'PUR-2026052602', 3, 5, NULL, '2026-05-26 09:00:00', '2026-05-26 09:00:00', '2026-06-08', 4, 'Grey fabric order'),
+(3, 'PUR-2026052603', 2, 5, 1, '2026-05-26 10:00:00', '2026-05-26 10:00:00', '2026-06-01', 2, 'Chrome tubes urgent'),
+(4, 'PUR-2026052604', 5, 5, NULL, '2026-05-26 11:00:00', '2026-05-26 11:00:00', '2026-06-12', 1, 'Foam sheets'),
+(5, 'PUR-2026052605', 4, 5, NULL, '2026-05-26 12:00:00', '2026-05-26 12:00:00', '2026-06-15', 0, 'Hardware restock draft');
+
+INSERT INTO `purchaseorderrawmaterialline` (`purchaseOrderID`, `rawMaterialID`, `price`, `orderQuantity`, `receivedQuantity`) VALUES
+(1, 1, 450.00, 40.00, 20.00),
+(2, 2, 120.00, 15.00, 0.00),
+(3, 3, 35.00, 100.00, 50.00),
+(4, 4, 88.00, 25.00, 0.00),
+(5, 5, 15.00, 200.00, 0.00);
+
+INSERT INTO `shortagereport` (`shortageReportID`, `shortageReportCode`, `date`, `sequenceNumber`, `createDate`) VALUES
+(1, 'SR-20260526-01', '2026-05-26 07:00:00', 1, '2026-05-26 07:00:00'),
+(2, 'SR-20260526-02', '2026-05-26 07:30:00', 2, '2026-05-26 07:30:00'),
+(3, 'SR-20260526-03', '2026-05-26 08:00:00', 3, '2026-05-26 08:00:00'),
+(4, 'SR-20260526-04', '2026-05-26 08:30:00', 4, '2026-05-26 08:30:00'),
+(5, 'SR-20260526-05', '2026-05-26 09:00:00', 5, '2026-05-26 09:00:00');
+
+INSERT INTO `rawmaterialshortagereportline` (`shortageReportID`, `rawMaterialID`, `WarehousewarehouseID`, `totalShortageQuantity`) VALUES
+(1, 2, 2, 12.00),
+(2, 1, 2, 5.00),
+(3, 3, 2, 20.00),
+(4, 4, 2, 8.00),
+(5, 5, 2, 50.00);
+
+INSERT INTO `rawmaterialrequestnote` (`rawMaterialRequestNoteID`, `rawMaterialRequestNoteCode`, `ProductionOrderID`, `staffID`, `createDate`, `requestDate`, `remark`) VALUES
+(1, 'RMRN-2026052601', 1, 3, '2026-05-26 09:00:00', '2026-05-28', 'Oak for desk production'),
+(2, 'RMRN-2026052602', 2, 3, '2026-05-26 09:30:00', '2026-05-29', 'Metal and foam for chairs'),
+(3, 'RMRN-2026052603', 3, 3, '2026-05-26 10:00:00', '2026-06-01', 'Fabric for sofa'),
+(4, 'RMRN-2026052604', 4, 4, '2026-05-26 11:00:00', '2026-05-30', 'Bulk chair materials'),
+(5, 'RMRN-2026052605', 5, 3, '2026-05-26 12:00:00', '2026-06-05', 'Cabinet hardware');
+
+INSERT INTO `rawmaterialrequestnoterawmaterial_line` (`rawMaterialRequestNoteID`, `productID`, `rawMaterialID`, `rawMaterialRequestQuantity`) VALUES
+(1, 1, 1, 5.00),
+(2, 2, 3, 80.00),
+(3, 3, 2, 12.00),
+(4, 2, 4, 36.00),
+(5, 4, 5, 25.00);
+
+INSERT INTO `goodsreceivednote` (`goodsReceivedNoteID`, `goodsReceivedNoteCode`, `supplierID`, `PurchaseOrderID`, `staffID`, `createDate`, `lastModifyDate`, `status`, `remark`) VALUES
+(1, 'GRN-2026052601', 1, 1, 4, '2026-05-26 14:00:00', '2026-05-26 14:00:00', 2, 'Partial oak delivery'),
+(2, 'GRN-2026052602', 2, 3, 4, '2026-05-26 15:00:00', '2026-05-26 15:00:00', 2, 'Metal tubes received'),
+(3, 'GRN-2026052603', 3, 2, 4, '2026-05-26 16:00:00', '2026-05-26 16:00:00', 1, 'Fabric pending QC'),
+(4, 'GRN-2026052604', 4, 5, 4, '2026-05-26 17:00:00', '2026-05-26 17:00:00', 0, 'Hardware draft GRN'),
+(5, 'GRN-2026052605', 5, 4, 4, '2026-05-26 18:00:00', '2026-05-26 18:00:00', 0, 'Foam awaiting inspection');
+
+INSERT INTO `goodsreceivednoterawmaterialline` (`goodsReceivedNoteID`, `rawMaterialID`, `receivedQuantity`) VALUES
+(1, 1, 20.00),
+(2, 3, 50.00),
+(3, 2, 0.00),
+(4, 5, 0.00),
+(5, 4, 0.00);
+
+INSERT INTO `deliverynote` (`deliveryNoteID`, `deliveryNoteCode`, `customerID`, `SalesOrderID`, `staffID`, `createDate`, `lastModifyDate`, `WarehouseID`, `shipMethod`, `trackingNumber`, `remark`, `status`) VALUES
+(1, 'DN-2026052601', 2, 2, 4, '2026-05-26 14:00:00', '2026-05-26 14:00:00', 1, 'Truck', 'TRK-HK-001', 'Partial chair shipment', 2),
+(2, 'DN-2026052602', 4, 4, 4, '2026-05-26 15:00:00', '2026-05-26 15:00:00', 1, 'Courier', 'SF-99887766', 'Full chair delivery', 3),
+(3, 'DN-2026052603', 1, 1, 4, '2026-05-26 16:00:00', NULL, 4, 'Truck', 'TRK-HK-002', 'Desk scheduled', 0),
+(4, 'DN-2026052604', 3, 3, 4, '2026-05-26 17:00:00', NULL, 4, 'Van', 'VAN-554433', 'Sofa prep', 1),
+(5, 'DN-2026052605', 5, 5, 4, '2026-05-26 18:00:00', NULL, 1, 'Courier', 'DHL-112233', 'Draft DN', 0);
+
+INSERT INTO `deliveryproductline` (`deliveryNoteID`, `productID`, `shipQuantity`) VALUES
+(1, 2, 3),
+(2, 2, 10),
+(3, 1, 0),
+(4, 3, 0),
+(5, 4, 0);
+
+INSERT INTO `invoiceline` (`invoiceID`, `deliveryNoteID`, `productID`, `invoiceQuantity`, `amount`) VALUES
+(1, 3, 1, 0, 0.00),
+(2, 1, 2, 3, 3750.00),
+(3, 4, 3, 0, 0.00),
+(4, 2, 2, 10, 12000.00),
+(5, 5, 4, 0, 0.00);
+
+INSERT INTO `receiptvoucher` (`receiptVoucherID`, `receiptVoucherCode`, `cusomerID`, `staffID`, `createDate`, `lastModifyDate`, `paymentMethod`, `paymentMethodRef`, `paymentAmount`, `currencyID`, `paymentReceivedDate`, `status`, `remark`) VALUES
+(1, 'RV-2026052601', 1, 1, '2026-05-26 10:00:00', '2026-05-26 10:00:00', 'Bank Transfer', 'BT-20260526-001', 5000.00, 1, '2026-05-26', 1, 'ABC deposit'),
+(2, 'RV-2026052602', 2, 1, '2026-05-26 11:00:00', '2026-05-26 11:00:00', 'FPS', 'FPS-88776655', 3750.00, 1, '2026-05-26', 1, 'Pacific partial pay'),
+(3, 'RV-2026052603', 3, 1, '2026-05-26 12:00:00', '2026-05-26 12:00:00', 'Cheque', 'CHQ-334455', 2000.00, 1, '2026-05-27', 0, 'Urban Living cheque'),
+(4, 'RV-2026052604', 4, 1, '2026-05-26 13:00:00', '2026-05-26 13:00:00', 'Bank Transfer', 'BT-20260526-004', 12000.00, 1, '2026-05-26', 1, 'Green Office payment'),
+(5, 'RV-2026052605', 5, 1, '2026-05-26 14:00:00', '2026-05-26 14:00:00', 'TT', 'TT-55667788', 1000.00, 1, '2026-05-28', 0, 'Elite deposit pending');
+
+INSERT INTO `receiptvoucherinvoice` (`receiptVoucherID`, `invoiceID`, `receivedAmount`, `type`) VALUES
+(1, 1, 5000.00, 1),
+(2, 2, 3750.00, 2),
+(3, 3, 2000.00, 2),
+(4, 4, 12000.00, 3),
+(5, 5, 1000.00, 1);
+
+INSERT INTO `paymentvoucher` (`paymentVoucherID`, `paymentVoucherCode`, `supplierID`, `staffID`, `createDate`, `lastModifyDate`, `paymentMethod`, `paymentMethodRef`, `totalAmount`, `remark`, `status`) VALUES
+(1, 'PV-2026052601', 1, 1, '2026-05-26 10:00:00', '2026-05-26 10:00:00', 'Bank Transfer', 'PV-BT-001', 9000.00, 'Oak supplier payment', 1),
+(2, 'PV-2026052602', 2, 1, '2026-05-26 11:00:00', '2026-05-26 11:00:00', 'Bank Transfer', 'PV-BT-002', 1750.00, 'Metal Works partial', 1),
+(3, 'PV-2026052603', 3, 1, '2026-05-26 12:00:00', '2026-05-26 12:00:00', 'TT', 'PV-TT-003', 0.00, 'Fabric PO pending', 0),
+(4, 'PV-2026052604', 4, 1, '2026-05-26 13:00:00', '2026-05-26 13:00:00', 'Cheque', 'PV-CHQ-004', 3000.00, 'Hardware payment', 1),
+(5, 'PV-2026052605', 5, 1, '2026-05-26 14:00:00', '2026-05-26 14:00:00', 'Bank Transfer', 'PV-BT-005', 2200.00, 'Foam factory', 0);
+
+INSERT INTO `paymentvoucherpurchaseorder` (`paymentVoucherID`, `purchaseOrderID`, `type`, `payAmount`) VALUES
+(1, 1, 1, 9000.00),
+(2, 3, 2, 1750.00),
+(3, 2, 1, 0.00),
+(4, 5, 1, 3000.00),
+(5, 4, 1, 2200.00);
+
+INSERT INTO `systemdictionary_refundrequest` (`SystemDictionarydictionaryID`, `SystemDictionarycategory`, `SystemDictionarycodeValue`, `RefundRequestrefundRequestID`) VALUES
+(34, 'REFUND_METHOD', 1, 1),
+(35, 'REFUND_METHOD', 2, 2),
+(41, 'REFUND_REASON', 1, 1),
+(42, 'REFUND_REASON', 2, 2),
+(43, 'REFUND_REASON', 3, 3);
 
 --
 -- 转储表的索引
@@ -1087,121 +1335,121 @@ ALTER TABLE `warehouseproduct`
 -- 使用表AUTO_INCREMENT `contactperson`
 --
 ALTER TABLE `contactperson`
-  MODIFY `contactPersonID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识';
+  MODIFY `contactPersonID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `currency`
 --
 ALTER TABLE `currency`
-  MODIFY `currencyID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=2;
+  MODIFY `currencyID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `customer`
 --
 ALTER TABLE `customer`
-  MODIFY `customerID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=2;
+  MODIFY `customerID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `customerdeliveryaddress`
 --
 ALTER TABLE `customerdeliveryaddress`
-  MODIFY `addressID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识';
+  MODIFY `addressID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `deliverynote`
 --
 ALTER TABLE `deliverynote`
-  MODIFY `deliveryNoteID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `deliveryNoteID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `goodsreceivednote`
 --
 ALTER TABLE `goodsreceivednote`
-  MODIFY `goodsReceivedNoteID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `goodsReceivedNoteID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `invoice`
 --
 ALTER TABLE `invoice`
-  MODIFY `invoiceID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `invoiceID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `paymentvoucher`
 --
 ALTER TABLE `paymentvoucher`
-  MODIFY `paymentVoucherID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `paymentVoucherID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `product`
 --
 ALTER TABLE `product`
-  MODIFY `productID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=3;
+  MODIFY `productID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `productionorder`
 --
 ALTER TABLE `productionorder`
-  MODIFY `productionOrderID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `productionOrderID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `purchaseorder`
 --
 ALTER TABLE `purchaseorder`
-  MODIFY `purchaseOrderID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `purchaseOrderID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `quotation`
 --
 ALTER TABLE `quotation`
-  MODIFY `quotationID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `quotationID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `rawmaterial`
 --
 ALTER TABLE `rawmaterial`
-  MODIFY `rawMaterialID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `rawMaterialID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `rawmaterialrequestnote`
 --
 ALTER TABLE `rawmaterialrequestnote`
-  MODIFY `rawMaterialRequestNoteID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `rawMaterialRequestNoteID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `receiptvoucher`
 --
 ALTER TABLE `receiptvoucher`
-  MODIFY `receiptVoucherID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `receiptVoucherID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `refundrequest`
 --
 ALTER TABLE `refundrequest`
-  MODIFY `refundRequestID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=3;
+  MODIFY `refundRequestID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `salesorder`
 --
 ALTER TABLE `salesorder`
-  MODIFY `salesOrderID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `salesOrderID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `shortagereport`
 --
 ALTER TABLE `shortagereport`
-  MODIFY `shortageReportID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `shortageReportID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `staff`
 --
 ALTER TABLE `staff`
-  MODIFY `staffID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=2;
+  MODIFY `staffID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `supplier`
 --
 ALTER TABLE `supplier`
-  MODIFY `supplierID` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `supplierID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- 使用表AUTO_INCREMENT `systemdictionary`
@@ -1213,7 +1461,7 @@ ALTER TABLE `systemdictionary`
 -- 使用表AUTO_INCREMENT `warehouse`
 --
 ALTER TABLE `warehouse`
-  MODIFY `warehouseID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识';
+  MODIFY `warehouseID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=6;
 
 --
 -- 限制导出的表
