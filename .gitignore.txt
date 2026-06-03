@@ -1,0 +1,17 @@
+#VS缓存目录
+.vs/
+*.suo
+*.user
+
+#编译目录
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+
+#编译文件
+*.exe
+*.pdb
+*.cache
+*.dll
+*.log
