@@ -46,8 +46,8 @@ namespace Sales_user.Controllers
         {
             if (status.HasValue && status.Value >= 0)
             {
-                conditions.Add($"{column} = @status");
-                parameters.Add(new MySqlParameter("@status", status.Value));
+                conditions.Add($"{column} = @filterStatus");
+                parameters.Add(new MySqlParameter("@filterStatus", status.Value));
             }
         }
     }

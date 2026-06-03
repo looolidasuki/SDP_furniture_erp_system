@@ -24,14 +24,14 @@ namespace Sales_user.Controllers
         {
             string sql = @"INSERT INTO Quotation
                 (quotationCode, sequenceNumber, staffID, customerID, currencyID, status, remark)
-                VALUES (@code, @seq, @staffID, @customerID, @currencyID, @status, @remark)";
+                VALUES (@code, @seq, @staffID, @customerID, @currencyID, @quotationStatus, @remark)";
             return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
                 new MySqlParameter("@code", quotation.QuotationCode),
                 new MySqlParameter("@seq", quotation.SequenceNumber),
                 new MySqlParameter("@staffID", quotation.StaffID),
                 new MySqlParameter("@customerID", quotation.CustomerID),
                 new MySqlParameter("@currencyID", quotation.CurrencyID),
-                new MySqlParameter("@status", quotation.Status),
+                new MySqlParameter("@quotationStatus", quotation.Status),
                 new MySqlParameter("@remark", quotation.Remark ?? (object)System.DBNull.Value)
             });
         }
@@ -164,10 +164,10 @@ namespace Sales_user.Controllers
         public bool UpdateStatus(long quotationId, int status)
         {
             return DatabaseConnect.ExecuteNonQuery(
-                "UPDATE Quotation SET status = @status, lastModifyDate = NOW() WHERE quotationID = @id",
+                "UPDATE Quotation SET status = @quotationStatus, lastModifyDate = NOW() WHERE quotationID = @id",
                 new[]
                 {
-                    new MySqlParameter("@status", status),
+                    new MySqlParameter("@quotationStatus", status),
                     new MySqlParameter("@id", quotationId)
                 }) > 0;
         }

@@ -7,6 +7,9 @@ namespace Sales_user.Controllers
 {
     public class SalesWorkflowService
     {
+        /// <summary>Default finished-goods warehouse (seed: Kowloon Main WH).</summary>
+        public const long DefaultFinishedGoodsWarehouseId = 1;
+
         private readonly QuotationController _quotationCtrl = new QuotationController();
         private readonly SalesOrderController _salesOrderCtrl = new SalesOrderController();
         private readonly CustomerController _customerCtrl = new CustomerController();
@@ -32,32 +35,22 @@ namespace Sales_user.Controllers
 
             try
             {
+                var salesOrder = new SalesOrder
+                {
+                    SalesOrderCode = "SO-TEMP",
+                    CustomerID = quotation.CustomerID,
+                    StaffID = staffId,
+                    CurrencyCurrencyID = quotation.CurrencyID,
+                    DeliveryAddress = deliveryAddress,
+                    Discount = 0,
+                    Status = 0,
+                    Remark = "Converted from " + quotation.QuotationCode
+                };
+
                 long salesOrderId = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
                 {
-                    long soId = DatabaseConnect.ExecuteInsertReturnId(conn, trans,
-                        @"INSERT INTO SalesOrder
-                            (salesOrderCode, customerID, staffID, currencyCurrencyID, deliveryAddress,
-                             discountType, discount, status, remark)
-                          VALUES (@code, @customerID, @staffID, @currencyID, @address,
-                                  NULL, 0, @status, @remark)",
-                        new[]
-                        {
-                            new MySqlParameter("@code", "SO-TEMP"),
-                            new MySqlParameter("@customerID", quotation.CustomerID),
-                            new MySqlParameter("@staffID", staffId),
-                            new MySqlParameter("@currencyID", quotation.CurrencyID),
-                            new MySqlParameter("@address", deliveryAddress),
-                            new MySqlParameter("@status", 0),
-                            new MySqlParameter("@remark", "Converted from " + quotation.QuotationCode)
-                        });
-
-                    DatabaseConnect.ExecuteNonQuery(conn, trans,
-                        "UPDATE SalesOrder SET salesOrderCode = @code WHERE salesOrderID = @id",
-                        new[]
-                        {
-                            new MySqlParameter("@code", "SO-" + soId),
-                            new MySqlParameter("@id", soId)
-                        });
+                    long soId = _salesOrderCtrl.InsertInTransaction(conn, trans, salesOrder);
+                    _salesOrderCtrl.UpdateCodeAfterInsertInTransaction(conn, trans, soId);
 
                     foreach (DataRow row in lines.Rows)
                     {
@@ -65,19 +58,7 @@ namespace Sales_user.Controllers
                         decimal price = Convert.ToDecimal(row["price"]);
                         decimal qty = Convert.ToDecimal(row["quantity"]);
                         decimal discount = row["discountAmount"] == DBNull.Value ? 0 : Convert.ToDecimal(row["discountAmount"]);
-
-                        DatabaseConnect.ExecuteNonQuery(conn, trans,
-                            @"INSERT INTO SalesOrderProductLine
-                                (salesOrderID, productID, price, orderQuantity, discountAmount)
-                              VALUES (@soID, @productID, @price, @qty, @discount)",
-                            new[]
-                            {
-                                new MySqlParameter("@soID", soId),
-                                new MySqlParameter("@productID", productId),
-                                new MySqlParameter("@price", price),
-                                new MySqlParameter("@qty", qty),
-                                new MySqlParameter("@discount", discount)
-                            });
+                        _salesOrderCtrl.InsertProductLineInTransaction(conn, trans, soId, productId, price, qty, discount);
                     }
 
                     DatabaseConnect.ExecuteNonQuery(conn, trans,
@@ -108,6 +89,72 @@ namespace Sales_user.Controllers
             return WorkflowResult.Ok(salesOrderId, "Status change is valid.");
         }
 
+        public WorkflowResult ConfirmSalesOrder(long salesOrderId, long warehouseId = DefaultFinishedGoodsWarehouseId)
+        {
+            var order = _salesOrderCtrl.GetFullById(salesOrderId);
+            if (order == null)
+                return WorkflowResult.Fail("Sales order not found.");
+
+            if (order.Status != 0)
+                return WorkflowResult.Fail("Only draft sales orders can be confirmed.");
+
+            var lines = _salesOrderCtrl.GetProductLinesInternal(salesOrderId);
+            if (lines == null || lines.Rows.Count == 0)
+                return WorkflowResult.Fail("Sales order has no product lines.");
+
+            try
+            {
+                DatabaseConnect.ExecuteInTransaction<int>((conn, trans) =>
+                {
+                    foreach (DataRow row in lines.Rows)
+                    {
+                        long productId = Convert.ToInt64(row["productID"]);
+                        decimal orderQty = Convert.ToDecimal(row["orderQuantity"]);
+                        int reserveQty = GetReserveQtyForLine(conn, trans, warehouseId, productId, orderQty);
+
+                        DatabaseConnect.ExecuteNonQuery(conn, trans,
+                            @"UPDATE SalesOrderProductLine
+                              SET warehouseReservedQty = @reserved
+                              WHERE salesOrderID = @soID AND productID = @productID",
+                            new[]
+                            {
+                                new MySqlParameter("@reserved", reserveQty),
+                                new MySqlParameter("@soID", salesOrderId),
+                                new MySqlParameter("@productID", productId)
+                            });
+
+                        if (reserveQty > 0)
+                        {
+                            int updated = DatabaseConnect.ExecuteNonQuery(conn, trans,
+                                @"UPDATE WarehouseProduct
+                                  SET reservedQuantity = reservedQuantity + @qty
+                                  WHERE warehouseID = @wh AND productID = @productID",
+                                new[]
+                                {
+                                    new MySqlParameter("@qty", reserveQty),
+                                    new MySqlParameter("@wh", warehouseId),
+                                    new MySqlParameter("@productID", productId)
+                                });
+                            if (updated == 0)
+                                throw new InvalidOperationException(
+                                    "Product " + productId + " is not stocked in warehouse " + warehouseId + ".");
+                        }
+                    }
+
+                    DatabaseConnect.ExecuteNonQuery(conn, trans,
+                        "UPDATE SalesOrder SET status = 1, lastModifyDate = NOW() WHERE salesOrderID = @id",
+                        new[] { new MySqlParameter("@id", salesOrderId) });
+                    return 0;
+                });
+
+                return WorkflowResult.Ok(salesOrderId, "Sales order confirmed and warehouse stock reserved where available.");
+            }
+            catch (Exception ex)
+            {
+                return WorkflowResult.Fail("Confirm failed: " + ex.Message);
+            }
+        }
+
         public WorkflowResult CreateProductionFromSalesOrder(long salesOrderId, long staffId, DateTime estFinishDate)
         {
             var order = _salesOrderCtrl.GetFullById(salesOrderId);
@@ -117,69 +164,12 @@ namespace Sales_user.Controllers
             if (order.Status < 1)
                 return WorkflowResult.Fail("Sales order must be confirmed before creating a production order.");
 
-            var lines = _salesOrderCtrl.GetProductLinesInternal(salesOrderId);
-            if (lines == null || lines.Rows.Count == 0)
-                return WorkflowResult.Fail("Sales order has no product lines.");
-
             try
             {
-                long productionId = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
-                {
-                    long poId = DatabaseConnect.ExecuteInsertReturnId(conn, trans,
-                        @"INSERT INTO ProductionOrder
-                            (productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
-                          VALUES (@code, @soID, @staffID, @finish, @status, @remark)",
-                        new[]
-                        {
-                            new MySqlParameter("@code", "PO-TEMP"),
-                            new MySqlParameter("@soID", salesOrderId),
-                            new MySqlParameter("@staffID", staffId),
-                            new MySqlParameter("@finish", estFinishDate),
-                            new MySqlParameter("@status", 0),
-                            new MySqlParameter("@remark", "Generated from " + order.SalesOrderCode)
-                        });
-
-                    DatabaseConnect.ExecuteNonQuery(conn, trans,
-                        "UPDATE ProductionOrder SET productionOrderCode = @code WHERE productionOrderID = @id",
-                        new[]
-                        {
-                            new MySqlParameter("@code", "PO-" + poId),
-                            new MySqlParameter("@id", poId)
-                        });
-
-                    bool hasLines = false;
-                    foreach (DataRow row in lines.Rows)
-                    {
-                        decimal orderQty = Convert.ToDecimal(row["orderQuantity"]);
-                        int reserved = row["warehouseReservedQty"] == DBNull.Value ? 0 : Convert.ToInt32(row["warehouseReservedQty"]);
-                        int productionQty = (int)Math.Max(0, orderQty - reserved);
-                        if (productionQty <= 0) continue;
-
-                        long productId = Convert.ToInt64(row["productID"]);
-                        DatabaseConnect.ExecuteNonQuery(conn, trans,
-                            @"INSERT INTO ProductionOrderProductLine (ProductionOrderID, productID, productionQty)
-                              VALUES (@poID, @productID, @qty)",
-                            new[]
-                            {
-                                new MySqlParameter("@poID", poId),
-                                new MySqlParameter("@productID", productId),
-                                new MySqlParameter("@qty", productionQty)
-                            });
-                        hasLines = true;
-                    }
-
-                    if (!hasLines)
-                        throw new InvalidOperationException("No production quantity required for this sales order.");
-
-                    if (order.Status == 1)
-                    {
-                        DatabaseConnect.ExecuteNonQuery(conn, trans,
-                            "UPDATE SalesOrder SET status = 2, lastModifyDate = NOW() WHERE salesOrderID = @id",
-                            new[] { new MySqlParameter("@id", salesOrderId) });
-                    }
-
-                    return poId;
-                });
+                long productionId = _productionCtrl.CreateFromSalesOrder(
+                    salesOrderId, staffId, estFinishDate,
+                    "Generated from " + order.SalesOrderCode,
+                    advanceSalesOrderToProcessing: order.Status == 1);
 
                 return WorkflowResult.Ok(productionId, "Production order PO-" + productionId + " created.");
             }
@@ -187,6 +177,31 @@ namespace Sales_user.Controllers
             {
                 return WorkflowResult.Fail("Production creation failed: " + ex.Message);
             }
+        }
+
+        private static int GetReserveQtyForLine(
+            MySql.Data.MySqlClient.MySqlConnection conn,
+            MySql.Data.MySqlClient.MySqlTransaction trans,
+            long warehouseId,
+            long productId,
+            decimal orderQty)
+        {
+            object availableObj = DatabaseConnect.ExecuteScalar(conn, trans,
+                @"SELECT COALESCE(GREATEST(physicalQuantity - reservedQuantity, 0), 0)
+                  FROM WarehouseProduct
+                  WHERE warehouseID = @wh AND productID = @productID",
+                new[]
+                {
+                    new MySqlParameter("@wh", warehouseId),
+                    new MySqlParameter("@productID", productId)
+                });
+
+            decimal available = availableObj == null || availableObj == DBNull.Value
+                ? 0
+                : Convert.ToDecimal(availableObj);
+
+            int reserveQty = (int)Math.Min(Math.Floor(orderQty), Math.Floor(available));
+            return Math.Max(0, reserveQty);
         }
 
         private string ResolveDeliveryAddress(long customerId)

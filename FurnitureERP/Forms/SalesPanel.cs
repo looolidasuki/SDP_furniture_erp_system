@@ -107,7 +107,7 @@ namespace FurnitureERP.Forms
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a quotation first."); return; }
                         ConvertQuotationToSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
                     };
-                    return btnConvert;
+                    return new Control[] { btnConvert };
                 },
                 row => ShowQuotationViewDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
             return page;
@@ -124,13 +124,19 @@ namespace FurnitureERP.Forms
                 DictionaryService.Categories.SalesOrder,
                 grid =>
                 {
+                    var btnConfirm = UITheme.CreateSecondaryButton("Confirm Order");
+                    btnConfirm.Click += (s, e) =>
+                    {
+                        if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a sales order first."); return; }
+                        ConfirmSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                    };
                     var btnProduction = UITheme.CreateSecondaryButton("Create Production");
                     btnProduction.Click += (s, e) =>
                     {
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a sales order first."); return; }
                         CreateProductionFromSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
                     };
-                    return btnProduction;
+                    return new Control[] { btnConfirm, btnProduction };
                 },
                 row => ShowSalesOrderViewDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
             return page;
@@ -225,6 +231,29 @@ namespace FurnitureERP.Forms
             BuildUIRefresh();
         }
 
+        private void ConfirmSalesOrder(long salesOrderId)
+        {
+            if (!PermissionGuard.Ensure(PermissionModule.SalesOrder, PermissionAction.Edit, this)) return;
+            var order = _salesOrderCtrl.GetFullById(salesOrderId);
+            if (order == null) { UITheme.ShowWarning("Sales order not found."); return; }
+            if (order.Status != 0)
+            {
+                UITheme.ShowWarning("Only draft sales orders can be confirmed.");
+                return;
+            }
+            if (MessageBox.Show(
+                    "Confirm this sales order and reserve available finished-goods stock?",
+                    "Confirm Order",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+
+            var result = _salesWorkflow.ConfirmSalesOrder(salesOrderId);
+            if (result.Success) UITheme.ShowSuccess(result.Message);
+            else UITheme.ShowWarning(result.Message);
+            BuildUIRefresh();
+        }
+
         private void CreateProductionFromSalesOrder(long salesOrderId)
         {
             if (!PermissionGuard.Ensure(PermissionModule.ProductionOrder, PermissionAction.Create, this)) return;
@@ -232,6 +261,7 @@ namespace FurnitureERP.Forms
             var result = _salesWorkflow.CreateProductionFromSalesOrder(salesOrderId, staffId, DateTime.Today.AddDays(14));
             if (result.Success) UITheme.ShowSuccess(result.Message);
             else UITheme.ShowWarning(result.Message);
+            BuildUIRefresh();
         }
 
         private void OpenCustomerRow(DataGridViewRow row)
@@ -244,7 +274,7 @@ namespace FurnitureERP.Forms
             ShowSalesOrderViewDetailDialog(Convert.ToInt64(row.Cells[0].Value));
         }
 
-        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onEdit, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Button> extraButtonFactory = null, Action<DataGridViewRow> onViewDetail = null)
+        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onEdit, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Control[]> extraControlsFactory = null, Action<DataGridViewRow> onViewDetail = null)
         {
             Panel panel = new Panel { Dock = DockStyle.Fill };
 
@@ -287,11 +317,15 @@ namespace FurnitureERP.Forms
             toolbar.Controls.Add(btnRefresh);
             toolbar.Controls.Add(btnDetail);
             toolbar.Controls.Add(btnEdit);
-            if (extraButtonFactory != null)
+            if (extraControlsFactory != null)
             {
-                var extraBtn = extraButtonFactory(grid);
-                extraBtn.Location = new Point(btnEdit.Right + 10, 8);
-                toolbar.Controls.Add(extraBtn);
+                int x = btnEdit.Right + 10;
+                foreach (var extra in extraControlsFactory(grid))
+                {
+                    extra.Location = new Point(x, 8);
+                    toolbar.Controls.Add(extra);
+                    x = extra.Right + 10;
+                }
             }
 
             var filterBox = FilterBlockHelper.CreateFilterBlock(grid, $"{entity} Filters");
@@ -990,7 +1024,13 @@ namespace FurnitureERP.Forms
                 };
                 var txtDiscount = new TextBox { Text = (existing?.Discount ?? 0).ToString() };
                 var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.SalesOrder, existing?.Status ?? 0);
+                if (isEdit)
+                    DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.SalesOrder, existing?.Status ?? 0);
+                else
+                {
+                    DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.SalesOrder, 0);
+                    cmbStatus.Enabled = false;
+                }
                 var txtRemark = new TextBox { Multiline = true, Height = 70, Text = existing?.Remark ?? string.Empty };
                 var lblStaff = new Label { Text = AppSession.CurrentUser?.Username ?? "Current User", AutoSize = true, ForeColor = UITheme.TextDark };
                 var lblCurrency = new Label { Text = "Default Currency", AutoSize = true, ForeColor = UITheme.TextDark };
@@ -1193,7 +1233,7 @@ namespace FurnitureERP.Forms
                                 RequestedDeliveryDate = dtpRequestedDelivery.Value.Date,
                                 CustomerRefNumber = (cmbCustomerRefNumber.Text ?? "").Trim(),
                                 Discount = discount,
-                                Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus),
+                                Status = 0,
                                 Remark = txtRemark.Text.Trim()
                             };
                             long id = _salesOrderCtrl.Insert(so);
@@ -1307,6 +1347,8 @@ namespace FurnitureERP.Forms
                 FlatStyle = FlatStyle.Flat
             };
             grid.Columns.Add(productCol);
+            grid.Columns.Add("AvailableStock", "Available Stock");
+            grid.Columns["AvailableStock"].ReadOnly = true;
             grid.Columns.Add("Price", "Price");
             grid.Columns.Add("Quantity", "Quantity");
             grid.Columns.Add("Discount", "Discount");
@@ -1337,6 +1379,7 @@ namespace FurnitureERP.Forms
                 if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
                 if (!string.Equals(grid.Columns[e.ColumnIndex].Name, "ProductID", StringComparison.OrdinalIgnoreCase)) return;
                 ApplySalesOrderFixedUnitPrice(grid, e.RowIndex);
+                ApplySalesOrderAvailableStock(grid, e.RowIndex);
             };
             grid.CurrentCellDirtyStateChanged += (s, e) =>
             {
@@ -1416,12 +1459,38 @@ namespace FurnitureERP.Forms
                 decimal qty = row.Table.Columns.Contains("quantity")
                     ? Convert.ToDecimal(row["quantity"])
                     : Convert.ToDecimal(row["orderQuantity"]);
-                grid.Rows.Add(
-                    Convert.ToInt64(row["productID"]),
-                    Convert.ToDecimal(row["price"]),
-                    qty,
-                    discount);
+                long productId = Convert.ToInt64(row["productID"]);
+                string available = TryGetAvailableStockFromPicker(grid, productId);
+                if (grid.Columns.Contains("AvailableStock"))
+                    grid.Rows.Add(productId, available, Convert.ToDecimal(row["price"]), qty, discount);
+                else
+                    grid.Rows.Add(productId, Convert.ToDecimal(row["price"]), qty, discount);
             }
+        }
+
+        private static string TryGetAvailableStockFromPicker(DataGridView grid, long productId)
+        {
+            if (!grid.Columns.Contains("ProductID")) return "0";
+            var productCol = grid.Columns["ProductID"] as DataGridViewComboBoxColumn;
+            var dt = productCol?.DataSource as DataTable;
+            if (dt == null || !dt.Columns.Contains("Available Stock")) return "0";
+            foreach (DataRow dr in dt.Rows)
+            {
+                if (dr["Product ID"] == DBNull.Value) continue;
+                if (Convert.ToInt64(dr["Product ID"]) != productId) continue;
+                return dr["Available Stock"] == DBNull.Value ? "0" : Convert.ToDecimal(dr["Available Stock"]).ToString("N2");
+            }
+            return "0";
+        }
+
+        private void ApplySalesOrderAvailableStock(DataGridView grid, int rowIndex)
+        {
+            if (!grid.Columns.Contains("AvailableStock") || !grid.Columns.Contains("ProductID")) return;
+            if (rowIndex < 0 || rowIndex >= grid.Rows.Count) return;
+            var cell = grid.Rows[rowIndex].Cells["ProductID"];
+            if (cell?.Value == null) return;
+            if (!long.TryParse(cell.Value.ToString(), out long productId) || productId <= 0) return;
+            grid.Rows[rowIndex].Cells["AvailableStock"].Value = TryGetAvailableStockFromPicker(grid, productId);
         }
 
         private static List<(long ProductID, decimal Price, decimal Quantity, decimal Discount)> ReadProductLinesFromGrid(DataGridView grid)

@@ -27,24 +27,44 @@ namespace Sales_user.Controllers
 
         public long Insert(SalesOrder order)
         {
-            string sql = @"INSERT INTO SalesOrder
+            return DatabaseConnect.ExecuteInsertReturnId(
+                BuildInsertHeaderSql(),
+                BuildInsertHeaderParameters(order));
+        }
+
+        public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, SalesOrder order)
+        {
+            return DatabaseConnect.ExecuteInsertReturnId(conn, trans,
+                BuildInsertHeaderSql(),
+                BuildInsertHeaderParameters(order));
+        }
+
+        private static string BuildInsertHeaderSql()
+        {
+            // Use @soStatus — not @status (MySQL treats @status as a user variable, often NULL).
+            return @"INSERT INTO SalesOrder
                 (salesOrderCode, customerID, staffID, currencyCurrencyID, deliveryAddress,
                  requestedDeliveryDate, customerRefNumber, discountType, discount, status, remark)
                 VALUES (@code, @customerID, @staffID, @currencyID, @address,
-                        @requestedDeliveryDate, @customerRefNumber, @discountType, @discount, @status, @remark)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                        @requestedDeliveryDate, @customerRefNumber, @discountType, @discount, @soStatus, @remark)";
+        }
+
+        private static MySqlParameter[] BuildInsertHeaderParameters(SalesOrder order)
+        {
+            return new[]
+            {
                 new MySqlParameter("@code", order.SalesOrderCode),
                 new MySqlParameter("@customerID", order.CustomerID),
                 new MySqlParameter("@staffID", order.StaffID),
                 new MySqlParameter("@currencyID", order.CurrencyCurrencyID),
                 new MySqlParameter("@address", order.DeliveryAddress),
-                new MySqlParameter("@requestedDeliveryDate", order.RequestedDeliveryDate ?? (object)System.DBNull.Value),
-                new MySqlParameter("@customerRefNumber", string.IsNullOrWhiteSpace(order.CustomerRefNumber) ? (object)System.DBNull.Value : order.CustomerRefNumber.Trim()),
-                new MySqlParameter("@discountType", order.DiscountType ?? (object)System.DBNull.Value),
+                new MySqlParameter("@requestedDeliveryDate", order.RequestedDeliveryDate ?? (object)DBNull.Value),
+                new MySqlParameter("@customerRefNumber", string.IsNullOrWhiteSpace(order.CustomerRefNumber) ? (object)DBNull.Value : order.CustomerRefNumber.Trim()),
+                new MySqlParameter("@discountType", order.DiscountType ?? (object)DBNull.Value),
                 new MySqlParameter("@discount", order.Discount),
-                new MySqlParameter("@status", order.Status),
-                new MySqlParameter("@remark", order.Remark ?? (object)System.DBNull.Value)
-            });
+                new MySqlParameter("@soStatus", order.Status),
+                new MySqlParameter("@remark", order.Remark ?? (object)DBNull.Value)
+            };
         }
 
         public void UpdateCodeAfterInsert(long salesOrderId)
@@ -77,16 +97,55 @@ namespace Sales_user.Controllers
 
         public bool InsertProductLine(long salesOrderId, long productId, decimal price, decimal orderQty, decimal discount)
         {
-            string sql = @"INSERT INTO SalesOrderProductLine
-                (salesOrderID, productID, price, orderQuantity, discountAmount)
-                VALUES (@soID, @productID, @price, @qty, @discount)";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+            return DatabaseConnect.ExecuteNonQuery(
+                BuildInsertProductLineSql(),
+                BuildInsertProductLineParameters(salesOrderId, productId, price, orderQty, discount)) > 0;
+        }
+
+        public void InsertProductLineInTransaction(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long salesOrderId,
+            long productId,
+            decimal price,
+            decimal orderQty,
+            decimal discount)
+        {
+            DatabaseConnect.ExecuteNonQuery(conn, trans,
+                BuildInsertProductLineSql(),
+                BuildInsertProductLineParameters(salesOrderId, productId, price, orderQty, discount));
+        }
+
+        private static string BuildInsertProductLineSql()
+        {
+            return @"INSERT INTO SalesOrderProductLine
+                (salesOrderID, productID, price, orderQuantity, discountAmount,
+                 warehouseReservedQty, shippedQuantity, invoicedQuantity)
+                VALUES (@soID, @productID, @price, @qty, @discount, 0, 0, 0)";
+        }
+
+        private static MySqlParameter[] BuildInsertProductLineParameters(
+            long salesOrderId, long productId, decimal price, decimal orderQty, decimal discount)
+        {
+            return new[]
+            {
                 new MySqlParameter("@soID", salesOrderId),
                 new MySqlParameter("@productID", productId),
                 new MySqlParameter("@price", price),
                 new MySqlParameter("@qty", orderQty),
                 new MySqlParameter("@discount", discount)
-            }) > 0;
+            };
+        }
+
+        public void UpdateCodeAfterInsertInTransaction(MySqlConnection conn, MySqlTransaction trans, long salesOrderId)
+        {
+            DatabaseConnect.ExecuteNonQuery(conn, trans,
+                "UPDATE SalesOrder SET salesOrderCode = @code WHERE salesOrderID = @id",
+                new[]
+                {
+                    new MySqlParameter("@code", "SO-" + salesOrderId),
+                    new MySqlParameter("@id", salesOrderId)
+                });
         }
 
         public bool DeleteProductLines(long salesOrderId)
@@ -131,12 +190,27 @@ namespace Sales_user.Controllers
                                   p.unit AS 'Unit',
                                   spl.price AS 'Unit Price',
                                   spl.orderQuantity AS 'Qty',
+                                  spl.warehouseReservedQty AS 'Reserved',
+                                  spl.shippedQuantity AS 'Shipped',
+                                  spl.invoicedQuantity AS 'Invoiced',
+                                  COALESCE(st.available, 0) AS 'Available Stock',
                                   spl.discountAmount AS 'Discount',
                                   (spl.price * spl.orderQuantity - spl.discountAmount) AS 'Amount'
                            FROM SalesOrderProductLine spl
                            INNER JOIN Product p ON spl.productID = p.productID
+                           LEFT JOIN (
+                               SELECT productID,
+                                      SUM(GREATEST(physicalQuantity - reservedQuantity, 0)) AS available
+                               FROM WarehouseProduct
+                               GROUP BY productID
+                           ) st ON p.productID = st.productID
                            WHERE spl.salesOrderID = @id";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", salesOrderId) });
+        }
+
+        public DataTable GetSalesOrdersForProductionPicker()
+        {
+            return new ProductionOrderController().GetSalesOrdersForProductionPicker();
         }
 
         public DataTable GetHeaderDetail(long salesOrderId)
@@ -277,14 +351,14 @@ namespace Sales_user.Controllers
 
         public bool Update(SalesOrder order)
         {
-            string sql = @"UPDATE SalesOrder SET deliveryAddress = @address, status = @status,
+            string sql = @"UPDATE SalesOrder SET deliveryAddress = @address, status = @soStatus,
                            requestedDeliveryDate = @requestedDeliveryDate,
                            customerRefNumber = @customerRefNumber,
                            discount = @discount, remark = @remark, lastModifyDate = NOW()
                            WHERE salesOrderID = @id";
             return DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@address", order.DeliveryAddress),
-                new MySqlParameter("@status", order.Status),
+                new MySqlParameter("@soStatus", order.Status),
                 new MySqlParameter("@requestedDeliveryDate", order.RequestedDeliveryDate ?? (object)System.DBNull.Value),
                 new MySqlParameter("@customerRefNumber", string.IsNullOrWhiteSpace(order.CustomerRefNumber) ? (object)System.DBNull.Value : order.CustomerRefNumber.Trim()),
                 new MySqlParameter("@discount", order.Discount),

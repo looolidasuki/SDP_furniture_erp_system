@@ -1,5 +1,6 @@
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
+using System;
 using System.Data;
 
 namespace Sales_user.Controllers
@@ -53,7 +54,78 @@ namespace Sales_user.Controllers
 
         public DataTable GetProductsForPicker()
         {
-            return GetAllProducts();
+            return GetProductsForPickerWithStock();
+        }
+
+        public DataTable GetProductsForPickerWithStock(long warehouseId = 0)
+        {
+            string sql = @"SELECT p.productID AS 'Product ID',
+                                  p.productCode AS 'Product Code',
+                                  p.category AS 'Category',
+                                  p.styleNumber AS 'Style Number',
+                                  p.size AS 'Size',
+                                  p.color AS 'Color',
+                                  p.basePriceByCurrency AS 'Base Price',
+                                  p.unit AS 'Unit',
+                                  p.status AS 'Status',
+                                  COALESCE(ws.available, agg.available, 0) AS 'Available Stock'
+                           FROM Product p
+                           LEFT JOIN (
+                               SELECT productID,
+                                      SUM(GREATEST(physicalQuantity - reservedQuantity, 0)) AS available
+                               FROM WarehouseProduct
+                               GROUP BY productID
+                           ) agg ON p.productID = agg.productID
+                           LEFT JOIN (
+                               SELECT productID,
+                                      GREATEST(physicalQuantity - reservedQuantity, 0) AS available
+                               FROM WarehouseProduct
+                               WHERE warehouseID = @wh
+                           ) ws ON p.productID = ws.productID
+                           WHERE p.status = 1 OR p.status IS NULL
+                           ORDER BY p.productCode";
+            return DatabaseConnect.ExecuteQuery(sql, new[]
+            {
+                new MySqlParameter("@wh", warehouseId > 0 ? warehouseId : SalesWorkflowService.DefaultFinishedGoodsWarehouseId)
+            });
+        }
+
+        public string GetProductImageUrl(long productId)
+        {
+            object url = DatabaseConnect.ExecuteScalar(
+                "SELECT productImageUrl FROM productimage WHERE productID = @id LIMIT 1",
+                new[] { new MySqlParameter("@id", productId) });
+            return url == null || url == DBNull.Value ? null : url.ToString();
+        }
+
+        public void UpsertProductImageUrl(long productId, string imageUrl)
+        {
+            if (string.IsNullOrWhiteSpace(imageUrl))
+            {
+                DatabaseConnect.ExecuteNonQuery(
+                    "DELETE FROM productimage WHERE productID = @id",
+                    new[] { new MySqlParameter("@id", productId) });
+                return;
+            }
+
+            int updated = DatabaseConnect.ExecuteNonQuery(
+                "UPDATE productimage SET productImageUrl = @url WHERE productID = @id",
+                new[]
+                {
+                    new MySqlParameter("@url", imageUrl.Trim()),
+                    new MySqlParameter("@id", productId)
+                });
+
+            if (updated == 0)
+            {
+                DatabaseConnect.ExecuteNonQuery(
+                    "INSERT INTO productimage (productID, productImageUrl) VALUES (@id, @url)",
+                    new[]
+                    {
+                        new MySqlParameter("@id", productId),
+                        new MySqlParameter("@url", imageUrl.Trim())
+                    });
+            }
         }
 
         public Product GetByCode(string productCode)
