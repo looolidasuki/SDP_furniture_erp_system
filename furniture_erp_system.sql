@@ -75,6 +75,8 @@ INSERT INTO `currency` (`currencyID`, `currencyCode`, `currencySymbol`, `rateToB
 
 CREATE TABLE `customer` (
   `customerID` bigint(20) NOT NULL COMMENT '自增唯一标识',
+  `customerCode` varchar(30) DEFAULT NULL COMMENT '客户编号，供快速查询',
+  `customerRefNumber` varchar(50) DEFAULT NULL COMMENT '客户参考编号（格式：PO-PL-#########）',
   `customerName` varchar(255) DEFAULT NULL COMMENT '客户名称',
   `billingAddress` varchar(255) DEFAULT NULL COMMENT '账单地址',
   `paymentTerm` varchar(100) DEFAULT NULL COMMENT '付款条款',
@@ -86,12 +88,12 @@ CREATE TABLE `customer` (
 -- 转存表中的数据 `customer`
 --
 
-INSERT INTO `customer` (`customerID`, `customerName`, `billingAddress`, `paymentTerm`, `createDate`, `lastModifyDate`) VALUES
-(1, 'ABC Furniture Ltd', '88 Queensway, Central, Hong Kong', '30 Days', '2026-05-25 17:16:09', '2026-05-25 17:16:09'),
-(2, 'Pacific Home Co', '12 Harbour Road, Wanchai, HK', '60 Days', '2026-05-26 09:00:00', '2026-05-26 09:00:00'),
-(3, 'Urban Living Studio', '5 Science Park, Shatin, NT', 'Cash', '2026-05-26 10:00:00', '2026-05-26 10:00:00'),
-(4, 'Green Office Supplies', '200 Nathan Road, Mongkok, HK', '30 Days', '2026-05-26 11:00:00', '2026-05-26 11:00:00'),
-(5, 'Elite Interiors HK', '1 Austin Road, Tsim Sha Tsui, HK', '90 Days', '2026-05-26 12:00:00', '2026-05-26 12:00:00');
+INSERT INTO `customer` (`customerID`, `customerCode`, `customerRefNumber`, `customerName`, `billingAddress`, `paymentTerm`, `createDate`, `lastModifyDate`) VALUES
+(1, 'CU-000000001', 'PO-PL-000000001', 'ABC Furniture Ltd', '88 Queensway, Central, Hong Kong', '30 Days', '2026-05-25 17:16:09', '2026-05-25 17:16:09'),
+(2, 'CU-000000002', 'PO-PL-000000002', 'Pacific Home Co', '12 Harbour Road, Wanchai, HK', '60 Days', '2026-05-26 09:00:00', '2026-05-26 09:00:00'),
+(3, 'CU-000000003', 'PO-PL-000000003', 'Urban Living Studio', '5 Science Park, Shatin, NT', 'Cash', '2026-05-26 10:00:00', '2026-05-26 10:00:00'),
+(4, 'CU-000000004', 'PO-PL-000000004', 'Green Office Supplies', '200 Nathan Road, Mongkok, HK', '30 Days', '2026-05-26 11:00:00', '2026-05-26 11:00:00'),
+(5, 'CU-000000005', 'PO-PL-000000005', 'Elite Interiors HK', '1 Austin Road, Tsim Sha Tsui, HK', '90 Days', '2026-05-26 12:00:00', '2026-05-26 12:00:00');
 
 -- --------------------------------------------------------
 
@@ -361,7 +363,9 @@ CREATE TABLE `purchaseorder` (
   `lastModifyDate` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `requestDeliveryDate` date NOT NULL COMMENT '约束供货商到料交付的死线日期',
   `status` int(10) NOT NULL,
-  `remark` varchar(255) DEFAULT NULL
+  `remark` varchar(255) DEFAULT NULL,
+  `paymentType` int(10) DEFAULT NULL COMMENT '付款类型（字典 FINANCIAL_CLEARING_TYPE）',
+  `payAmount` decimal(12,2) DEFAULT 0.00 COMMENT '本次付款金额'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='上游供应链原材料采购订单';
 
 -- --------------------------------------------------------
@@ -533,9 +537,10 @@ CREATE TABLE `receiptvoucher` (
 
 CREATE TABLE `receiptvoucherinvoice` (
   `receiptVoucherID` bigint(20) NOT NULL,
-  `invoiceID` bigint(20) NOT NULL,
-  `receivedAmount` decimal(10,2) NOT NULL COMMENT '这笔收款核销拆分拨给该发票的额度。SUM(receivedAmount) 必须等于 receiptVoucher.paymentAmount',
-  `type` int(10) NOT NULL COMMENT '核销阶段类型：deposit, partial, final, exchangeLoss(汇损结转)'
+  `lineNo` int(10) NOT NULL COMMENT 'Allocation line sequence per receipt voucher',
+  `invoiceID` bigint(20) DEFAULT NULL COMMENT 'NULL for exchange-loss lines (type=4)',
+  `receivedAmount` decimal(10,2) NOT NULL COMMENT 'Amount allocated on this line; SUM(lines) should equal receiptVoucher.paymentAmount',
+  `type` int(10) NOT NULL COMMENT '核销阶段: deposit, partial, final, exchangeLoss'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='财务应收实收关联核销表';
 
 -- --------------------------------------------------------
@@ -584,11 +589,13 @@ CREATE TABLE `salesorder` (
   `staffID` bigint(20) NOT NULL,
   `currencyCurrencyID` bigint(20) NOT NULL COMMENT '交易币种',
   `deliveryAddress` varchar(255) NOT NULL COMMENT '原图标记为date属笔误，修正为字符串存放发货地址',
+  `requestedDeliveryDate` date DEFAULT NULL COMMENT '客户期望交付日期',
   `createDate` timestamp NOT NULL DEFAULT current_timestamp(),
   `lastModifyDate` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `discountType` varchar(30) DEFAULT NULL COMMENT '折扣类型分类',
   `discount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '总单减免折扣',
   `status` int(10) NOT NULL COMMENT '状态机控制：草稿、已锁定、生产中、发货完成等',
+  `customerRefNumber` varchar(50) DEFAULT NULL COMMENT '客户参考号（格式：PO-PL-#########）',
   `remark` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='核心销售订单表';
 
@@ -596,12 +603,12 @@ CREATE TABLE `salesorder` (
 -- 转存表中的数据 `salesorder`
 --
 
-INSERT INTO `salesorder` (`salesOrderID`, `salesOrderCode`, `customerID`, `staffID`, `currencyCurrencyID`, `deliveryAddress`, `createDate`, `lastModifyDate`, `discountType`, `discount`, `status`, `remark`) VALUES
-(1, 'SO-2026052601', 1, 2, 1, 'Flat B, 5/F, Kwun Tong Industrial Building', '2026-05-25 17:17:02', '2026-05-25 17:17:02', 'Percentage', 500.00, 1, 'Office fit-out package for ABC Furniture.'),
-(2, 'SO-2026052602', 2, 2, 1, 'Warehouse 3, Tuen Mun Logistics Centre', '2026-05-25 20:05:57', '2026-05-25 20:05:57', NULL, 0.00, 1, 'Pacific Home showroom order.'),
-(3, 'SO-2026052603', 3, 2, 1, 'Shop 12, Festival Walk, Kowloon Tong', '2026-05-26 09:00:00', '2026-05-26 09:00:00', 'Fixed Amount', 200.00, 2, 'Urban Living retail stock.'),
-(4, 'SO-2026052604', 4, 2, 1, 'Loading Bay, Mongkok Commercial Tower', '2026-05-26 10:00:00', '2026-05-26 10:00:00', NULL, 0.00, 1, 'Green Office bulk chairs.'),
-(5, 'SO-2026052605', 5, 2, 1, '15/F, TST Plaza, Tsim Sha Tsui', '2026-05-26 11:00:00', '2026-05-26 11:00:00', NULL, 100.00, 0, 'Elite Interiors draft order.');
+INSERT INTO `salesorder` (`salesOrderID`, `salesOrderCode`, `customerID`, `staffID`, `currencyCurrencyID`, `deliveryAddress`, `requestedDeliveryDate`, `createDate`, `lastModifyDate`, `discountType`, `discount`, `status`, `customerRefNumber`, `remark`) VALUES
+(1, 'SO-2026052601', 1, 2, 1, 'Flat B, 5/F, Kwun Tong Industrial Building', NULL, '2026-05-25 17:17:02', '2026-05-25 17:17:02', 'Percentage', 500.00, 1, 'PO-PL-000000001', 'Office fit-out package for ABC Furniture.'),
+(2, 'SO-2026052602', 2, 2, 1, 'Warehouse 3, Tuen Mun Logistics Centre', NULL, '2026-05-25 20:05:57', '2026-05-25 20:05:57', NULL, 0.00, 1, 'PO-PL-000000002', 'Pacific Home showroom order.'),
+(3, 'SO-2026052603', 3, 2, 1, 'Shop 12, Festival Walk, Kowloon Tong', NULL, '2026-05-26 09:00:00', '2026-05-26 09:00:00', 'Fixed Amount', 200.00, 2, 'PO-PL-000000003', 'Urban Living retail stock.'),
+(4, 'SO-2026052604', 4, 2, 1, 'Loading Bay, Mongkok Commercial Tower', NULL, '2026-05-26 10:00:00', '2026-05-26 10:00:00', NULL, 0.00, 1, 'PO-PL-000000004', 'Green Office bulk chairs.'),
+(5, 'SO-2026052605', 5, 2, 1, '15/F, TST Plaza, Tsim Sha Tsui', NULL, '2026-05-26 11:00:00', '2026-05-26 11:00:00', NULL, 100.00, 0, 'PO-PL-000000005', 'Elite Interiors draft order.');
 
 -- --------------------------------------------------------
 
@@ -619,6 +626,41 @@ CREATE TABLE `salesorderproductline` (
   `shippedQuantity` int(10) NOT NULL DEFAULT 0 COMMENT '已发货交付累计数',
   `invoicedQuantity` int(10) NOT NULL DEFAULT 0 COMMENT '已开具发票累计数'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='销售订单商品货品细项';
+
+-- --------------------------------------------------------
+
+--
+-- 表的结构 `replyslip`
+--
+
+CREATE TABLE `replyslip` (
+  `replySlipID` bigint(20) NOT NULL,
+  `replySlipCode` varchar(30) NOT NULL COMMENT '模式 RS-+ID',
+  `salesOrderID` bigint(20) NOT NULL COMMENT '来源销售订单',
+  `customerID` bigint(20) NOT NULL COMMENT '客户',
+  `staffID` bigint(20) NOT NULL COMMENT '经办员工',
+  `currencyID` bigint(20) NOT NULL COMMENT '币种',
+  `signedBy` varchar(100) DEFAULT NULL COMMENT '签收/回签人',
+  `signedDate` date DEFAULT NULL COMMENT '签收/回签日期',
+  `createDate` timestamp NOT NULL DEFAULT current_timestamp(),
+  `lastModifyDate` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `status` int(10) NOT NULL COMMENT 'Reply Slip 状态',
+  `remark` varchar(255) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户订单回签回条主表';
+
+-- --------------------------------------------------------
+
+--
+-- 表的结构 `replyslipproductline`
+--
+
+CREATE TABLE `replyslipproductline` (
+  `replySlipID` bigint(20) NOT NULL,
+  `productID` bigint(20) NOT NULL,
+  `price` decimal(10,2) NOT NULL COMMENT '回签确认单价',
+  `quantity` decimal(10,2) NOT NULL COMMENT '回签确认数量',
+  `discountAmount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '回签确认折让'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='客户订单回签回条明细';
 
 -- --------------------------------------------------------
 
@@ -659,7 +701,7 @@ CREATE TABLE `staff` (
 --
 
 INSERT INTO `staff` (`staffID`, `username`, `password`, `title`, `department`, `firstName`, `lastName`, `employDate`, `phone`, `email`, `status`) VALUES
-(1, 'admin', '123456', 'Manager', 'Finance', 'John', 'Doe', '2026-01-15', '21234567', 'john.doe@erp.com', 1),
+(1, 'admin', '123456', 'Super User', 'Super User', 'John', 'Doe', '2026-01-15', '21234567', 'john.doe@erp.com', 1),
 (2, 'sales01', '123456', 'Officer', 'Sales', 'Mary', 'Chan', '2026-02-01', '29876543', 'mary.chan@erp.com', 1),
 (3, 'prod01', '123456', 'Officer', 'Production', 'Peter', 'Lam', '2026-02-15', '25551234', 'peter.lam@erp.com', 1),
 (4, 'wh01', '123456', 'Clerk', 'Warehouse', 'Sandy', 'Yuen', '2026-03-01', '26667890', 'sandy.yuen@erp.com', 1),
@@ -775,7 +817,11 @@ INSERT INTO `systemdictionary` (`dictionaryID`, `category`, `codeValue`, `displa
 (71, 'FINANCIAL_CLEARING_TYPE', 4, 'Exchange Loss', 4),
 (72, 'RAW_MATERIAL_STATUS', 1, 'Active', 1),
 (73, 'RAW_MATERIAL_STATUS', 0, 'Inactive', 2),
-(74, 'RAW_MATERIAL_STATUS', 2, 'Below Safety Stock', 3);
+(74, 'RAW_MATERIAL_STATUS', 2, 'Below Safety Stock', 3),
+(75, 'REPLY_SLIP_STATUS', 0, 'Draft', 1),
+(76, 'REPLY_SLIP_STATUS', 1, 'Sent', 2),
+(77, 'REPLY_SLIP_STATUS', 2, 'Signed', 3),
+(78, 'REPLY_SLIP_STATUS', 3, 'Rejected', 4);
 
 -- --------------------------------------------------------
 
@@ -897,6 +943,20 @@ INSERT INTO `salesorderproductline` (`salesOrderID`, `productID`, `price`, `orde
 (4, 2, 1250.00, 30.00, 500.00, 10, 10, 5),
 (5, 4, 980.00, 5.00, 0.00, 0, 0, 0);
 
+INSERT INTO `replyslip` (`replySlipID`, `replySlipCode`, `salesOrderID`, `customerID`, `staffID`, `currencyID`, `signedBy`, `signedDate`, `createDate`, `lastModifyDate`, `status`, `remark`) VALUES
+(1, 'RS-2026052601', 1, 1, 2, 1, 'Alice Wong', '2026-05-26', '2026-05-26 10:30:00', '2026-05-26 10:30:00', 2, 'Customer signed and confirmed.'),
+(2, 'RS-2026052602', 2, 2, 2, 1, 'Ben Lee', '2026-05-26', '2026-05-26 11:30:00', '2026-05-26 11:30:00', 1, 'Sent for final signature.'),
+(3, 'RS-2026052603', 3, 3, 2, 1, NULL, NULL, '2026-05-26 12:30:00', '2026-05-26 12:30:00', 0, 'Draft reply slip.'),
+(4, 'RS-2026052604', 4, 4, 2, 1, 'David Cheung', '2026-05-26', '2026-05-26 13:30:00', '2026-05-26 13:30:00', 3, 'Rejected due to quantity mismatch.'),
+(5, 'RS-2026052605', 5, 5, 2, 1, NULL, NULL, '2026-05-26 14:30:00', '2026-05-26 14:30:00', 0, 'Pending customer confirmation.');
+
+INSERT INTO `replyslipproductline` (`replySlipID`, `productID`, `price`, `quantity`, `discountAmount`) VALUES
+(1, 1, 3200.00, 2.00, 0.00),
+(2, 2, 1250.00, 10.00, 0.00),
+(3, 3, 5800.00, 1.00, 200.00),
+(4, 2, 1250.00, 25.00, 500.00),
+(5, 4, 980.00, 5.00, 0.00);
+
 INSERT INTO `productionorder` (`productionOrderID`, `productionOrderCode`, `salesOrderID`, `staffID`, `createDate`, `estFinishDate`, `lastModifyDate`, `status`, `remark`) VALUES
 (1, 'PO-2026052601', 1, 3, '2026-05-26 08:00:00', '2026-06-15 00:00:00', '2026-05-26 08:00:00', 1, 'Desks for ABC'),
 (2, 'PO-2026052602', 2, 3, '2026-05-26 09:00:00', '2026-06-20 00:00:00', '2026-05-26 09:00:00', 1, 'Chairs batch 1'),
@@ -911,12 +971,12 @@ INSERT INTO `productionorderproductline` (`ProductionOrderID`, `productID`, `pro
 (4, 2, 30),
 (5, 4, 5);
 
-INSERT INTO `purchaseorder` (`purchaseOrderID`, `purchaseOrderCode`, `supplierID`, `staffID`, `relatedShortageReport`, `createDate`, `lastModifyDate`, `requestDeliveryDate`, `status`, `remark`) VALUES
-(1, 'PUR-2026052601', 1, 5, NULL, '2026-05-26 08:00:00', '2026-05-26 08:00:00', '2026-06-05', 4, 'Oak panels replenishment'),
-(2, 'PUR-2026052602', 3, 5, NULL, '2026-05-26 09:00:00', '2026-05-26 09:00:00', '2026-06-08', 4, 'Grey fabric order'),
-(3, 'PUR-2026052603', 2, 5, 1, '2026-05-26 10:00:00', '2026-05-26 10:00:00', '2026-06-01', 2, 'Chrome tubes urgent'),
-(4, 'PUR-2026052604', 5, 5, NULL, '2026-05-26 11:00:00', '2026-05-26 11:00:00', '2026-06-12', 1, 'Foam sheets'),
-(5, 'PUR-2026052605', 4, 5, NULL, '2026-05-26 12:00:00', '2026-05-26 12:00:00', '2026-06-15', 0, 'Hardware restock draft');
+INSERT INTO `purchaseorder` (`purchaseOrderID`, `purchaseOrderCode`, `supplierID`, `staffID`, `relatedShortageReport`, `createDate`, `lastModifyDate`, `requestDeliveryDate`, `status`, `remark`, `paymentType`, `payAmount`) VALUES
+(1, 'PUR-2026052601', 1, 5, NULL, '2026-05-26 08:00:00', '2026-05-26 08:00:00', '2026-06-05', 4, 'Oak panels replenishment', 1, 9000.00),
+(2, 'PUR-2026052602', 3, 5, NULL, '2026-05-26 09:00:00', '2026-05-26 09:00:00', '2026-06-08', 4, 'Grey fabric order', 2, 1750.00),
+(3, 'PUR-2026052603', 2, 5, 1, '2026-05-26 10:00:00', '2026-05-26 10:00:00', '2026-06-01', 2, 'Chrome tubes urgent', 1, 0.00),
+(4, 'PUR-2026052604', 5, 5, NULL, '2026-05-26 11:00:00', '2026-05-26 11:00:00', '2026-06-12', 1, 'Foam sheets', 3, 3000.00),
+(5, 'PUR-2026052605', 4, 5, NULL, '2026-05-26 12:00:00', '2026-05-26 12:00:00', '2026-06-15', 0, 'Hardware restock draft', 1, 0.00);
 
 INSERT INTO `purchaseorderrawmaterialline` (`purchaseOrderID`, `rawMaterialID`, `price`, `orderQuantity`, `receivedQuantity`) VALUES
 (1, 1, 450.00, 40.00, 20.00),
@@ -995,12 +1055,12 @@ INSERT INTO `receiptvoucher` (`receiptVoucherID`, `receiptVoucherCode`, `cusomer
 (4, 'RV-2026052604', 4, 1, '2026-05-26 13:00:00', '2026-05-26 13:00:00', 'Bank Transfer', 'BT-20260526-004', 12000.00, 1, '2026-05-26', 1, 'Green Office payment'),
 (5, 'RV-2026052605', 5, 1, '2026-05-26 14:00:00', '2026-05-26 14:00:00', 'TT', 'TT-55667788', 1000.00, 1, '2026-05-28', 0, 'Elite deposit pending');
 
-INSERT INTO `receiptvoucherinvoice` (`receiptVoucherID`, `invoiceID`, `receivedAmount`, `type`) VALUES
-(1, 1, 5000.00, 1),
-(2, 2, 3750.00, 2),
-(3, 3, 2000.00, 2),
-(4, 4, 12000.00, 3),
-(5, 5, 1000.00, 1);
+INSERT INTO `receiptvoucherinvoice` (`receiptVoucherID`, `lineNo`, `invoiceID`, `receivedAmount`, `type`) VALUES
+(1, 1, 1, 5000.00, 1),
+(2, 1, 2, 3750.00, 2),
+(3, 1, 3, 2000.00, 2),
+(4, 1, 4, 12000.00, 3),
+(5, 1, 5, 1000.00, 1);
 
 INSERT INTO `paymentvoucher` (`paymentVoucherID`, `paymentVoucherCode`, `supplierID`, `staffID`, `createDate`, `lastModifyDate`, `paymentMethod`, `paymentMethodRef`, `totalAmount`, `remark`, `status`) VALUES
 (1, 'PV-2026052601', 1, 1, '2026-05-26 10:00:00', '2026-05-26 10:00:00', 'Bank Transfer', 'PV-BT-001', 9000.00, 'Oak supplier payment', 1),
@@ -1252,7 +1312,7 @@ ALTER TABLE `receiptvoucher`
 -- 表的索引 `receiptvoucherinvoice`
 --
 ALTER TABLE `receiptvoucherinvoice`
-  ADD PRIMARY KEY (`receiptVoucherID`,`invoiceID`),
+  ADD PRIMARY KEY (`receiptVoucherID`,`lineNo`),
   ADD KEY `fk_rvi_inv` (`invoiceID`);
 
 --
@@ -1279,6 +1339,24 @@ ALTER TABLE `salesorder`
 ALTER TABLE `salesorderproductline`
   ADD PRIMARY KEY (`salesOrderID`,`productID`),
   ADD KEY `fk_soline_product` (`productID`);
+
+--
+-- 表的索引 `replyslip`
+--
+ALTER TABLE `replyslip`
+  ADD PRIMARY KEY (`replySlipID`),
+  ADD UNIQUE KEY `replySlipCode` (`replySlipCode`),
+  ADD KEY `fk_rs_so` (`salesOrderID`),
+  ADD KEY `fk_rs_customer` (`customerID`),
+  ADD KEY `fk_rs_staff` (`staffID`),
+  ADD KEY `fk_rs_currency` (`currencyID`);
+
+--
+-- 表的索引 `replyslipproductline`
+--
+ALTER TABLE `replyslipproductline`
+  ADD PRIMARY KEY (`replySlipID`,`productID`),
+  ADD KEY `fk_rsline_product` (`productID`);
 
 --
 -- 表的索引 `shortagereport`
@@ -1434,6 +1512,12 @@ ALTER TABLE `salesorder`
   MODIFY `salesOrderID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
+-- 使用表AUTO_INCREMENT `replyslip`
+--
+ALTER TABLE `replyslip`
+  MODIFY `replySlipID` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+--
 -- 使用表AUTO_INCREMENT `shortagereport`
 --
 ALTER TABLE `shortagereport`
@@ -1455,7 +1539,7 @@ ALTER TABLE `supplier`
 -- 使用表AUTO_INCREMENT `systemdictionary`
 --
 ALTER TABLE `systemdictionary`
-  MODIFY `dictionaryID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=75;
+  MODIFY `dictionaryID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识', AUTO_INCREMENT=79;
 
 --
 -- 使用表AUTO_INCREMENT `warehouse`
@@ -1675,6 +1759,22 @@ ALTER TABLE `salesorderproductline`
   ADD CONSTRAINT `fk_soline_so` FOREIGN KEY (`salesOrderID`) REFERENCES `salesorder` (`salesOrderID`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
+-- 限制表 `replyslip`
+--
+ALTER TABLE `replyslip`
+  ADD CONSTRAINT `fk_rs_currency` FOREIGN KEY (`currencyID`) REFERENCES `currency` (`currencyID`) ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_rs_customer` FOREIGN KEY (`customerID`) REFERENCES `customer` (`customerID`) ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_rs_so` FOREIGN KEY (`salesOrderID`) REFERENCES `salesorder` (`salesOrderID`) ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_rs_staff` FOREIGN KEY (`staffID`) REFERENCES `staff` (`staffID`) ON UPDATE CASCADE;
+
+--
+-- 限制表 `replyslipproductline`
+--
+ALTER TABLE `replyslipproductline`
+  ADD CONSTRAINT `fk_rsline_product` FOREIGN KEY (`productID`) REFERENCES `product` (`productID`) ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_rsline_rs` FOREIGN KEY (`replySlipID`) REFERENCES `replyslip` (`replySlipID`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
 -- 限制表 `systemdictionary_refundrequest`
 --
 ALTER TABLE `systemdictionary_refundrequest`
@@ -1688,6 +1788,52 @@ ALTER TABLE `warehouseproduct`
   ADD CONSTRAINT `fk_wp_product` FOREIGN KEY (`productID`) REFERENCES `product` (`productID`) ON UPDATE CASCADE,
   ADD CONSTRAINT `fk_wp_warehouse` FOREIGN KEY (`warehouseID`) REFERENCES `warehouse` (`warehouseID`) ON UPDATE CASCADE;
 COMMIT;
+
+-- =========================================================
+-- Compatibility migration for older customer/contact schema
+-- (run on existing DB if table designer previously saved as integer fields)
+-- =========================================================
+
+ALTER TABLE `contactperson`
+  MODIFY `contactPerson` varchar(100) DEFAULT NULL COMMENT '联系人姓名',
+  MODIFY `title` varchar(30) DEFAULT NULL COMMENT '称谓/职位',
+  MODIFY `phone` varchar(30) DEFAULT NULL COMMENT '电话',
+  MODIFY `email` varchar(255) DEFAULT NULL COMMENT '邮箱';
+
+ALTER TABLE `customerdeliveryaddress`
+  MODIFY `deliveryAddress` varchar(255) DEFAULT NULL COMMENT '收货寄送地址',
+  MODIFY `contactPerson` varchar(100) DEFAULT NULL COMMENT '收货联系人',
+  MODIFY `phone` varchar(30) DEFAULT NULL COMMENT '收货电话',
+  MODIFY `email` varchar(255) DEFAULT NULL;
+
+ALTER TABLE `contactperson`
+  MODIFY `contactPersonID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识';
+
+ALTER TABLE `customerdeliveryaddress`
+  MODIFY `addressID` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增唯一标识';
+
+-- Normalize customerRefNumber to PO-PL-######### (customer / sales order)
+UPDATE `customer`
+SET `customerRefNumber` = CONCAT('PO-PL-', LPAD(`customerID`, 9, '0'))
+WHERE `customerRefNumber` IS NULL
+   OR TRIM(`customerRefNumber`) = ''
+   OR `customerRefNumber` LIKE 'CR-%';
+
+UPDATE `salesorder`
+SET `customerRefNumber` = CONCAT('PO-PL-', LPAD(`salesOrderID`, 9, '0'))
+WHERE `customerRefNumber` IS NULL
+   OR TRIM(`customerRefNumber`) = ''
+   OR `customerRefNumber` LIKE 'CR-%';
+
+-- Strip "address (contact / phone)" into address-only for legacy SO rows
+UPDATE `salesorder`
+SET `deliveryAddress` = TRIM(SUBSTRING(`deliveryAddress`, 1, LOCATE('(', `deliveryAddress`) - 1))
+WHERE `deliveryAddress` LIKE '%(%/%'
+  AND LOCATE('(', `deliveryAddress`) > 0;
+
+ALTER TABLE `purchaseorder`
+  ADD COLUMN `paymentType` int(10) DEFAULT NULL COMMENT '付款类型（字典 FINANCIAL_CLEARING_TYPE）',
+  ADD COLUMN `payAmount` decimal(12,2) DEFAULT 0.00 COMMENT '本次付款金额';
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;

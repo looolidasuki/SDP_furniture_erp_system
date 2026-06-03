@@ -1,5 +1,7 @@
-﻿using MySql.Data.MySqlClient;
+﻿using FurnitureERP.Helpers;
+using MySql.Data.MySqlClient;
 using Sales_user.Models;
+using System;
 using System.Data;
 
 namespace Sales_user.Controllers
@@ -8,20 +10,90 @@ namespace Sales_user.Controllers
     {
         public DataTable GetAllRefundRequests()
         {
-            string sql = @"SELECT refundRequestCode AS 'Request Code',
-                                  ReceiptVoucherID AS 'Receipt Voucher ID',
-                                  InvoiceID AS 'Invoice ID',
-                                  createDate AS 'Request Date',
-                                  refundAmount AS 'Amount',
-                                  refundMethod AS 'Refund Method',
-                                  refundReason AS 'Reason',
-                                  status AS 'Status'
-                           FROM RefundRequest
-                           ORDER BY createDate DESC";
-            return DatabaseConnect.ExecuteQuery(sql);
+            string sql = @"SELECT rr.refundRequestCode AS 'Request Code',
+                                  rv.receiptVoucherCode AS 'Receipt Voucher',
+                                  i.invoiceCode AS 'Invoice',
+                                  rr.createDate AS 'Request Date',
+                                  rr.refundAmount AS 'Amount',
+                                  rr.refundRef AS 'Refund Ref',
+                                  rr.refundMethod AS 'Refund Method',
+                                  rr.refundReason AS 'Refund Reason',
+                                  rr.status AS 'Status',
+                                  rr.remark AS 'Remark'
+                           FROM RefundRequest rr
+                           LEFT JOIN Invoice i ON rr.InvoiceID = i.invoiceID
+                           LEFT JOIN receiptvoucher rv ON rr.ReceiptVoucherID = rv.receiptVoucherID
+                           ORDER BY rr.createDate DESC";
+            var dt = DatabaseConnect.ExecuteQuery(sql);
+            return DecorateRefundGrid(dt);
         }
 
-        public bool CreateRefundRequest(RefundRequest refund)
+        public static DataTable DecorateRefundGrid(DataTable dt)
+        {
+            if (dt == null) return dt;
+
+            if (!dt.Columns.Contains("Method Label"))
+                dt.Columns.Add("Method Label", typeof(string));
+            if (!dt.Columns.Contains("Reason Label"))
+                dt.Columns.Add("Reason Label", typeof(string));
+            if (!dt.Columns.Contains("Status Label"))
+                dt.Columns.Add("Status Label", typeof(string));
+
+            foreach (DataRow row in dt.Rows)
+            {
+                if (row["Refund Method"] != DBNull.Value)
+                {
+                    int method = Convert.ToInt32(row["Refund Method"]);
+                    row["Method Label"] = DictionaryService.GetDisplayName(DictionaryService.Categories.RefundMethod, method);
+                }
+                row["Reason Label"] = DictionaryService.GetRefundReasonDisplay(row["Refund Reason"]?.ToString());
+                if (row["Status"] != DBNull.Value)
+                {
+                    int status = Convert.ToInt32(row["Status"]);
+                    row["Status Label"] = DictionaryService.GetDisplayName(DictionaryService.Categories.RefundStatus, status);
+                }
+            }
+            return dt;
+        }
+
+        public DataTable GetHeaderDetail(string requestCode)
+        {
+            string sql = @"SELECT rr.refundRequestCode AS 'Request Code',
+                                  rv.receiptVoucherCode AS 'Receipt Voucher',
+                                  i.invoiceCode AS 'Invoice',
+                                  CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
+                                  rr.createDate AS 'Request Date',
+                                  rr.lastModifyDate AS 'Last Modified',
+                                  rr.refundAmount AS 'Refund Amount',
+                                  rr.refundRef AS 'Refund Transaction Ref',
+                                  rr.refundMethod AS 'Refund Method',
+                                  rr.refundReason AS 'Refund Reason',
+                                  rr.status AS 'Status',
+                                  rr.remark AS 'Remark'
+                           FROM RefundRequest rr
+                           LEFT JOIN Invoice i ON rr.InvoiceID = i.invoiceID
+                           LEFT JOIN receiptvoucher rv ON rr.ReceiptVoucherID = rv.receiptVoucherID
+                           LEFT JOIN Staff st ON rr.staffID = st.staffID
+                           WHERE rr.refundRequestCode = @code";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@code", requestCode) });
+            if (dt == null || dt.Rows.Count == 0) return dt;
+
+            var row = dt.Rows[0];
+            if (row["Refund Method"] != DBNull.Value)
+            {
+                int method = Convert.ToInt32(row["Refund Method"]);
+                row["Refund Method"] = DictionaryService.GetDisplayName(DictionaryService.Categories.RefundMethod, method);
+            }
+            row["Refund Reason"] = DictionaryService.GetRefundReasonDisplay(row["Refund Reason"]?.ToString());
+            if (row["Status"] != DBNull.Value)
+            {
+                int status = Convert.ToInt32(row["Status"]);
+                row["Status"] = DictionaryService.GetDisplayName(DictionaryService.Categories.RefundStatus, status);
+            }
+            return dt;
+        }
+
+        public long CreateRefundRequest(RefundRequest refund)
         {
             string sql = @"INSERT INTO RefundRequest
                 (refundRequestCode, staffID, ReceiptVoucherID, InvoiceID,
@@ -32,14 +104,14 @@ namespace Sales_user.Controllers
             long id = DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
                 new MySqlParameter("@code", refund.RefundRequestCode),
                 new MySqlParameter("@staffID", refund.StaffID),
-                new MySqlParameter("@receiptID", refund.ReceiptVoucherID ?? (object)System.DBNull.Value),
-                new MySqlParameter("@invoiceID", refund.InvoiceID ?? (object)System.DBNull.Value),
+                new MySqlParameter("@receiptID", refund.ReceiptVoucherID ?? (object)DBNull.Value),
+                new MySqlParameter("@invoiceID", refund.InvoiceID ?? (object)DBNull.Value),
                 new MySqlParameter("@amount", refund.RefundAmount),
                 new MySqlParameter("@method", refund.RefundMethod),
-                new MySqlParameter("@ref", refund.RefundRef ?? (object)System.DBNull.Value),
+                new MySqlParameter("@ref", string.IsNullOrWhiteSpace(refund.RefundRef) ? (object)DBNull.Value : refund.RefundRef.Trim()),
                 new MySqlParameter("@reason", refund.RefundReason),
                 new MySqlParameter("@status", refund.Status),
-                new MySqlParameter("@remark", refund.Remark ?? (object)System.DBNull.Value)
+                new MySqlParameter("@remark", refund.Remark ?? (object)DBNull.Value)
             });
             if (id > 0)
             {
@@ -49,8 +121,10 @@ namespace Sales_user.Controllers
                         new MySqlParameter("@code", "RF-" + id),
                         new MySqlParameter("@id", id)
                     });
+                refund.RefundRequestCode = "RF-" + id;
+                refund.RefundRequestID = id;
             }
-            return id > 0;
+            return id;
         }
 
         public bool UpdateStatus(string requestCode, int newStatus, long staffID)
@@ -70,48 +144,53 @@ namespace Sales_user.Controllers
 
         public RefundRequest GetByCode(string requestCode)
         {
-            string sql = @"SELECT refundRequestID, refundRequestCode, staffID, receiptVoucherID, invoiceID,
+            string sql = @"SELECT refundRequestID, refundRequestCode, staffID, ReceiptVoucherID, InvoiceID,
                                   refundAmount, refundMethod, refundRef, refundReason, status, remark
                            FROM RefundRequest
                            WHERE refundRequestCode = @code";
             DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@code", requestCode) });
             if (dt == null || dt.Rows.Count == 0) return null;
             var row = dt.Rows[0];
-            return new RefundRequest
-            {
-                RefundRequestID = System.Convert.ToInt64(row["refundRequestID"]),
-                RefundRequestCode = row["refundRequestCode"]?.ToString(),
-                StaffID = System.Convert.ToInt64(row["staffID"]),
-                ReceiptVoucherID = row["receiptVoucherID"] == System.DBNull.Value ? (long?)null : System.Convert.ToInt64(row["receiptVoucherID"]),
-                InvoiceID = row["invoiceID"] == System.DBNull.Value ? (long?)null : System.Convert.ToInt64(row["invoiceID"]),
-                RefundAmount = System.Convert.ToDecimal(row["refundAmount"]),
-                RefundMethod = System.Convert.ToInt32(row["refundMethod"]),
-                RefundRef = row["refundRef"] == System.DBNull.Value ? null : row["refundRef"].ToString(),
-                RefundReason = row["refundReason"]?.ToString(),
-                Status = System.Convert.ToInt32(row["status"]),
-                Remark = row["remark"] == System.DBNull.Value ? null : row["remark"].ToString()
-            };
+            return MapRow(row);
         }
 
         public bool Update(RefundRequest refund)
         {
             string sql = @"UPDATE RefundRequest
-                           SET staffID=@staffID, receiptVoucherID=@receiptID, invoiceID=@invoiceID,
+                           SET staffID=@staffID, ReceiptVoucherID=@receiptID, InvoiceID=@invoiceID,
                                refundAmount=@amount, refundMethod=@method, refundRef=@ref, refundReason=@reason,
                                status=@status, remark=@remark, lastModifyDate=NOW()
                            WHERE refundRequestID=@id";
             return DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@staffID", refund.StaffID),
-                new MySqlParameter("@receiptID", refund.ReceiptVoucherID ?? (object)System.DBNull.Value),
-                new MySqlParameter("@invoiceID", refund.InvoiceID ?? (object)System.DBNull.Value),
+                new MySqlParameter("@receiptID", refund.ReceiptVoucherID ?? (object)DBNull.Value),
+                new MySqlParameter("@invoiceID", refund.InvoiceID ?? (object)DBNull.Value),
                 new MySqlParameter("@amount", refund.RefundAmount),
                 new MySqlParameter("@method", refund.RefundMethod),
-                new MySqlParameter("@ref", refund.RefundRef ?? (object)System.DBNull.Value),
+                new MySqlParameter("@ref", string.IsNullOrWhiteSpace(refund.RefundRef) ? (object)DBNull.Value : refund.RefundRef.Trim()),
                 new MySqlParameter("@reason", refund.RefundReason ?? ""),
                 new MySqlParameter("@status", refund.Status),
-                new MySqlParameter("@remark", refund.Remark ?? (object)System.DBNull.Value),
+                new MySqlParameter("@remark", refund.Remark ?? (object)DBNull.Value),
                 new MySqlParameter("@id", refund.RefundRequestID)
             }) > 0;
+        }
+
+        private static RefundRequest MapRow(DataRow row)
+        {
+            return new RefundRequest
+            {
+                RefundRequestID = Convert.ToInt64(row["refundRequestID"]),
+                RefundRequestCode = row["refundRequestCode"]?.ToString(),
+                StaffID = Convert.ToInt64(row["staffID"]),
+                ReceiptVoucherID = row["ReceiptVoucherID"] == DBNull.Value ? (long?)null : Convert.ToInt64(row["ReceiptVoucherID"]),
+                InvoiceID = row["InvoiceID"] == DBNull.Value ? (long?)null : Convert.ToInt64(row["InvoiceID"]),
+                RefundAmount = Convert.ToDecimal(row["refundAmount"]),
+                RefundMethod = Convert.ToInt32(row["refundMethod"]),
+                RefundRef = row["refundRef"] == DBNull.Value ? null : row["refundRef"].ToString(),
+                RefundReason = row["refundReason"]?.ToString(),
+                Status = Convert.ToInt32(row["status"]),
+                Remark = row["remark"] == DBNull.Value ? null : row["remark"].ToString()
+            };
         }
     }
 }

@@ -36,9 +36,19 @@ namespace FurnitureERP.Forms
             btnReset.Location = new Point(btnRefresh.Right + 10, 8);
             btnReset.Click += (s, e) => ResetSelectedPassword();
 
+            var btnEdit = UITheme.CreateSecondaryButton("Edit");
+            btnEdit.Location = new Point(btnReset.Right + 10, 8);
+            btnEdit.Click += (s, e) =>
+            {
+                if (_grid?.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a staff member first."); return; }
+                long id = Convert.ToInt64(_grid.CurrentRow.Cells[0].Value);
+                ShowStaffDialog(_staffCtrl.GetById(id));
+            };
+
             toolbar.Controls.Add(btnNew);
             toolbar.Controls.Add(btnRefresh);
             toolbar.Controls.Add(btnReset);
+            toolbar.Controls.Add(btnEdit);
 
             _grid = GridHelper.CreateStyledGrid();
             _grid.CellDoubleClick += (s, e) =>
@@ -49,6 +59,7 @@ namespace FurnitureERP.Forms
             };
 
             Controls.Add(_grid);
+            Controls.Add(FilterBlockHelper.CreateFilterBlock(_grid, "Staff Filters"));
             Controls.Add(toolbar);
         }
 

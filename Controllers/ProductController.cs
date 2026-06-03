@@ -1,4 +1,4 @@
-﻿using MySql.Data.MySqlClient;
+using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System.Data;
 
@@ -56,11 +56,53 @@ namespace Sales_user.Controllers
             return GetAllProducts();
         }
 
+        public Product GetByCode(string productCode)
+        {
+            if (string.IsNullOrWhiteSpace(productCode)) return null;
+            string sql = @"SELECT productID, productCode, category, styleNumber, size, color,
+                                  basePriceByCurrency, currencyID, staffID, unit, status, remark
+                           FROM Product WHERE productCode = @code LIMIT 1";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@code", productCode.Trim()) });
+            return MapProductRow(dt);
+        }
+
+        public long EnsureDepositProductId()
+        {
+            object existingId = DatabaseConnect.ExecuteScalar(
+                "SELECT productID FROM Product WHERE productCode = @code LIMIT 1",
+                new[] { new MySqlParameter("@code", "DEPOSIT") });
+            if (existingId != null && existingId != System.DBNull.Value)
+                return System.Convert.ToInt64(existingId);
+
+            var product = new Product
+            {
+                ProductCode = "DEPOSIT",
+                Category = "Service",
+                SequenceNumber = 9999,
+                StyleNumber = "DEPOSIT",
+                Size = "-",
+                Color = "-",
+                BasePriceByCurrency = 0,
+                CurrencyID = 1,
+                StaffID = 1,
+                Unit = "LOT",
+                Status = 1,
+                Remark = "Virtual line for customer deposit invoices"
+            };
+            return Insert(product);
+        }
+
         public Product GetById(long productId)
         {
-            string sql = @"SELECT productID, productCode, category, styleNumber, size, color, basePriceByCurrency, unit, status, remark, productImage
+            string sql = @"SELECT productID, productCode, category, styleNumber, size, color,
+                                  basePriceByCurrency, currencyID, staffID, unit, status, remark
                            FROM Product WHERE productID = @id";
             var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", productId) });
+            return MapProductRow(dt);
+        }
+
+        private static Product MapProductRow(DataTable dt)
+        {
             if (dt == null || dt.Rows.Count == 0) return null;
             var row = dt.Rows[0];
             return new Product
@@ -72,10 +114,14 @@ namespace Sales_user.Controllers
                 Size = row["size"]?.ToString(),
                 Color = row["color"]?.ToString(),
                 BasePriceByCurrency = row["basePriceByCurrency"] == System.DBNull.Value ? 0 : System.Convert.ToDecimal(row["basePriceByCurrency"]),
+                CurrencyID = row.Table.Columns.Contains("currencyID") && row["currencyID"] != System.DBNull.Value
+                    ? System.Convert.ToInt64(row["currencyID"]) : 1,
+                StaffID = row.Table.Columns.Contains("staffID") && row["staffID"] != System.DBNull.Value
+                    ? System.Convert.ToInt64(row["staffID"]) : 1,
                 Unit = row["unit"]?.ToString(),
                 Status = row["status"] == System.DBNull.Value ? 0 : System.Convert.ToInt32(row["status"]),
                 Remark = row["remark"] == System.DBNull.Value ? null : row["remark"].ToString(),
-                ProductImage = row["productImage"] == System.DBNull.Value ? null : (byte[])row["productImage"]
+                ProductImage = null
             };
         }
 
@@ -110,8 +156,7 @@ namespace Sales_user.Controllers
         public bool Update(Product product)
         {
             string sql = @"UPDATE Product SET productCode=@code, category=@category, styleNumber=@style,
-                           size=@size, color=@color, basePriceByCurrency=@price, unit=@unit, status=@status, remark=@remark,
-                           productImage=@image
+                           size=@size, color=@color, basePriceByCurrency=@price, unit=@unit, status=@status, remark=@remark
                            WHERE productID=@id";
             return DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@code", product.ProductCode ?? ""),
@@ -123,7 +168,6 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@unit", product.Unit ?? (object)System.DBNull.Value),
                 new MySqlParameter("@status", product.Status),
                 new MySqlParameter("@remark", product.Remark ?? (object)System.DBNull.Value),
-                new MySqlParameter("@image", product.ProductImage ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", product.ProductID)
             }) > 0;
         }
@@ -135,6 +179,19 @@ namespace Sales_user.Controllers
                            FROM ProductRawMaterialLine prml
                            INNER JOIN RawMaterial rm ON prml.rawMaterialID = rm.rawMaterialID
                            WHERE prml.productID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", productId) });
+        }
+
+        public DataTable GetBomLinesDetailed(long productId)
+        {
+            string sql = @"SELECT rm.rawMaterialCode AS 'Raw Material',
+                                  prml.rawMaterialNeedQty AS 'Need Qty',
+                                  prml.createDate AS 'Create Date',
+                                  prml.lastModifyDate AS 'Last Modify Date'
+                           FROM ProductRawMaterialLine prml
+                           INNER JOIN RawMaterial rm ON prml.rawMaterialID = rm.rawMaterialID
+                           WHERE prml.productID = @id
+                           ORDER BY rm.rawMaterialCode";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", productId) });
         }
 

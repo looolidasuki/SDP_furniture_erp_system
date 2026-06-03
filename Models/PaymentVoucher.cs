@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Sales_user.Models
 {
@@ -7,7 +8,9 @@ namespace Sales_user.Models
         // ✨ 以下為用於 UI 顯示核銷採購單資訊的擴充屬性（不對應 paymentvoucher 主表欄位）
         public string PurchaseOrderCode { get; set; }          // 採購單編號 (例如: PO-20260001)
         public decimal PurchaseOrderTotalAmount { get; set; }  // 採購單原本的總金額
-        public decimal VoucherPayAmount { get; set; }          // 本次憑證實際核銷/支付的金額
+        public decimal VoucherPayAmount { get; set; }          // 本次憑證實際核銷/支付的金額（pvpo.payAmount）
+        /// <summary>paymentvoucherpurchaseorder.type — 应付对账阶段（FINANCIAL_CLEARING_TYPE）</summary>
+        public int ClearingType { get; set; }
         public long PaymentVoucherID { get; set; }
         public string PaymentVoucherCode { get; set; }
 
@@ -31,5 +34,7 @@ namespace Sales_user.Models
         public int Status { get; set; }         // 0=Draft, 1=Approved, 2=Paid, 3=Cancelled
         public DateTime CreateDate { get; set; }
         public DateTime? LastModifyDate { get; set; }
+
+        public List<VoucherPurchaseOrderLine> PurchaseOrderLines { get; set; }
     }
 }

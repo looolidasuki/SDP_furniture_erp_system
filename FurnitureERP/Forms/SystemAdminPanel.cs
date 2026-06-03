@@ -49,12 +49,18 @@ namespace FurnitureERP.Forms
                 _dictGrid = GridHelper.CreateStyledGrid();
                 _dictGrid.Dock = DockStyle.Fill;
                 try { _dictGrid.DataSource = _dictCtrl.GetAllDictionaries(); GridHelper.StyleGrid(_dictGrid); } catch { }
-                AddCardContent(dictCard, "System Dictionary", _dictGrid);
+                var dictWrap = new Panel { Dock = DockStyle.Fill };
+                dictWrap.Controls.Add(_dictGrid);
+                dictWrap.Controls.Add(FilterBlockHelper.CreateFilterBlock(_dictGrid, "Dictionary Filters"));
+                AddCardContent(dictCard, "System Dictionary", dictWrap);
 
                 _productGrid = GridHelper.CreateStyledGrid();
                 _productGrid.Dock = DockStyle.Fill;
                 try { _productGrid.DataSource = _productCtrl.GetAllProductsWithStock(StockAlertHelper.DefaultProductMinStock); GridHelper.StyleGridWithStockAlert(_productGrid, "Available Stock", "Min Stock Level"); } catch { }
-                AddCardContent(prodCard, "Product Catalog", _productGrid);
+                var prodWrap = new Panel { Dock = DockStyle.Fill };
+                prodWrap.Controls.Add(_productGrid);
+                prodWrap.Controls.Add(FilterBlockHelper.CreateFilterBlock(_productGrid, "Product Filters"));
+                AddCardContent(prodCard, "Product Catalog", prodWrap);
 
                 // 放入主佈局
                 mainLayout.Controls.Add(dictCard, 0, 0);

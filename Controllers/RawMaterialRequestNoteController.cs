@@ -52,5 +52,18 @@ namespace Sales_user.Controllers
                            WHERE rl.rawMaterialRequestNoteID = @id";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", noteId) });
         }
+
+        public DataTable GetHeaderDetail(long noteId)
+        {
+            string sql = @"SELECT n.rawMaterialRequestNoteCode AS 'Request Code',
+                                  po.productionOrderCode AS 'Production Order',
+                                  n.createDate AS 'Create Date',
+                                  n.requestDate AS 'Request Date',
+                                  n.remark AS 'Remark'
+                           FROM RawMaterialRequestNote n
+                           LEFT JOIN ProductionOrder po ON n.productionOrderID = po.productionOrderID
+                           WHERE n.rawMaterialRequestNoteID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", noteId) });
+        }
     }
 }

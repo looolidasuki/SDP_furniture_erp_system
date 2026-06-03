@@ -81,9 +81,18 @@ namespace FurnitureERP.Forms
                 if (_grid?.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a production order first."); return; }
                 ShowProductionDetailTableDialog(Convert.ToInt64(_grid.CurrentRow.Cells[0].Value));
             };
+            Button btnEdit = UITheme.CreateSecondaryButton("Edit");
+            btnEdit.Location = new Point(btnDetail.Right + 10, 9);
+            btnEdit.Click += (s, e) =>
+            {
+                if (_grid?.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a production order first."); return; }
+                if (!PermissionGuard.Ensure(PermissionModule.ProductionOrder, PermissionAction.Edit, this)) return;
+                ShowDetailDialog(Convert.ToInt64(_grid.CurrentRow.Cells[0].Value));
+            };
+            PermissionGuard.ApplyEditButton(btnEdit, PermissionModule.ProductionOrder);
 
             Button btnViewProducts = UITheme.CreateSecondaryButton("📦 View Products");
-            btnViewProducts.Location = new Point(btnDetail.Right + 10, 9);
+            btnViewProducts.Location = new Point(btnEdit.Right + 10, 9);
             btnViewProducts.Click += (s, e) => ShowProductsViewer();
 
             Button btnAddProduct = UITheme.CreateSecondaryButton("🗂 Add Product");
@@ -104,7 +113,7 @@ namespace FurnitureERP.Forms
             _statusFilter.SelectedIndex = 0;
             _statusFilter.SelectedIndexChanged += (s, e) => LoadData(_searchBox.Text.Trim());
 
-            toolbar.Controls.AddRange(new Control[] { btnNew, btnQuickNew, btnRefresh, btnDetail, btnViewProducts, btnAddProduct, btnRMRN, _searchBox, _statusFilter });
+            toolbar.Controls.AddRange(new Control[] { btnNew, btnQuickNew, btnRefresh, btnDetail, btnEdit, btnViewProducts, btnAddProduct, btnRMRN, _searchBox, _statusFilter });
 
             _grid = GridHelper.CreateStyledGrid();
             _grid.CellDoubleClick += (s, e) =>
@@ -120,6 +129,7 @@ namespace FurnitureERP.Forms
 
             var content = new Panel { Dock = DockStyle.Fill };
             content.Controls.Add(_grid);
+            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(_grid, "Production Order Filters"));
             content.Controls.Add(toolbar);
             page.Controls.Add(content);
 
@@ -184,6 +194,7 @@ namespace FurnitureERP.Forms
 
             var content = new Panel { Dock = DockStyle.Fill };
             content.Controls.Add(grid);
+            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Raw Material Filters"));
             content.Controls.Add(toolbar);
             page.Controls.Add(content);
             return page;
@@ -234,6 +245,7 @@ namespace FurnitureERP.Forms
 
             var content = new Panel { Dock = DockStyle.Fill };
             content.Controls.Add(grid);
+            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Warehouse Stock Filters"));
             content.Controls.Add(toolbar);
             page.Controls.Add(content);
             return page;
@@ -256,8 +268,9 @@ namespace FurnitureERP.Forms
             try { grid.DataSource = _rawMaterialCtrl.GetAllSupplierQuotes(); GridHelper.StyleGrid(grid); } catch { }
 
             var content = new Panel { Dock = DockStyle.Fill };
-            content.Controls.Add(toolbar);
             content.Controls.Add(grid);
+            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Supplier Quote Filters"));
+            content.Controls.Add(toolbar);
             page.Controls.Add(content);
             return page;
         }
@@ -423,10 +436,34 @@ namespace FurnitureERP.Forms
                     catch { }
                 };
 
+                var btnBom = UITheme.CreateSecondaryButton("View BOM");
+                btnBom.Dock = DockStyle.Bottom;
+                btnBom.Height = 36;
+                btnBom.Click += (s, e) =>
+                {
+                    if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a product first."); return; }
+                    long pid = Convert.ToInt64(grid.CurrentRow.Cells[0].Value);
+                    DataTable lines = null;
+                    try { lines = productCtrl.GetBomLinesDetailed(pid); } catch { }
+                    var fields = new DataTable();
+                    fields.Columns.Add("Field");
+                    fields.Columns.Add("Value");
+                    try
+                    {
+                        var p = productCtrl.GetById(pid);
+                        fields.Rows.Add("Product Code", p?.ProductCode ?? "");
+                        fields.Rows.Add("Style Number", p?.StyleNumber ?? "");
+                        fields.Rows.Add("Category", p?.Category ?? "");
+                    }
+                    catch { }
+                    DetailViewHelper.ShowDetail(dlg, $"Product BOM — ID: {pid}", fields, lines, $"ProductBOM_{pid}");
+                };
+
                 loadProducts();
 
                 dlg.Controls.Add(listPanel);
                 dlg.Controls.Add(detailPanel);
+                dlg.Controls.Add(btnBom);
                 dlg.ShowDialog(owner);
             }
         }
@@ -856,11 +893,43 @@ namespace FurnitureERP.Forms
                 grid.Dock = DockStyle.Fill;
                 try { grid.DataSource = _rmrnCtrl.GetAllRequestNotes(); GridHelper.StyleGrid(grid); } catch { }
 
+                var toolbar = new Panel { Dock = DockStyle.Top, Height = 50 };
+                var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
+                btnRefresh.Location = new Point(8, 9);
+                btnRefresh.Click += (s, e) => { try { grid.DataSource = _rmrnCtrl.GetAllRequestNotes(); GridHelper.StyleGrid(grid); } catch { } };
+
+                var btnDetail = UITheme.CreateSecondaryButton("View Detail");
+                btnDetail.Location = new Point(btnRefresh.Right + 10, 9);
+                btnDetail.Click += (s, e) =>
+                {
+                    if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a request note first."); return; }
+                    long id = Convert.ToInt64(grid.CurrentRow.Cells[0].Value);
+                    DataTable header = null;
+                    DataTable lines = null;
+                    try { header = _rmrnCtrl.GetHeaderDetail(id); } catch { }
+                    try { lines = _rmrnCtrl.GetRequestLines(id); } catch { }
+                    var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+                    DetailViewHelper.ShowDetail(dlg, $"RM Request Note Detail — ID: {id}", fields, lines, $"RMRequest_{id}");
+                };
+
+                grid.CellDoubleClick += (s, e) =>
+                {
+                    if (e.RowIndex < 0) return;
+                    if (grid.Rows[e.RowIndex].Cells[0].Value == null) return;
+                    grid.CurrentCell = grid.Rows[e.RowIndex].Cells[0];
+                    btnDetail.PerformClick();
+                };
+
+                toolbar.Controls.Add(btnRefresh);
+                toolbar.Controls.Add(btnDetail);
+
                 var btnClose = UITheme.CreateSecondaryButton("Close");
                 btnClose.Dock = DockStyle.Bottom;
                 btnClose.Click += (s, e) => dlg.Close();
 
+                dlg.Controls.Add(toolbar);
                 dlg.Controls.Add(grid);
+                dlg.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "RM Request Filters"));
                 dlg.Controls.Add(btnClose);
                 dlg.ShowDialog(this);
             }

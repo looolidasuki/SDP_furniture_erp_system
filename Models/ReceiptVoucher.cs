@@ -15,7 +15,8 @@ namespace Sales_user.Models
         // 💡 配合 SQL 欄位名 paymentAmount
         public decimal PaymentAmount { get; set; }
 
-        public int PaymentMethod { get; set; }
+        /// <summary>付款方式（对应 paymentMethod varchar）</summary>
+        public string PaymentMethodName { get; set; }
         public string PaymentMethodRef { get; set; }
         public string Remark { get; set; }
         public int Status { get; set; }

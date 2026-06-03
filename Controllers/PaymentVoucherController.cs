@@ -1,27 +1,42 @@
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
+using System.Collections.Generic;
 using System.Data;
+using FurnitureERP.Helpers;
 
 namespace Sales_user.Controllers
 {
     public class PaymentVoucherController
     {
-        // 1. 查詢所有憑證 (對應資料庫欄位 totalAmount, paymentMethodRef)
+        private static readonly string[] StatusLabels = { "Draft", "Approved", "Paid", "Cancelled" };
+
         public DataTable GetAllPaymentVouchers()
         {
-            string sql = @"SELECT paymentVoucherID AS 'ID',
-                                  paymentVoucherCode AS 'Voucher Code',
-                                  supplierID AS 'Supplier ID',
-                                  staffID AS 'Staff ID',
-                                  totalAmount AS 'Amount',
-                                  paymentMethod AS 'Method',
-                                  paymentMethodRef AS 'Reference',
-                                  status AS 'Status',
-                                  createDate AS 'Date'
-                           FROM paymentvoucher
-                           ORDER BY createDate DESC";
-            return DatabaseConnect.ExecuteQuery(sql);
+            string sql = @"SELECT pv.paymentVoucherID AS 'ID',
+                                  pv.paymentVoucherCode AS 'Voucher Code',
+                                  s.supplierName AS 'Supplier',
+                                  CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
+                                  pv.totalAmount AS 'Amount',
+                                  pv.paymentMethod AS 'Method',
+                                  pv.paymentMethodRef AS 'Reference',
+                                  pv.status AS 'Status',
+                                  pv.createDate AS 'Date'
+                           FROM paymentvoucher pv
+                           LEFT JOIN Supplier s ON pv.supplierID = s.supplierID
+                           LEFT JOIN Staff st ON pv.staffID = st.staffID
+                           ORDER BY pv.createDate DESC";
+            var dt = DatabaseConnect.ExecuteQuery(sql);
+            if (dt != null && !dt.Columns.Contains("Status Label"))
+            {
+                dt.Columns.Add("Status Label", typeof(string));
+                foreach (DataRow row in dt.Rows)
+                {
+                    int status = Convert.ToInt32(row["Status"]);
+                    row["Status Label"] = status >= 0 && status < StatusLabels.Length ? StatusLabels[status] : status.ToString();
+                }
+            }
+            return dt;
         }
 
         // 2. 獲取月度總計
@@ -48,46 +63,162 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql);
         }
 
-        // 4. 根據 ID 查詢 (解決第1、2、4個錯誤)
         public PaymentVoucher GetById(long id)
         {
-            // ✨ 修改 SQL：移除 po.totalAmount，改用子查詢計算該採購單的總金額
             string sql = @"SELECT pv.paymentVoucherID, pv.paymentVoucherCode, pv.supplierID,
-                          pv.staffID, pv.totalAmount, pv.paymentMethod, pv.paymentMethodRef, 
-                          pv.remark, pv.status, pv.createDate,
-                          pvpo.purchaseOrderID, pvpo.payAmount AS 'VoucherPayAmount',
-                          po.purchaseOrderCode AS 'POCode',
-                          (SELECT SUM(pol.price * pol.orderQuantity) 
-                           FROM purchaseorderrawmaterialline pol 
-                           WHERE pol.purchaseOrderID = po.purchaseOrderID) AS 'POTotalAmount'
+                          pv.staffID, pv.totalAmount, pv.paymentMethod, pv.paymentMethodRef,
+                          pv.remark, pv.status, pv.createDate
                    FROM paymentvoucher pv
-                   LEFT JOIN paymentvoucherpurchaseorder pvpo ON pv.paymentVoucherID = pvpo.paymentVoucherID
-                   LEFT JOIN purchaseorder po ON pvpo.purchaseOrderID = po.purchaseOrderID
                    WHERE pv.paymentVoucherID = @id";
 
             var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", id) });
             if (dt == null || dt.Rows.Count == 0) return null;
             var row = dt.Rows[0];
+            var pv = MapPaymentVoucherRow(row);
+            pv.PurchaseOrderLines = GetPurchaseOrderSettlements(id);
+            if (pv.PurchaseOrderLines != null && pv.PurchaseOrderLines.Count > 0)
+            {
+                var first = pv.PurchaseOrderLines[0];
+                pv.PurchaseOrderID = first.PurchaseOrderID;
+                pv.PurchaseOrderCode = first.PurchaseOrderCode;
+                pv.ClearingType = first.ClearingType;
+                pv.VoucherPayAmount = first.PayAmount;
+            }
+            return pv;
+        }
 
+        public PaymentVoucher GetByCode(string voucherCode)
+        {
+            if (string.IsNullOrWhiteSpace(voucherCode)) return null;
+            string sql = @"SELECT paymentVoucherID FROM paymentvoucher WHERE paymentVoucherCode = @code LIMIT 1";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@code", voucherCode.Trim()) });
+            if (dt == null || dt.Rows.Count == 0) return null;
+            return GetById(Convert.ToInt64(dt.Rows[0]["paymentVoucherID"]));
+        }
+
+        public bool ExistsByCode(string voucherCode, long excludeId = 0)
+        {
+            if (string.IsNullOrWhiteSpace(voucherCode)) return false;
+            string sql = @"SELECT COUNT(*) FROM paymentvoucher WHERE paymentVoucherCode = @code";
+            if (excludeId > 0) sql += " AND paymentVoucherID <> @excludeId";
+            var prms = new List<MySqlParameter> { new MySqlParameter("@code", voucherCode.Trim()) };
+            if (excludeId > 0) prms.Add(new MySqlParameter("@excludeId", excludeId));
+            object value = DatabaseConnect.ExecuteScalar(sql, prms.ToArray());
+            return value != null && value != DBNull.Value && Convert.ToInt32(value) > 0;
+        }
+
+        private static PaymentVoucher MapPaymentVoucherRow(DataRow row)
+        {
             return new PaymentVoucher
             {
                 PaymentVoucherID = Convert.ToInt64(row["paymentVoucherID"]),
                 PaymentVoucherCode = row["paymentVoucherCode"]?.ToString(),
                 SupplierID = Convert.ToInt64(row["supplierID"]),
-                PurchaseOrderID = row["purchaseOrderID"] == DBNull.Value ? (long?)null : Convert.ToInt64(row["purchaseOrderID"]),
                 StaffID = Convert.ToInt64(row["staffID"]),
                 Amount = Convert.ToDecimal(row["totalAmount"]),
                 PaymentMethod = row["paymentMethod"]?.ToString(),
                 PaymentRef = row["paymentMethodRef"] == DBNull.Value ? null : row["paymentMethodRef"].ToString(),
                 Remark = row["remark"] == DBNull.Value ? null : row["remark"].ToString(),
                 Status = Convert.ToInt32(row["status"]),
-                CreateDate = Convert.ToDateTime(row["createDate"]),
-
-                // 這裡承接透過子查詢計算出來的 POTotalAmount
-                PurchaseOrderCode = row["POCode"] == DBNull.Value ? "N/A" : row["POCode"].ToString(),
-                PurchaseOrderTotalAmount = row["POTotalAmount"] == DBNull.Value ? 0 : Convert.ToDecimal(row["POTotalAmount"]),
-                VoucherPayAmount = row["VoucherPayAmount"] == DBNull.Value ? 0 : Convert.ToDecimal(row["VoucherPayAmount"])
+                CreateDate = Convert.ToDateTime(row["createDate"])
             };
+        }
+
+        public List<VoucherPurchaseOrderLine> GetPurchaseOrderSettlements(long paymentVoucherId)
+        {
+            string sql = @"SELECT pvpo.purchaseOrderID, po.purchaseOrderCode, po.requestDeliveryDate,
+                                  pvpo.type AS ClearingType, pvpo.payAmount
+                           FROM paymentvoucherpurchaseorder pvpo
+                           INNER JOIN purchaseorder po ON pvpo.purchaseOrderID = po.purchaseOrderID
+                           WHERE pvpo.paymentVoucherID = @id
+                           ORDER BY po.purchaseOrderCode";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", paymentVoucherId) });
+            var list = new List<VoucherPurchaseOrderLine>();
+            if (dt == null) return list;
+            foreach (DataRow row in dt.Rows)
+            {
+                list.Add(new VoucherPurchaseOrderLine
+                {
+                    PurchaseOrderID = Convert.ToInt64(row["purchaseOrderID"]),
+                    PurchaseOrderCode = row["purchaseOrderCode"]?.ToString(),
+                    RequestDeliveryDate = row["requestDeliveryDate"] == DBNull.Value
+                        ? (DateTime?)null : Convert.ToDateTime(row["requestDeliveryDate"]),
+                    ClearingType = Convert.ToInt32(row["ClearingType"]),
+                    PayAmount = Convert.ToDecimal(row["payAmount"])
+                });
+            }
+            return list;
+        }
+
+        public DataTable GetPurchaseOrderSettlementsDetailed(long paymentVoucherId)
+        {
+            string sql = @"SELECT po.purchaseOrderCode AS 'Purchase Order',
+                                  po.requestDeliveryDate AS 'Request Delivery Date',
+                                  pvpo.payAmount AS 'Pay Amount',
+                                  pvpo.type AS 'Clearing Type'
+                           FROM paymentvoucherpurchaseorder pvpo
+                           INNER JOIN purchaseorder po ON pvpo.purchaseOrderID = po.purchaseOrderID
+                           WHERE pvpo.paymentVoucherID = @id
+                           ORDER BY po.purchaseOrderCode";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", paymentVoucherId) });
+            return MapClearingTypeColumn(dt);
+        }
+
+        private static DataTable MapClearingTypeColumn(DataTable dt)
+        {
+            if (dt == null || !dt.Columns.Contains("Clearing Type")) return dt;
+            return DetailViewHelper.MapIntColumnsToString(dt, new Dictionary<string, Func<int, string>>
+            {
+                ["Clearing Type"] = type => DictionaryService.GetDisplayName(DictionaryService.Categories.PoPaymentType, type)
+            });
+        }
+
+        public DataTable GetHeaderDetail(long paymentVoucherId)
+        {
+            string sql = @"SELECT pv.paymentVoucherCode AS 'Voucher Code',
+                                  s.supplierName AS 'Supplier',
+                                  CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
+                                  pv.totalAmount AS 'Amount',
+                                  pv.paymentMethod AS 'Payment Method',
+                                  pv.paymentMethodRef AS 'Method Reference',
+                                  CASE pv.status
+                                      WHEN 0 THEN 'Draft'
+                                      WHEN 1 THEN 'Approved'
+                                      WHEN 2 THEN 'Paid'
+                                      WHEN 3 THEN 'Cancelled'
+                                      ELSE CAST(pv.status AS CHAR)
+                                  END AS 'Status',
+                                  pv.createDate AS 'Create Date',
+                                  pv.lastModifyDate AS 'Last Modified',
+                                  pv.remark AS 'Remark'
+                           FROM paymentvoucher pv
+                           LEFT JOIN Supplier s ON pv.supplierID = s.supplierID
+                           LEFT JOIN Staff st ON pv.staffID = st.staffID
+                           WHERE pv.paymentVoucherID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", paymentVoucherId) });
+        }
+
+        public decimal GetSettledTotalByPurchaseOrder(long purchaseOrderId)
+        {
+            object value = DatabaseConnect.ExecuteScalar(
+                @"SELECT COALESCE(SUM(payAmount), 0) FROM paymentvoucherpurchaseorder WHERE purchaseOrderID = @id",
+                new[] { new MySqlParameter("@id", purchaseOrderId) });
+            return value == null || value == DBNull.Value ? 0 : Convert.ToDecimal(value);
+        }
+
+        public DataTable GetSettlementsByPurchaseOrder(long purchaseOrderId)
+        {
+            string sql = @"SELECT pv.paymentVoucherCode AS 'Voucher Code',
+                                  pv.createDate AS 'Date',
+                                  pvpo.type AS 'Payment Type',
+                                  pvpo.payAmount AS 'Settled Amount',
+                                  pv.paymentMethod AS 'Method',
+                                  pv.status AS 'Status'
+                           FROM paymentvoucherpurchaseorder pvpo
+                           INNER JOIN paymentvoucher pv ON pv.paymentVoucherID = pvpo.paymentVoucherID
+                           WHERE pvpo.purchaseOrderID = @id
+                           ORDER BY pv.createDate DESC";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", purchaseOrderId) });
         }
 
         // 5. 新增付款憑證 (解決第3個錯誤)
@@ -111,7 +242,7 @@ namespace Sales_user.Controllers
                         long pvId = 0;
                         using (var cmd = new MySqlCommand(sqlMain, conn, trans))
                         {
-                            cmd.Parameters.AddWithValue("@code", pv.PaymentVoucherCode ?? "");
+                            cmd.Parameters.AddWithValue("@code", (pv.PaymentVoucherCode ?? "").Trim());
                             cmd.Parameters.AddWithValue("@supplierID", pv.SupplierID);
                             cmd.Parameters.AddWithValue("@staffID", pv.StaffID);
                             cmd.Parameters.AddWithValue("@amount", pv.Amount);
@@ -129,33 +260,7 @@ namespace Sales_user.Controllers
                         }
 
                         if (pvId > 0)
-                        {
-                            // 步驟 B: 自動更新憑證編號
-                            string sqlUpdateCode = "UPDATE paymentvoucher SET paymentVoucherCode = @code WHERE paymentVoucherID = @id";
-                            using (var cmd = new MySqlCommand(sqlUpdateCode, conn, trans))
-                            {
-                                cmd.Parameters.AddWithValue("@code", "PV-" + pvId);
-                                cmd.Parameters.AddWithValue("@id", pvId);
-                                cmd.ExecuteNonQuery();
-                            }
-
-                            // 步驟 C: 寫入採購單關係表
-                            if (pv.PurchaseOrderID.HasValue)
-                            {
-                                string sqlRelation = @"INSERT INTO paymentvoucherpurchaseorder 
-                                    (paymentVoucherID, purchaseOrderID, type, payAmount) 
-                                    VALUES (@pvId, @poId, @type, @payAmount)";
-
-                                using (var cmd = new MySqlCommand(sqlRelation, conn, trans))
-                                {
-                                    cmd.Parameters.AddWithValue("@pvId", pvId);
-                                    cmd.Parameters.AddWithValue("@poId", pv.PurchaseOrderID.Value);
-                                    cmd.Parameters.AddWithValue("@type", 1);
-                                    cmd.Parameters.AddWithValue("@payAmount", pv.Amount);
-                                    cmd.ExecuteNonQuery();
-                                }
-                            }
-                        }
+                            WritePurchaseOrderSettlements(conn, trans, pvId, pv);
 
                         trans.Commit();
                         return pvId;
@@ -172,22 +277,52 @@ namespace Sales_user.Controllers
         // 6. 更新資料
         public bool Update(PaymentVoucher pv)
         {
-            string sql = @"UPDATE paymentvoucher
-                           SET supplierID=@supplierID, staffID=@staffID,
+            string connectionString = "Server=localhost;Port=3306;Database=furniture_erp_system;Uid=root;Pwd=;CharSet=utf8mb4;AllowPublicKeyRetrieval=True;SslMode=Disabled;";
+            using (var conn = new MySqlConnection(connectionString))
+            {
+                conn.Open();
+                using (var trans = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        string sql = @"UPDATE paymentvoucher
+                           SET paymentVoucherCode=@code, supplierID=@supplierID, staffID=@staffID,
                                totalAmount=@amount, paymentMethod=@method, paymentMethodRef=@ref,
                                remark=@remark, status=@status, lastModifyDate=NOW()
                            WHERE paymentVoucherID=@id";
+                        using (var cmd = new MySqlCommand(sql, conn, trans))
+                        {
+                            cmd.Parameters.AddWithValue("@code", (pv.PaymentVoucherCode ?? "").Trim());
+                            cmd.Parameters.AddWithValue("@supplierID", pv.SupplierID);
+                            cmd.Parameters.AddWithValue("@staffID", pv.StaffID);
+                            cmd.Parameters.AddWithValue("@amount", pv.Amount);
+                            cmd.Parameters.AddWithValue("@method", pv.PaymentMethod ?? "");
+                            cmd.Parameters.AddWithValue("@ref", pv.PaymentRef ?? "");
+                            cmd.Parameters.AddWithValue("@remark", pv.Remark ?? (object)DBNull.Value);
+                            cmd.Parameters.AddWithValue("@status", pv.Status);
+                            cmd.Parameters.AddWithValue("@id", pv.PaymentVoucherID);
+                            cmd.ExecuteNonQuery();
+                        }
 
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
-                new MySqlParameter("@supplierID", pv.SupplierID),
-                new MySqlParameter("@staffID", pv.StaffID),
-                new MySqlParameter("@amount", pv.Amount),
-                new MySqlParameter("@method", pv.PaymentMethod ?? ""),
-                new MySqlParameter("@ref", pv.PaymentRef ?? ""),
-                new MySqlParameter("@remark", pv.Remark ?? (object)DBNull.Value),
-                new MySqlParameter("@status", pv.Status),
-                new MySqlParameter("@id", pv.PaymentVoucherID)
-            }) > 0;
+                        using (var cmd = new MySqlCommand(
+                            "DELETE FROM paymentvoucherpurchaseorder WHERE paymentVoucherID = @id", conn, trans))
+                        {
+                            cmd.Parameters.AddWithValue("@id", pv.PaymentVoucherID);
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        WritePurchaseOrderSettlements(conn, trans, pv.PaymentVoucherID, pv);
+
+                        trans.Commit();
+                        return true;
+                    }
+                    catch
+                    {
+                        trans.Rollback();
+                        return false;
+                    }
+                }
+            }
         }
 
         public DataTable GetExpenseTrend()
@@ -211,6 +346,40 @@ namespace Sales_user.Controllers
                    WHERE status != 3
                    GROUP BY paymentMethod";
             return DatabaseConnect.ExecuteQuery(sql);
+        }
+
+        private static void WritePurchaseOrderSettlements(MySqlConnection conn, MySqlTransaction trans, long pvId, PaymentVoucher pv)
+        {
+            var lines = pv.PurchaseOrderLines;
+            if (lines == null || lines.Count == 0)
+            {
+                if (!pv.PurchaseOrderID.HasValue || pv.PurchaseOrderID.Value <= 0) return;
+                lines = new List<VoucherPurchaseOrderLine>
+                {
+                    new VoucherPurchaseOrderLine
+                    {
+                        PurchaseOrderID = pv.PurchaseOrderID.Value,
+                        ClearingType = pv.ClearingType > 0 ? pv.ClearingType : 1,
+                        PayAmount = pv.VoucherPayAmount > 0 ? pv.VoucherPayAmount : pv.Amount
+                    }
+                };
+            }
+
+            string sqlRelation = @"INSERT INTO paymentvoucherpurchaseorder
+                (paymentVoucherID, purchaseOrderID, type, payAmount)
+                VALUES (@pvId, @poId, @type, @payAmount)";
+            foreach (var line in lines)
+            {
+                if (line.PurchaseOrderID <= 0 || line.PayAmount <= 0) continue;
+                using (var cmd = new MySqlCommand(sqlRelation, conn, trans))
+                {
+                    cmd.Parameters.AddWithValue("@pvId", pvId);
+                    cmd.Parameters.AddWithValue("@poId", line.PurchaseOrderID);
+                    cmd.Parameters.AddWithValue("@type", line.ClearingType > 0 ? line.ClearingType : 1);
+                    cmd.Parameters.AddWithValue("@payAmount", line.PayAmount);
+                    cmd.ExecuteNonQuery();
+                }
+            }
         }
     }
 }

@@ -145,8 +145,12 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="Helpers\GridHelper.cs" />
+    <Compile Include="Helpers\DeliveryAddressDisplayHelper.cs" />
+    <Compile Include="Helpers\FilterBlockHelper.cs" />
     <Compile Include="Helpers\PdfExportHelper.cs" />
     <Compile Include="Helpers\DetailViewHelper.cs" />
+    <Compile Include="Helpers\InvoiceConstants.cs" />
+    <Compile Include="Helpers\ReceiptVoucherConstants.cs" />
     <Compile Include="Helpers\PdfSharpFontResolver.cs" />
     <Compile Include="..\4915M_SDP\Infrastructure\DatabaseConnect.cs">
       <Link>Infrastructure\DatabaseConnect.cs</Link>
@@ -165,6 +169,9 @@
     </Compile>
     <Compile Include="..\Controllers\QuotationController.cs">
       <Link>Controllers\QuotationController.cs</Link>
+    </Compile>
+    <Compile Include="..\Controllers\ReplySlipController.cs">
+      <Link>Controllers\ReplySlipController.cs</Link>
     </Compile>
     <Compile Include="..\Controllers\ProductionOrderController.cs">
       <Link>Controllers\ProductionOrderController.cs</Link>
@@ -220,6 +227,9 @@
     <Compile Include="..\Controllers\FinanceWorkflowService.cs">
       <Link>Controllers\FinanceWorkflowService.cs</Link>
     </Compile>
+    <Compile Include="..\Controllers\ShortageReportController.cs">
+      <Link>Controllers\ShortageReportController.cs</Link>
+    </Compile>
     <Compile Include="..\Models\Customer.cs">
       <Link>Models\Customer.cs</Link>
     </Compile>
@@ -234,6 +244,9 @@
     </Compile>
     <Compile Include="..\Models\Quotation.cs">
       <Link>Models\Quotation.cs</Link>
+    </Compile>
+    <Compile Include="..\Models\ReplySlip.cs">
+      <Link>Models\ReplySlip.cs</Link>
     </Compile>
     <Compile Include="..\Models\ProductionOrder.cs">
       <Link>Models\ProductionOrder.cs</Link>
@@ -253,6 +266,9 @@
     <Compile Include="..\Models\RawMaterial.cs">
       <Link>Models\RawMaterial.cs</Link>
     </Compile>
+    <Compile Include="..\Models\RawMaterialSupplierQuote.cs">
+      <Link>Models\RawMaterialSupplierQuote.cs</Link>
+    </Compile>
     <Compile Include="..\Models\PurchaseOrder.cs">
       <Link>Models\PurchaseOrder.cs</Link>
     </Compile>
@@ -270,6 +286,9 @@
     </Compile>
     <Compile Include="..\Models\PaymentVoucher.cs">
       <Link>Models\PaymentVoucher.cs</Link>
+    </Compile>
+    <Compile Include="..\Models\VoucherPurchaseOrderLine.cs">
+      <Link>Models\VoucherPurchaseOrderLine.cs</Link>
     </Compile>
     <Compile Include="..\Models\ReceiptVoucher.cs">
       <Link>Models\ReceiptVoucher.cs</Link>

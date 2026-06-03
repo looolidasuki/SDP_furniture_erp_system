@@ -7,6 +7,7 @@ namespace FurnitureERP.Helpers
         public const string Customer = "Customer";
         public const string DeliveryNote = "DeliveryNote";
         public const string Invoice = "Invoice";
+        public const string ReplySlip = "ReplySlip";
         public const string Warehouse = "Warehouse";
         public const string Refund = "Refund";
         public const string ProductionOrder = "ProductionOrder";

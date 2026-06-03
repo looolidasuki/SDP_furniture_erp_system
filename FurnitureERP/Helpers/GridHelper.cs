@@ -51,6 +51,20 @@ namespace FurnitureERP.Helpers
                 BackColor = Color.FromArgb(248, 250, 255)
             };
             grid.EnableHeadersVisualStyles = false;
+
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                if (col == null) continue;
+                // Combo columns often use *ID as ValueMember but must stay visible (e.g. PO raw material picker).
+                if (col is DataGridViewComboBoxColumn)
+                    continue;
+                string header = (col.HeaderText ?? string.Empty).Trim();
+                string name = (col.Name ?? string.Empty).Trim();
+                bool isIdColumn = header.EndsWith("ID") || header.EndsWith("Id")
+                                  || name.EndsWith("ID") || name.EndsWith("Id");
+                if (isIdColumn)
+                    col.Visible = false;
+            }
         }
 
         public static void StyleGridWithStockAlert(DataGridView grid, string stockColumn, string minStockColumn)

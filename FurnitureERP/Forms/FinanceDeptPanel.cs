@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
 using System.Linq;
@@ -15,6 +16,9 @@ namespace FurnitureERP.Forms
         private readonly ReceiptVoucherController _rvCtrl = new ReceiptVoucherController();
         private readonly FinanceWorkflowService _financeWorkflow = new FinanceWorkflowService();
         private readonly InvoiceController _invoiceCtrl = new InvoiceController();
+        private readonly SupplierController _supplierCtrl = new SupplierController();
+        private readonly CustomerController _customerCtrl = new CustomerController();
+        private readonly PurchaseOrderController _poCtrl = new PurchaseOrderController();
 
         private TabControl _tabs;
         private DataGridView _pvGrid;
@@ -143,13 +147,14 @@ namespace FurnitureERP.Forms
 
         private void BuildPVTab(TabPage page)
         {
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 200));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var toolbar = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
             var btnNew = UITheme.CreatePrimaryButton("+ New Payment Voucher");
-            btnNew.Location = new Point(8, 8);
+            btnNew.Location = new Point(8, 10);
             btnNew.Click += (s, e) => {
                 if (!PermissionGuard.Ensure(PermissionModule.PaymentVoucher, PermissionAction.Create, this)) return;
                 using (var dlg = BuildPVForm("Create Payment Voucher", null))
@@ -159,18 +164,23 @@ namespace FurnitureERP.Forms
             };
             PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.PaymentVoucher);
 
-            var lblSearch = new Label { Text = "Search Code:", Location = new Point(240, 14), AutoSize = true };
-            _pvSearch = new TextBox { Location = new Point(325, 11), Width = 150 };
+            var btnView = UITheme.CreateSecondaryButton("View Detail");
+            btnView.Location = new Point(btnNew.Right + 10, 10);
+            btnView.Click += (s, e) => ShowSelectedPaymentVoucherDetail();
+
+            var lblSearch = new Label { Text = "Search Code:", Location = new Point(btnView.Right + 16, 16), AutoSize = true };
+            _pvSearch = new TextBox { Location = new Point(lblSearch.Right + 8, 13), Width = 150 };
             _pvSearch.TextChanged += (s, e) => FilterPV();
 
-            var lblFilter = new Label { Text = "Status:", Location = new Point(490, 14), AutoSize = true };
-            _pvStatusFilter = new ComboBox { Location = new Point(540, 11), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
+            var lblFilter = new Label { Text = "Status:", Location = new Point(_pvSearch.Right + 12, 16), AutoSize = true };
+            _pvStatusFilter = new ComboBox { Location = new Point(lblFilter.Right + 8, 13), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
             _pvStatusFilter.Items.Add("All");
             _pvStatusFilter.Items.AddRange(PVStatusNames);
             _pvStatusFilter.SelectedIndex = 0;
             _pvStatusFilter.SelectedIndexChanged += (s, e) => FilterPV();
 
             toolbar.Controls.Add(btnNew);
+            toolbar.Controls.Add(btnView);
             toolbar.Controls.Add(lblSearch);
             toolbar.Controls.Add(_pvSearch);
             toolbar.Controls.Add(lblFilter);
@@ -179,7 +189,8 @@ namespace FurnitureERP.Forms
 
             _pvGrid = InitializeCustomGridView();
             _pvGrid.CellDoubleClick += _pvGrid_CellDoubleClick;
-            layout.Controls.Add(_pvGrid, 0, 1);
+            layout.Controls.Add(FilterBlockHelper.CreateFilterBlock(_pvGrid, "Payment Voucher Filters"), 0, 1);
+            layout.Controls.Add(_pvGrid, 0, 2);
 
             page.Controls.Add(layout);
         }
@@ -188,25 +199,28 @@ namespace FurnitureERP.Forms
         {
             if (e.RowIndex < 0) return;
             long id = Convert.ToInt64(_pvGrid.Rows[e.RowIndex].Cells["ID"].Value);
-            var pv = _pvCtrl.GetById(id);
-            if (pv == null) return;
-            if (!AppSession.CanEdit(PermissionModule.PaymentVoucher)) return;
-
-            using (var dlg = BuildPVForm("Payment Voucher Details", pv))
+            if (AppSession.CanEdit(PermissionModule.PaymentVoucher))
             {
-                if (dlg.ShowDialog(this) == DialogResult.OK) LoadAll();
+                var pv = _pvCtrl.GetById(id);
+                if (pv == null) return;
+                using (var dlg = BuildPVForm("Edit Payment Voucher", pv))
+                {
+                    if (dlg.ShowDialog(this) == DialogResult.OK) LoadAll();
+                }
             }
+            else ShowPaymentVoucherDetail(id);
         }
 
         private void BuildRVTab(TabPage page)
         {
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 200));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var toolbar = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
             var btnNew = UITheme.CreatePrimaryButton("+ New Receipt Voucher");
-            btnNew.Location = new Point(8, 8);
+            btnNew.Location = new Point(8, 10);
             btnNew.Click += (s, e) => {
                 if (!PermissionGuard.Ensure(PermissionModule.ReceiptVoucher, PermissionAction.Create, this)) return;
                 using (var dlg = BuildRVForm("Create Receipt Voucher", null))
@@ -217,16 +231,20 @@ namespace FurnitureERP.Forms
             PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.ReceiptVoucher);
 
             var btnVerify = UITheme.CreateSecondaryButton("Verify & Allocate");
-            btnVerify.Location = new Point(190, 8);
+            btnVerify.Location = new Point(btnNew.Right + 10, 10);
             btnVerify.Click += (s, e) => VerifySelectedReceipt();
             PermissionGuard.ApplyEditButton(btnVerify, PermissionModule.ReceiptVoucher);
 
-            var lblSearch = new Label { Text = "Search Code:", Location = new Point(330, 14), AutoSize = true };
-            _rvSearch = new TextBox { Location = new Point(415, 11), Width = 150 };
+            var btnDetail = UITheme.CreateSecondaryButton("View Detail");
+            btnDetail.Location = new Point(btnVerify.Right + 10, 10);
+            btnDetail.Click += (s, e) => ShowSelectedReceiptVoucherDetail();
+
+            var lblSearch = new Label { Text = "Search Code:", Location = new Point(btnDetail.Right + 16, 16), AutoSize = true };
+            _rvSearch = new TextBox { Location = new Point(lblSearch.Right + 8, 13), Width = 150 };
             _rvSearch.TextChanged += (s, e) => FilterRV();
 
-            var lblFilter = new Label { Text = "Status:", Location = new Point(580, 14), AutoSize = true };
-            _rvStatusFilter = new ComboBox { Location = new Point(630, 11), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
+            var lblFilter = new Label { Text = "Status:", Location = new Point(_rvSearch.Right + 12, 16), AutoSize = true };
+            _rvStatusFilter = new ComboBox { Location = new Point(lblFilter.Right + 8, 13), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
             _rvStatusFilter.Items.Add("All");
             _rvStatusFilter.Items.AddRange(RVStatusNames);
             _rvStatusFilter.SelectedIndex = 0;
@@ -234,6 +252,7 @@ namespace FurnitureERP.Forms
 
             toolbar.Controls.Add(btnNew);
             toolbar.Controls.Add(btnVerify);
+            toolbar.Controls.Add(btnDetail);
             toolbar.Controls.Add(lblSearch);
             toolbar.Controls.Add(_rvSearch);
             toolbar.Controls.Add(lblFilter);
@@ -242,7 +261,8 @@ namespace FurnitureERP.Forms
 
             _rvGrid = InitializeCustomGridView();
             _rvGrid.CellDoubleClick += _rvGrid_CellDoubleClick;
-            layout.Controls.Add(_rvGrid, 0, 1);
+            layout.Controls.Add(FilterBlockHelper.CreateFilterBlock(_rvGrid, "Receipt Voucher Filters"), 0, 1);
+            layout.Controls.Add(_rvGrid, 0, 2);
 
             page.Controls.Add(layout);
         }
@@ -251,14 +271,16 @@ namespace FurnitureERP.Forms
         {
             if (e.RowIndex < 0) return;
             long id = Convert.ToInt64(_rvGrid.Rows[e.RowIndex].Cells["ID"].Value);
-            var rv = _rvCtrl.GetById(id);
-            if (rv == null) return;
-            if (!AppSession.CanEdit(PermissionModule.ReceiptVoucher)) return;
-
-            using (var dlg = BuildRVForm("Receipt Voucher Details", rv))
+            if (AppSession.CanEdit(PermissionModule.ReceiptVoucher))
             {
-                if (dlg.ShowDialog(this) == DialogResult.OK) LoadAll();
+                var rv = _rvCtrl.GetById(id);
+                if (rv == null) return;
+                using (var dlg = BuildRVForm("Edit Receipt Voucher", rv))
+                {
+                    if (dlg.ShowDialog(this) == DialogResult.OK) LoadAll();
+                }
             }
+            else ShowReceiptVoucherDetail(id);
         }
 
         private DataGridView InitializeCustomGridView()
@@ -289,170 +311,385 @@ namespace FurnitureERP.Forms
         private Form BuildPVForm(string title, PaymentVoucher pv)
         {
             bool isNew = pv == null;
-            var dlg = new Form { Text = title, Size = new Size(450, 440), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, BackColor = UITheme.Background };
+            var dlg = new Form
+            {
+                Text = title,
+                Size = new Size(760, 620),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.Sizable,
+                MinimumSize = new Size(680, 520),
+                BackColor = UITheme.Background
+            };
 
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 8 };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            long defaultStaffId = pv?.StaffID ?? AppSession.CurrentUser?.StaffID ?? 0;
+            string staffLabel = AppSession.CurrentUser?.FullName
+                ?? (defaultStaffId > 0 ? defaultStaffId.ToString() : "—");
 
-            var txtSupplierId = new TextBox { Text = pv?.SupplierID.ToString() ?? string.Empty, Width = 240 };
-            var txtPoId = new TextBox { Text = pv?.PurchaseOrderID?.ToString() ?? string.Empty, Width = 240 };
-            var txtStaffId = new TextBox { Text = pv?.StaffID.ToString() ?? string.Empty, Width = 240 };
-            var txtAmount = new TextBox { Text = pv?.Amount.ToString() ?? string.Empty, Width = 240 };
+            var txtCode = new TextBox
+            {
+                Text = pv?.PaymentVoucherCode ?? "",
+                Width = 280,
+                MaxLength = 30
+            };
+            var cmbSupplier = BuildSupplierCombo(pv?.SupplierID ?? 0);
+            var lblStaff = new Label { Text = staffLabel, AutoSize = true, ForeColor = UITheme.TextDark };
+            var txtAmount = new TextBox { Text = pv?.Amount.ToString("0.##") ?? string.Empty, Width = 280 };
 
-            var cmbMethod = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
+            var cmbMethod = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
             cmbMethod.Items.AddRange(MethodNames);
             if (pv != null && !string.IsNullOrEmpty(pv.PaymentMethod))
-                cmbMethod.SelectedIndex = Math.Max(0, Array.IndexOf(MethodNames, pv.PaymentMethod));
-            else
-                cmbMethod.SelectedIndex = 0;
+            {
+                int idx = Array.IndexOf(MethodNames, pv.PaymentMethod);
+                cmbMethod.SelectedIndex = idx >= 0 ? idx : 0;
+            }
+            else cmbMethod.SelectedIndex = 0;
 
-            var txtRef = new TextBox { Text = pv?.PaymentRef ?? string.Empty, Width = 240 };
-
-            var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
+            var txtRef = new TextBox { Text = pv?.PaymentRef ?? string.Empty, Width = 280 };
+            var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
             cmbStatus.Items.AddRange(PVStatusNames);
             cmbStatus.SelectedIndex = pv != null ? Math.Max(0, Math.Min(pv.Status, 3)) : 0;
+            var txtRemark = new TextBox { Text = pv?.Remark ?? string.Empty, Multiline = true, Height = 44, Width = 280 };
 
-            var txtRemark = new TextBox { Text = pv?.Remark ?? string.Empty, Multiline = true, Height = 40, Width = 240 };
+            int headerRows = 8;
+            var header = new TableLayoutPanel { Dock = DockStyle.Top, Height = headerRows * 34 + 24, Padding = new Padding(12), ColumnCount = 2, RowCount = headerRows };
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            UITheme.AddFormField(header, 0, "Voucher Code *", txtCode);
+            UITheme.AddFormField(header, 1, "Supplier *", cmbSupplier);
+            UITheme.AddFormField(header, 2, "Staff", lblStaff);
+            UITheme.AddFormField(header, 3, "Amount *", txtAmount);
+            UITheme.AddFormField(header, 4, "Payment Method", cmbMethod);
+            UITheme.AddFormField(header, 5, "Method Ref", txtRef);
+            UITheme.AddFormField(header, 6, "Status", cmbStatus);
+            UITheme.AddFormField(header, 7, "Remark", txtRemark);
 
-            UITheme.AddFormField(layout, 0, "Supplier ID *", txtSupplierId);
-            UITheme.AddFormField(layout, 1, "Purchase Order ID", txtPoId);
-            UITheme.AddFormField(layout, 2, "Staff ID *", txtStaffId);
-            UITheme.AddFormField(layout, 3, "Amount *", txtAmount);
-            UITheme.AddFormField(layout, 4, "Payment Method", cmbMethod);
-            UITheme.AddFormField(layout, 5, "Reference", txtRef);
-            UITheme.AddFormField(layout, 6, "Status", cmbStatus);
-            UITheme.AddFormField(layout, 7, "Remark", txtRemark);
+            var settlementTable = CreatePoSettlementEditorTable();
+            if (pv?.PurchaseOrderLines != null)
+            {
+                foreach (var line in pv.PurchaseOrderLines)
+                {
+                    settlementTable.Rows.Add(
+                        line.PurchaseOrderID > 0 ? (object)line.PurchaseOrderID : DBNull.Value,
+                        line.PurchaseOrderCode ?? "",
+                        line.RequestDeliveryDate?.ToString("yyyy-MM-dd") ?? "",
+                        line.ClearingType > 0 ? line.ClearingType : 1,
+                        line.PayAmount);
+                }
+            }
+
+            IEnumerable<long> ensurePoIds = pv?.PurchaseOrderLines?
+                .Where(l => l.PurchaseOrderID > 0)
+                .Select(l => l.PurchaseOrderID);
+            DataTable poPicker = BuildPoPickerForSupplier(ResolveSupplierId(cmbSupplier), ensurePoIds);
+            DataTable clearingPicker = BuildClearingTypeDataTable();
+
+            var settlementGrid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                AutoGenerateColumns = false,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                BackgroundColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                RowHeadersVisible = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                DataSource = settlementTable
+            };
+
+            var colPo = new DataGridViewComboBoxColumn
+            {
+                Name = "colPo",
+                HeaderText = "Purchase Order",
+                DataPropertyName = "Purchase Order ID",
+                DisplayMember = "DisplayText",
+                ValueMember = "Purchase Order ID",
+                Width = 240,
+                FlatStyle = FlatStyle.Flat,
+                DataSource = poPicker
+            };
+            var colReqDate = new DataGridViewTextBoxColumn
+            {
+                Name = "colReqDate",
+                HeaderText = "Request Delivery",
+                DataPropertyName = "Request Delivery Date",
+                ReadOnly = true,
+                Width = 120
+            };
+            var colClearing = new DataGridViewComboBoxColumn
+            {
+                Name = "colClearing",
+                HeaderText = "Payment Type",
+                DataPropertyName = "Clearing Type",
+                Width = 140,
+                FlatStyle = FlatStyle.Flat,
+                DataSource = clearingPicker,
+                DisplayMember = "Value",
+                ValueMember = "Code"
+            };
+            var colPay = new DataGridViewTextBoxColumn
+            {
+                Name = "colPay",
+                HeaderText = "Pay Amount",
+                DataPropertyName = "Pay Amount",
+                Width = 110
+            };
+            settlementGrid.Columns.Add(colPo);
+            settlementGrid.Columns.Add(colReqDate);
+            settlementGrid.Columns.Add(colClearing);
+            settlementGrid.Columns.Add(colPay);
+
+            settlementGrid.DataError += (s, e) => { e.ThrowException = false; };
+
+            settlementGrid.CellValueChanged += (s, e) =>
+            {
+                if (e.RowIndex < 0) return;
+                if (settlementGrid.Columns[e.ColumnIndex].Name == "colPo")
+                    SyncPoRowFromPicker(settlementGrid.Rows[e.RowIndex], poPicker);
+            };
+            settlementGrid.CurrentCellDirtyStateChanged += (s, e) =>
+            {
+                if (settlementGrid.IsCurrentCellDirty)
+                    settlementGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            };
+
+            cmbSupplier.SelectedIndexChanged += (s, e) =>
+            {
+                var ids = CollectPoIdsFromGrid(settlementGrid);
+                poPicker = BuildPoPickerForSupplier(ResolveSupplierId(cmbSupplier), ids);
+                colPo.DataSource = null;
+                colPo.DataSource = poPicker;
+            };
+
+            var lblSettleHint = new Label
+            {
+                Text = "PO Settlements (paymentvoucherpurchaseorder) — optional; total pay amount should match voucher amount.",
+                Dock = DockStyle.Top,
+                Height = 28,
+                Padding = new Padding(12, 6, 0, 0),
+                ForeColor = UITheme.TextGray
+            };
+
+            var lineToolbar = new Panel { Dock = DockStyle.Top, Height = 36, Padding = new Padding(12, 4, 12, 0) };
+            var btnAddLine = UITheme.CreateSecondaryButton("+ Add PO Line");
+            btnAddLine.Click += (s, e) =>
+            {
+                settlementTable.Rows.Add(DBNull.Value, "", "", 1, 0m);
+            };
+            var btnRemoveLine = UITheme.CreateSecondaryButton("Remove Line");
+            btnRemoveLine.Location = new Point(btnAddLine.Right + 8, 0);
+            btnRemoveLine.Click += (s, e) =>
+            {
+                if (settlementGrid.CurrentRow != null && !settlementGrid.CurrentRow.IsNewRow)
+                    settlementGrid.Rows.Remove(settlementGrid.CurrentRow);
+            };
+            lineToolbar.Controls.Add(btnAddLine);
+            lineToolbar.Controls.Add(btnRemoveLine);
+
+            var settlementPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 0, 8, 0) };
+            settlementPanel.Controls.Add(lblSettleHint);
+            settlementPanel.Controls.Add(lineToolbar);
+            settlementPanel.Controls.Add(settlementGrid);
 
             var btnSave = UITheme.CreatePrimaryButton("Save");
             if (isNew) PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.PaymentVoucher);
             else PermissionGuard.ApplyEditButton(btnSave, PermissionModule.PaymentVoucher);
             var btnCancel = UITheme.CreateSecondaryButton("Cancel");
             btnCancel.Click += (s, e) => dlg.Close();
-            btnSave.Click += (s, e) => {
+            btnSave.Click += (s, e) =>
+            {
                 var action = isNew ? PermissionAction.Create : PermissionAction.Edit;
                 if (!PermissionGuard.Ensure(PermissionModule.PaymentVoucher, action, dlg)) return;
-                if (!long.TryParse(txtSupplierId.Text.Trim(), out long supplierId) ||
-                    !long.TryParse(txtStaffId.Text.Trim(), out long staffId) ||
-                    !decimal.TryParse(txtAmount.Text.Trim(), out decimal amount))
-                { UITheme.ShowWarning("Valid Supplier ID, Staff ID and Amount are required."); return; }
+
+                long supplierId = ResolveSupplierId(cmbSupplier);
+                if (supplierId <= 0 || defaultStaffId <= 0 ||
+                    !decimal.TryParse(txtAmount.Text.Trim(), out decimal amount) || amount <= 0)
+                {
+                    UITheme.ShowWarning("Valid Supplier and Amount are required.");
+                    return;
+                }
+
+                string voucherCode = txtCode.Text.Trim();
+                if (!TryValidateVoucherCode(voucherCode, isNew, pv?.PaymentVoucherID ?? 0, _pvCtrl.ExistsByCode, out string codeError))
+                {
+                    UITheme.ShowWarning(codeError);
+                    return;
+                }
+
+                if (!TryBuildPoSettlements(settlementGrid, amount, out var lines, out string settleError))
+                {
+                    UITheme.ShowWarning(settleError);
+                    return;
+                }
 
                 try
                 {
                     var entity = new PaymentVoucher
                     {
                         PaymentVoucherID = pv?.PaymentVoucherID ?? 0,
-                        PaymentVoucherCode = pv?.PaymentVoucherCode ?? "PV-TEMP",
+                        PaymentVoucherCode = voucherCode,
                         SupplierID = supplierId,
-                        PurchaseOrderID = long.TryParse(txtPoId.Text.Trim(), out long poId) ? (long?)poId : null,
-                        StaffID = staffId,
+                        StaffID = defaultStaffId,
                         Amount = amount,
                         PaymentMethod = cmbMethod.SelectedItem?.ToString() ?? "Cash",
                         PaymentRef = txtRef.Text.Trim(),
                         Status = cmbStatus.SelectedIndex,
-                        Remark = txtRemark.Text.Trim()
+                        Remark = txtRemark.Text.Trim(),
+                        PurchaseOrderLines = lines
                     };
-                    if (isNew) _pvCtrl.Insert(entity); else _pvCtrl.Update(entity);
+                    if (isNew) _pvCtrl.Insert(entity);
+                    else _pvCtrl.Update(entity);
                     UITheme.ShowSuccess(isNew ? "Payment Voucher created." : "Payment Voucher updated.");
-                    dlg.DialogResult = DialogResult.OK; dlg.Close();
+                    dlg.DialogResult = DialogResult.OK;
+                    dlg.Close();
                 }
-                catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { UITheme.ShowError(ex.Message); }
             };
 
             var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-            btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
-            dlg.Controls.Add(layout); dlg.Controls.Add(btnPanel);
+            btnPanel.Controls.Add(btnSave);
+            btnPanel.Controls.Add(btnCancel);
+
+            dlg.Controls.Add(btnPanel);
+            dlg.Controls.Add(header);
+            dlg.Controls.Add(settlementPanel);
             return dlg;
         }
 
-        // 💡 核心 Debug 修改點：完美解決現有錯誤
         private Form BuildRVForm(string title, ReceiptVoucher existingRv)
         {
             bool isNew = existingRv == null;
-            var dlg = new Form { Text = title, Size = new Size(450, 390), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, BackColor = UITheme.Background };
+            var dlg = new Form
+            {
+                Text = title,
+                Size = new Size(520, 480),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                BackColor = UITheme.Background
+            };
 
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = 6 };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            long defaultStaffId = existingRv?.StaffID ?? AppSession.CurrentUser?.StaffID ?? 0;
+            string staffLabel = AppSession.CurrentUser?.FullName
+                ?? (defaultStaffId > 0 ? defaultStaffId.ToString() : "—");
 
-            // 💡 1. 修正變數名稱 txtCustomerId (原本全小寫，改為與事件內名稱完全一致)
-            var txtCustomerId = new TextBox { Text = existingRv?.CusomerID.ToString() ?? string.Empty, Width = 240 };
-            var txtStaffId = new TextBox { Text = existingRv?.StaffID.ToString() ?? string.Empty, Width = 240 };
-            var txtAmount = new TextBox { Text = existingRv?.PaymentAmount.ToString() ?? string.Empty, Width = 240 };
+            var txtCode = new TextBox
+            {
+                Text = existingRv?.ReceiptVoucherCode ?? "",
+                Width = 300,
+                MaxLength = 30
+            };
+            var cmbCustomer = BuildCustomerCombo(existingRv?.CusomerID ?? 0);
+            var lblStaff = new Label { Text = staffLabel, AutoSize = true, ForeColor = UITheme.TextDark };
+            var txtAmount = new TextBox { Text = existingRv?.PaymentAmount.ToString("0.##") ?? string.Empty, Width = 300 };
 
-            var cmbMethod = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
+            var cmbMethod = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
             cmbMethod.Items.AddRange(MethodNames);
-            cmbMethod.SelectedIndex = existingRv != null ? Math.Max(0, Math.Min(existingRv.PaymentMethod, 3)) : 0;
+            string methodName = existingRv?.PaymentMethodName ?? "";
+            if (!string.IsNullOrEmpty(methodName))
+            {
+                int idx = Array.IndexOf(MethodNames, methodName);
+                if (idx >= 0) cmbMethod.SelectedIndex = idx;
+                else if (int.TryParse(methodName, out int legacyIdx) && legacyIdx >= 0 && legacyIdx < MethodNames.Length)
+                    cmbMethod.SelectedIndex = legacyIdx;
+                else cmbMethod.SelectedIndex = 0;
+            }
+            else cmbMethod.SelectedIndex = 0;
 
-            var txtRef = new TextBox { Text = existingRv?.PaymentMethodRef ?? string.Empty, Width = 240 };
-            var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
+            var txtRef = new TextBox { Text = existingRv?.PaymentMethodRef ?? string.Empty, Width = 300 };
+            var dtpReceived = new DateTimePicker
+            {
+                Width = 300,
+                Format = DateTimePickerFormat.Short,
+                Value = existingRv?.PaymentReceivedDate == default ? DateTime.Today : existingRv.PaymentReceivedDate
+            };
+            var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
             cmbStatus.Items.AddRange(RVStatusNames);
             cmbStatus.SelectedIndex = existingRv != null ? Math.Max(0, Math.Min(existingRv.Status, 2)) : 0;
+            var txtRemark = new TextBox { Text = existingRv?.Remark ?? string.Empty, Multiline = true, Height = 44, Width = 300 };
 
-            var txtRemark = new TextBox { Text = existingRv?.Remark ?? string.Empty, Multiline = true, Height = 40, Width = 240 };
+            int rvFieldRows = 9;
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = rvFieldRows };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            UITheme.AddFormField(layout, 0, "Voucher Code *", txtCode);
+            UITheme.AddFormField(layout, 1, "Customer *", cmbCustomer);
+            UITheme.AddFormField(layout, 2, "Staff", lblStaff);
+            UITheme.AddFormField(layout, 3, "Amount *", txtAmount);
+            UITheme.AddFormField(layout, 4, "Payment Method", cmbMethod);
+            UITheme.AddFormField(layout, 5, "Method Ref", txtRef);
+            UITheme.AddFormField(layout, 6, "Received Date *", dtpReceived);
+            UITheme.AddFormField(layout, 7, "Status", cmbStatus);
+            UITheme.AddFormField(layout, 8, "Remark", txtRemark);
 
-            // 💡 2. 徹底拿掉不符合實體 SQL 結構的 Invoice ID 欄位
-            UITheme.AddFormField(layout, 0, "Customer ID *", txtCustomerId);
-            UITheme.AddFormField(layout, 1, "Staff ID *", txtStaffId);
-            UITheme.AddFormField(layout, 2, "Amount *", txtAmount);
-            UITheme.AddFormField(layout, 3, "Payment Method", cmbMethod);
-            UITheme.AddFormField(layout, 4, "Reference", txtRef);
-            UITheme.AddFormField(layout, 5, "Status", cmbStatus);
+            var lblHint = new Label
+            {
+                Text = "Invoice allocations (receiptvoucherinvoice) are managed via Verify & Allocate.",
+                Dock = DockStyle.Top,
+                Height = 30,
+                Padding = new Padding(4, 4, 4, 0),
+                ForeColor = UITheme.TextGray
+            };
 
             var btnSave = UITheme.CreatePrimaryButton("Save");
             if (isNew) PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.ReceiptVoucher);
             else PermissionGuard.ApplyEditButton(btnSave, PermissionModule.ReceiptVoucher);
             var btnCancel = UITheme.CreateSecondaryButton("Cancel");
             btnCancel.Click += (s, e) => dlg.Close();
-
-            btnSave.Click += (s, e) => {
+            btnSave.Click += (s, e) =>
+            {
                 var action = isNew ? PermissionAction.Create : PermissionAction.Edit;
                 if (!PermissionGuard.Ensure(PermissionModule.ReceiptVoucher, action, dlg)) return;
-                if (!long.TryParse(txtCustomerId.Text.Trim(), out long custId) ||
-                    !long.TryParse(txtStaffId.Text.Trim(), out long staffId) ||
-                    !decimal.TryParse(txtAmount.Text.Trim(), out decimal amount))
+
+                long custId = GetComboLongId(cmbCustomer);
+                if (custId <= 0 || defaultStaffId <= 0 ||
+                    !decimal.TryParse(txtAmount.Text.Trim(), out decimal amount) || amount <= 0)
                 {
-                    UITheme.ShowWarning("Valid Customer ID, Staff ID and Amount are required.");
+                    UITheme.ShowWarning("Valid Customer and Amount are required.");
+                    return;
+                }
+
+                string voucherCode = txtCode.Text.Trim();
+                if (!TryValidateVoucherCode(voucherCode, isNew, existingRv?.ReceiptVoucherID ?? 0, _rvCtrl.ExistsByCode, out string codeError))
+                {
+                    UITheme.ShowWarning(codeError);
                     return;
                 }
 
                 try
                 {
-                    // 💡 3. 將所有 rv 全部改為對齊參數的 existingRv，並將欄位對齊實體 SQL 名稱
                     var entity = new ReceiptVoucher
                     {
                         ReceiptVoucherID = existingRv?.ReceiptVoucherID ?? 0,
-                        ReceiptVoucherCode = existingRv?.ReceiptVoucherCode ?? "RV-TEMP",
+                        ReceiptVoucherCode = voucherCode,
                         CusomerID = custId,
-                        StaffID = staffId,
+                        StaffID = defaultStaffId,
                         PaymentAmount = amount,
-                        PaymentMethod = cmbMethod.SelectedIndex,
+                        PaymentMethodName = cmbMethod.SelectedItem?.ToString() ?? "Cash",
                         PaymentMethodRef = txtRef.Text.Trim(),
+                        PaymentReceivedDate = dtpReceived.Value.Date,
                         Status = cmbStatus.SelectedIndex,
                         Remark = txtRemark.Text.Trim(),
                         CurrencyID = existingRv?.CurrencyID ?? 1
                     };
-
-                    if (isNew)
-                    {
-                        _rvCtrl.Insert(entity);
-                    }
-                    else
-                    {
-                        _rvCtrl.Update(entity);
-                    }
-
+                    if (isNew) _rvCtrl.Insert(entity);
+                    else _rvCtrl.Update(entity);
                     UITheme.ShowSuccess(isNew ? "Receipt Voucher created." : "Receipt Voucher updated.");
-                    dlg.DialogResult = DialogResult.OK; dlg.Close();
+                    dlg.DialogResult = DialogResult.OK;
+                    dlg.Close();
                 }
-                catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception ex) { UITheme.ShowError(ex.Message); }
             };
 
             var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-            btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
+            btnPanel.Controls.Add(btnSave);
+            btnPanel.Controls.Add(btnCancel);
 
+            var bottomFooter = new Panel { Dock = DockStyle.Bottom, Height = 84 };
+            bottomFooter.Controls.Add(btnPanel);
+            bottomFooter.Controls.Add(lblHint);
+
+            dlg.Controls.Add(bottomFooter);
             dlg.Controls.Add(layout);
-            dlg.Controls.Add(btnPanel);
             return dlg;
         }
 
@@ -497,11 +734,22 @@ namespace FurnitureERP.Forms
             _pvGrid.DataSource = _pvCtrl.GetAllPaymentVouchers();
             _rvGrid.DataSource = _rvCtrl.GetAllReceiptVouchers();
 
-            if (_pvGrid.Columns.Contains("Status")) _pvGrid.Columns["Status"].Visible = false;
-            if (_rvGrid.Columns.Contains("Status")) _rvGrid.Columns["Status"].Visible = false;
+            ConfigureVoucherGrid(_pvGrid);
+            ConfigureVoucherGrid(_rvGrid);
 
             UpdateSummary();
             LoadCharts();
+        }
+
+        private static void ConfigureVoucherGrid(DataGridView grid)
+        {
+            if (grid.Columns.Contains("ID")) grid.Columns["ID"].Visible = false;
+            if (grid.Columns.Contains("Status")) grid.Columns["Status"].Visible = false;
+            if (grid.Columns.Contains("Status Label"))
+            {
+                grid.Columns["Status Label"].DisplayIndex = grid.Columns.Count - 1;
+                grid.Columns["Status Label"].HeaderText = "Status";
+            }
         }
 
         private void UpdateSummary()
@@ -657,52 +905,258 @@ namespace FurnitureERP.Forms
             var receipt = _rvCtrl.GetById(rvId);
             if (receipt == null) return;
 
+            if (receipt.Status == 1)
+            {
+                UITheme.ShowWarning("This receipt voucher is already verified.");
+                return;
+            }
+
+            var allocationTable = CreateAllocationEditorTable();
+            try
+            {
+                var existing = _rvCtrl.GetInvoiceAllocationsForEditor(rvId);
+                if (existing != null && existing.Rows.Count > 0)
+                {
+                    foreach (DataRow row in existing.Rows)
+                    {
+                        object invId = row["Invoice ID"];
+                        string code = row["Invoice Code"]?.ToString() ?? "";
+                        if (invId == DBNull.Value || invId == null)
+                            code = "(Exchange Loss)";
+                        allocationTable.Rows.Add(
+                            invId == DBNull.Value ? DBNull.Value : invId,
+                            code,
+                            row["Allocated Amount"],
+                            row["Clearing Type"]);
+                    }
+                }
+                else
+                {
+                    allocationTable.Rows.Add(DBNull.Value, "", receipt.PaymentAmount, 2);
+                }
+            }
+            catch
+            {
+                allocationTable.Rows.Add(DBNull.Value, "", receipt.PaymentAmount, 2);
+            }
+
+            DataTable invoicePicker = null;
+            try { invoicePicker = BuildInvoicePickerWithBlank(_invoiceCtrl.GetInvoicesForCustomerPicker(receipt.CusomerID)); } catch { }
+            DataTable clearingPicker = BuildClearingTypeDataTable();
+
             using (var dlg = new Form())
             {
                 dlg.Text = "Verify Receipt — Allocate to Invoices";
-                dlg.Size = new Size(520, 320);
+                dlg.Size = new Size(820, 480);
                 dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-                dlg.MaximizeBox = false;
+                dlg.MinimumSize = new Size(720, 400);
                 dlg.BackColor = UITheme.Background;
 
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(16) };
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                var top = new Panel { Dock = DockStyle.Top, Height = 88, Padding = new Padding(12, 8, 12, 4) };
+                var lblAmount = new Label
+                {
+                    Text = $"Receipt: {receipt.ReceiptVoucherCode}  |  Amount: {receipt.PaymentAmount:N2}",
+                    AutoSize = true,
+                    Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                    ForeColor = UITheme.TextDark,
+                    Location = new Point(0, 4)
+                };
+                var lblCustomer = new Label
+                {
+                    AutoSize = true,
+                    ForeColor = UITheme.TextGray,
+                    Location = new Point(0, 24)
+                };
+                try
+                {
+                    var cust = _customerCtrl.GetById(receipt.CusomerID);
+                    lblCustomer.Text = cust != null
+                        ? $"Customer: {cust.CustomerCode} — {cust.CustomerName}"
+                        : $"Customer ID: {receipt.CusomerID}";
+                }
+                catch { lblCustomer.Text = $"Customer ID: {receipt.CusomerID}"; }
+                var lblRemain = new Label
+                {
+                    AutoSize = true,
+                    ForeColor = UITheme.TextGray,
+                    Location = new Point(0, 44)
+                };
+                top.Controls.Add(lblAmount);
+                top.Controls.Add(lblCustomer);
+                top.Controls.Add(lblRemain);
 
-                var lblAmount = new Label { Text = "Receipt Amount: " + receipt.PaymentAmount.ToString("N2"), AutoSize = true, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
-                var txtInvoiceId = new TextBox();
-                var txtAllocated = new TextBox { Text = receipt.PaymentAmount.ToString("N2") };
-                var cmbType = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-                cmbType.Items.AddRange(new[] { "1 - Deposit", "2 - Partial Payment", "3 - Final Payment", "4 - Exchange Loss" });
-                cmbType.SelectedIndex = 1;
+                var grid = new DataGridView
+                {
+                    Dock = DockStyle.Fill,
+                    AutoGenerateColumns = false,
+                    AllowUserToAddRows = false,
+                    AllowUserToDeleteRows = false,
+                    BackgroundColor = Color.White,
+                    BorderStyle = BorderStyle.FixedSingle,
+                    RowHeadersVisible = false,
+                    SelectionMode = DataGridViewSelectionMode.FullRowSelect
+                };
 
-                UITheme.AddFormRow(layout, 0, "Summary", lblAmount);
-                UITheme.AddFormRow(layout, 1, "Invoice ID *", txtInvoiceId);
-                UITheme.AddFormRow(layout, 2, "Allocated Amount *", txtAllocated);
-                UITheme.AddFormRow(layout, 3, "Clearing Type", cmbType);
+                var colInvoice = new DataGridViewComboBoxColumn
+                {
+                    Name = "colInvoice",
+                    HeaderText = "Invoice *",
+                    DataPropertyName = "Invoice ID",
+                    DisplayMember = "DisplayText",
+                    ValueMember = "Invoice ID",
+                    Width = 280,
+                    FlatStyle = FlatStyle.Flat
+                };
+                if (invoicePicker != null)
+                    colInvoice.DataSource = invoicePicker;
+
+                grid.Columns.Add(colInvoice);
+                grid.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "colAmount",
+                    HeaderText = "Allocated Amount *",
+                    DataPropertyName = "Allocated Amount",
+                    Width = 140
+                });
+                var colType = new DataGridViewComboBoxColumn
+                {
+                    Name = "colType",
+                    HeaderText = "Clearing Type *",
+                    DataPropertyName = "Clearing Type",
+                    Width = 180,
+                    FlatStyle = FlatStyle.Flat,
+                    DataSource = clearingPicker,
+                    DisplayMember = "Value",
+                    ValueMember = "Code"
+                };
+                grid.Columns.Add(colType);
+                grid.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    Name = "colCode",
+                    HeaderText = "Invoice Code",
+                    DataPropertyName = "Invoice Code",
+                    Visible = false
+                });
+
+                grid.DataSource = allocationTable;
+                foreach (DataGridViewRow row in grid.Rows)
+                    if (!row.IsNewRow) ApplyExchangeLossRowState(row);
+                grid.DataError += (s, e) => { e.ThrowException = false; };
+                grid.CellValueChanged += (s, e) =>
+                {
+                    if (e.ColumnIndex >= 0 && grid.Columns[e.ColumnIndex].Name == "colType" && e.RowIndex >= 0)
+                        ApplyExchangeLossRowState(grid.Rows[e.RowIndex]);
+                    UpdateAllocationRemainLabel(grid, receipt.PaymentAmount, lblRemain);
+                };
+                grid.CurrentCellDirtyStateChanged += (s, e) =>
+                {
+                    if (grid.IsCurrentCellDirty)
+                        grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+                };
+                grid.EditingControlShowing += (s, e) =>
+                {
+                    if (grid.CurrentCell?.OwningColumn?.Name == "colInvoice" && e.Control is ComboBox cmb)
+                    {
+                        cmb.SelectedIndexChanged -= AllocationInvoiceChanged;
+                        cmb.SelectedIndexChanged += AllocationInvoiceChanged;
+                    }
+                };
+
+                void AllocationInvoiceChanged(object sender, EventArgs e)
+                {
+                    if (grid.CurrentRow == null) return;
+                    if (sender is ComboBox cmb && cmb.SelectedValue != null && cmb.SelectedValue != DBNull.Value)
+                    {
+                        if (!long.TryParse(cmb.SelectedValue.ToString(), out long invId) || invId <= 0)
+                            return;
+                        grid.CurrentRow.Cells["colInvoice"].Value = invId;
+                        if (invoicePicker != null)
+                        {
+                            foreach (DataRow r in invoicePicker.Rows)
+                            {
+                                if (r["Invoice ID"] == DBNull.Value) continue;
+                                if (!long.TryParse(r["Invoice ID"]?.ToString(), out long rowInvId) || rowInvId != invId)
+                                    continue;
+                                grid.CurrentRow.Cells["colCode"].Value = r["Invoice Code"]?.ToString();
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                UpdateAllocationRemainLabel(grid, receipt.PaymentAmount, lblRemain);
+
+                var btnAdd = UITheme.CreateSecondaryButton("Add Line");
+                btnAdd.Width = 100;
+                var btnRemove = UITheme.CreateSecondaryButton("Remove Line");
+                btnRemove.Width = 110;
+                var btnAddExchangeLoss = UITheme.CreateSecondaryButton("Add Exchange Loss");
+                btnAddExchangeLoss.Width = 150;
+                btnAdd.Click += (s, e) =>
+                {
+                    allocationTable.Rows.Add(DBNull.Value, "", 0m, ReceiptVoucherConstants.ClearingPartial);
+                    UpdateAllocationRemainLabel(grid, receipt.PaymentAmount, lblRemain);
+                };
+                btnRemove.Click += (s, e) =>
+                {
+                    if (grid.CurrentRow == null || allocationTable.Rows.Count <= 1)
+                    {
+                        UITheme.ShowWarning("At least one allocation line is required.");
+                        return;
+                    }
+                    allocationTable.Rows.RemoveAt(grid.CurrentRow.Index);
+                    UpdateAllocationRemainLabel(grid, receipt.PaymentAmount, lblRemain);
+                };
+                btnAddExchangeLoss.Click += (s, e) =>
+                {
+                    decimal sum = SumAllocationGridAmounts(grid);
+                    decimal remain = receipt.PaymentAmount - sum;
+                    if (remain <= 0.01m)
+                    {
+                        UITheme.ShowWarning("Receipt is already fully allocated. Adjust line amounts before adding exchange loss.");
+                        return;
+                    }
+                    allocationTable.Rows.Add(
+                        DBNull.Value,
+                        "(Exchange Loss)",
+                        remain,
+                        ReceiptVoucherConstants.ClearingExchangeLoss);
+                    if (grid.Rows.Count > 0)
+                        ApplyExchangeLossRowState(grid.Rows[grid.Rows.Count - 1]);
+                    UpdateAllocationRemainLabel(grid, receipt.PaymentAmount, lblRemain);
+                };
+
+                var lineToolbar = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Top,
+                    Height = 40,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    Padding = new Padding(12, 4, 12, 4)
+                };
+                lineToolbar.Controls.Add(btnAdd);
+                lineToolbar.Controls.Add(btnRemove);
+                lineToolbar.Controls.Add(btnAddExchangeLoss);
 
                 var btnSave = UITheme.CreatePrimaryButton("Verify Receipt");
                 var btnCancel = UITheme.CreateSecondaryButton("Cancel");
                 btnCancel.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
-                    if (!long.TryParse(txtInvoiceId.Text.Trim(), out long invoiceId) ||
-                        !decimal.TryParse(txtAllocated.Text.Trim(), out decimal allocated))
+                    if (!TryBuildReceiptAllocations(grid, out var allocations, out string error))
                     {
-                        UITheme.ShowWarning("Valid invoice ID and allocated amount are required.");
+                        UITheme.ShowWarning(error);
                         return;
                     }
 
-                    var allocations = new System.Collections.Generic.List<ReceiptAllocation>
+                    decimal sum = 0;
+                    foreach (var a in allocations) sum += a.ReceivedAmount;
+                    if (Math.Abs(sum - receipt.PaymentAmount) > 0.01m)
                     {
-                        new ReceiptAllocation
-                        {
-                            InvoiceId = invoiceId,
-                            ReceivedAmount = allocated,
-                            Type = cmbType.SelectedIndex + 1
-                        }
-                    };
+                        UITheme.ShowWarning(
+                            $"Allocated total ({sum:N2}) does not equal receipt amount ({receipt.PaymentAmount:N2}). " +
+                            "Adjust lines or use Add Exchange Loss for the difference.");
+                        return;
+                    }
 
                     var result = _financeWorkflow.ConfirmReceiptWithAllocations(rvId, allocations);
                     if (result.Success)
@@ -715,12 +1169,509 @@ namespace FurnitureERP.Forms
                     else UITheme.ShowWarning(result.Message);
                 };
 
-                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
                 btnPanel.Controls.Add(btnSave);
                 btnPanel.Controls.Add(btnCancel);
-                dlg.Controls.Add(layout);
+
                 dlg.Controls.Add(btnPanel);
+                dlg.Controls.Add(top);
+                dlg.Controls.Add(lineToolbar);
+                dlg.Controls.Add(grid);
                 dlg.ShowDialog(this);
+            }
+        }
+
+        private static DataTable CreateAllocationEditorTable()
+        {
+            var dt = new DataTable();
+            var colInv = dt.Columns.Add("Invoice ID", typeof(long));
+            colInv.AllowDBNull = true;
+            dt.Columns.Add("Invoice Code", typeof(string));
+            dt.Columns.Add("Allocated Amount", typeof(decimal));
+            dt.Columns.Add("Clearing Type", typeof(int));
+            return dt;
+        }
+
+        private static decimal SumAllocationGridAmounts(DataGridView grid)
+        {
+            decimal sum = 0;
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                if (decimal.TryParse(row.Cells["colAmount"]?.Value?.ToString(), out decimal amt))
+                    sum += amt;
+            }
+            return sum;
+        }
+
+        private static void ApplyExchangeLossRowState(DataGridViewRow row)
+        {
+            if (row == null) return;
+            int typeCode = GetClearingTypeFromCell(row.Cells["colType"]?.Value, ReceiptVoucherConstants.ClearingPartial);
+            bool isLoss = ReceiptVoucherConstants.IsExchangeLoss(typeCode);
+            if (isLoss)
+            {
+                row.Cells["colInvoice"].Value = DBNull.Value;
+                row.Cells["colCode"].Value = "(Exchange Loss)";
+                row.Cells["colInvoice"].ReadOnly = true;
+            }
+            else
+            {
+                row.Cells["colInvoice"].ReadOnly = false;
+            }
+        }
+
+        private static void UpdateAllocationRemainLabel(DataGridView grid, decimal receiptAmount, Label lblRemain)
+        {
+            decimal sum = SumAllocationGridAmounts(grid);
+            decimal remain = receiptAmount - sum;
+            lblRemain.Text = $"Allocated: {sum:N2}  |  Remaining: {remain:N2}" +
+                             (Math.Abs(remain) < 0.01m ? " (balanced)" : "");
+            lblRemain.ForeColor = Math.Abs(remain) < 0.01m ? Color.DarkGreen : Color.DarkOrange;
+        }
+
+        private static bool TryBuildReceiptAllocations(DataGridView grid, out List<ReceiptAllocation> allocations, out string error)
+        {
+            allocations = new List<ReceiptAllocation>();
+            error = null;
+            var seenInvoices = new HashSet<long>();
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+
+                int typeCode = GetClearingTypeFromCell(row.Cells["colType"]?.Value, ReceiptVoucherConstants.ClearingPartial);
+                if (typeCode <= 0)
+                {
+                    error = "Each line must have a clearing type.";
+                    return false;
+                }
+
+                if (!decimal.TryParse(row.Cells["colAmount"]?.Value?.ToString(), out decimal amount) || amount <= 0)
+                {
+                    error = "Each line must have a positive allocated amount.";
+                    return false;
+                }
+
+                long? invoiceId = null;
+                if (ReceiptVoucherConstants.IsExchangeLoss(typeCode))
+                {
+                    object invObj = row.Cells["colInvoice"]?.Value;
+                    if (invObj != null && invObj != DBNull.Value &&
+                        long.TryParse(invObj.ToString(), out long bogusInv) && bogusInv > 0)
+                    {
+                        error = "Exchange loss lines must not be linked to an invoice.";
+                        return false;
+                    }
+                }
+                else
+                {
+                    object invObj = row.Cells["colInvoice"]?.Value;
+                    if (invObj == null || invObj == DBNull.Value ||
+                        !long.TryParse(invObj.ToString(), out long invId) || invId <= 0)
+                    {
+                        error = "Each non-exchange-loss line must have an invoice selected.";
+                        return false;
+                    }
+                    if (!seenInvoices.Add(invId))
+                    {
+                        error = "Duplicate invoice on allocation lines. Combine amounts into one line per invoice.";
+                        return false;
+                    }
+                    invoiceId = invId;
+                }
+
+                allocations.Add(new ReceiptAllocation
+                {
+                    InvoiceId = invoiceId,
+                    ReceivedAmount = amount,
+                    Type = typeCode
+                });
+            }
+            if (allocations.Count == 0)
+            {
+                error = "Add at least one allocation line.";
+                return false;
+            }
+            return true;
+        }
+
+        private void ShowSelectedPaymentVoucherDetail()
+        {
+            if (_pvGrid?.CurrentRow?.Cells["ID"]?.Value == null)
+            {
+                UITheme.ShowWarning("Please select a payment voucher first.");
+                return;
+            }
+            ShowPaymentVoucherDetail(Convert.ToInt64(_pvGrid.CurrentRow.Cells["ID"].Value));
+        }
+
+        private void ShowPaymentVoucherDetail(long paymentVoucherId)
+        {
+            try
+            {
+                var header = _pvCtrl.GetHeaderDetail(paymentVoucherId);
+                var lines = _pvCtrl.GetPurchaseOrderSettlementsDetailed(paymentVoucherId);
+                string code = header?.Rows.Count > 0 ? header.Rows[0]["Voucher Code"]?.ToString() : paymentVoucherId.ToString();
+                var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+                DetailViewHelper.ShowDetail(this, $"Payment Voucher — {code}", fields, lines,
+                    $"PaymentVoucher_{code}", null, null, "PO Settlements", "PO Settlements");
+            }
+            catch (Exception ex) { UITheme.ShowError(ex.Message); }
+        }
+
+        private void ShowSelectedReceiptVoucherDetail()
+        {
+            if (_rvGrid?.CurrentRow?.Cells["ID"]?.Value == null)
+            {
+                UITheme.ShowWarning("Please select a receipt voucher first.");
+                return;
+            }
+            ShowReceiptVoucherDetail(Convert.ToInt64(_rvGrid.CurrentRow.Cells["ID"].Value));
+        }
+
+        private void ShowReceiptVoucherDetail(long receiptVoucherId)
+        {
+            try
+            {
+                var header = _rvCtrl.GetHeaderDetail(receiptVoucherId);
+                var lines = _rvCtrl.GetInvoiceAllocationsDetailed(receiptVoucherId);
+                if (lines != null && lines.Columns.Contains("Invoice ID"))
+                    lines.Columns.Remove("Invoice ID");
+                string code = header?.Rows.Count > 0 ? header.Rows[0]["Voucher Code"]?.ToString() : receiptVoucherId.ToString();
+                var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+                DetailViewHelper.ShowDetail(this, $"Receipt Voucher — {code}", fields, lines,
+                    $"ReceiptVoucher_{code}", null, null, "Invoice Allocations", "Invoice Allocations");
+            }
+            catch (Exception ex) { UITheme.ShowError(ex.Message); }
+        }
+
+        private ComboBox BuildSupplierCombo(long selectedSupplierId = 0)
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 280 };
+            cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+            cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
+            var dt = _supplierCtrl.GetAllSuppliers();
+            if (dt != null && !dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+            if (dt != null)
+            {
+                foreach (DataRow row in dt.Rows)
+                    row["DisplayText"] = row["Supplier Name"]?.ToString();
+            }
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "DisplayText";
+            cmb.ValueMember = "Supplier ID";
+            if (selectedSupplierId > 0) SetComboLongValue(cmb, selectedSupplierId);
+            return cmb;
+        }
+
+        private ComboBox BuildCustomerCombo(long selectedCustomerId = 0)
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
+            var dt = _customerCtrl.GetAllCustomers();
+            if (dt != null && !dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+            if (dt != null)
+            {
+                foreach (DataRow row in dt.Rows)
+                {
+                    string code = dt.Columns.Contains("Customer Code") ? row["Customer Code"]?.ToString() : "";
+                    string name = row["Customer Name"]?.ToString();
+                    row["DisplayText"] = string.IsNullOrWhiteSpace(code) ? name : $"{code} — {name}";
+                }
+            }
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "DisplayText";
+            cmb.ValueMember = "Customer ID";
+            if (selectedCustomerId > 0) SetComboLongValue(cmb, selectedCustomerId);
+            return cmb;
+        }
+
+        private long ResolveSupplierId(ComboBox cmbSupplier)
+        {
+            long id = GetComboLongId(cmbSupplier);
+            if (id > 0) return id;
+            string name = (cmbSupplier.Text ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(name)) return 0;
+            return _supplierCtrl.FindSupplierIdByName(name);
+        }
+
+        private DataTable BuildPoPickerForSupplier(long supplierId, IEnumerable<long> ensurePoIds = null)
+        {
+            DataTable dt;
+            if (supplierId <= 0)
+            {
+                dt = new DataTable();
+                dt.Columns.Add("Purchase Order ID", typeof(long));
+                dt.Columns["Purchase Order ID"].AllowDBNull = true;
+                dt.Columns.Add("Purchase Order Code", typeof(string));
+                dt.Columns.Add("Request Delivery Date", typeof(object));
+                dt.Columns.Add("Supplier ID", typeof(long));
+                dt.Columns.Add("DisplayText", typeof(string));
+            }
+            else
+            {
+                dt = _poCtrl.GetPurchaseOrdersForSupplierPicker(supplierId);
+                if (dt == null)
+                {
+                    dt = new DataTable();
+                    dt.Columns.Add("Purchase Order ID", typeof(long));
+                    dt.Columns["Purchase Order ID"].AllowDBNull = true;
+                    dt.Columns.Add("DisplayText", typeof(string));
+                }
+            }
+
+            if (dt != null && !dt.Columns.Contains("DisplayText"))
+            {
+                dt.Columns.Add("DisplayText", typeof(string));
+                foreach (DataRow row in dt.Rows)
+                {
+                    string code = dt.Columns.Contains("Purchase Order Code") ? row["Purchase Order Code"]?.ToString() : "";
+                    string reqDate = !dt.Columns.Contains("Request Delivery Date") || row["Request Delivery Date"] == DBNull.Value
+                        ? ""
+                        : Convert.ToDateTime(row["Request Delivery Date"]).ToString("yyyy-MM-dd");
+                    row["DisplayText"] = string.IsNullOrEmpty(reqDate) ? code : $"{code} (Req: {reqDate})";
+                }
+            }
+
+            if (ensurePoIds != null && dt != null)
+            {
+                foreach (long poId in ensurePoIds)
+                {
+                    if (poId <= 0) continue;
+                    bool found = false;
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        if (row["Purchase Order ID"] != DBNull.Value &&
+                            Convert.ToInt64(row["Purchase Order ID"]) == poId)
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found) continue;
+
+                    var po = _poCtrl.GetById(poId);
+                    if (po == null) continue;
+                    string reqStr = po.RequestDeliveryDate == default ? "" : po.RequestDeliveryDate.ToString("yyyy-MM-dd");
+                    string display = string.IsNullOrEmpty(reqStr) ? po.PurchaseOrderCode : $"{po.PurchaseOrderCode} (Req: {reqStr})";
+                    if (!dt.Columns.Contains("Purchase Order Code"))
+                        dt.Columns.Add("Purchase Order Code", typeof(string));
+                    if (!dt.Columns.Contains("Request Delivery Date"))
+                        dt.Columns.Add("Request Delivery Date", typeof(object));
+                    if (!dt.Columns.Contains("Supplier ID"))
+                        dt.Columns.Add("Supplier ID", typeof(long));
+                    dt.Rows.Add(poId, po.PurchaseOrderCode,
+                        po.RequestDeliveryDate == default ? (object)DBNull.Value : po.RequestDeliveryDate,
+                        po.SupplierID, display);
+                }
+            }
+
+            if (dt != null)
+                InsertBlankPickerRow(dt, "Purchase Order ID", "DisplayText", "(Select PO)");
+            return dt;
+        }
+
+        private static DataTable BuildClearingTypeDataTable()
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Code", typeof(int));
+            dt.Columns.Add("Value", typeof(string));
+            foreach (var item in DictionaryService.GetItems(DictionaryService.Categories.PoPaymentType))
+                dt.Rows.Add(item.Key, item.Value);
+            return dt;
+        }
+
+        private static DataTable BuildInvoicePickerWithBlank(DataTable source)
+        {
+            if (source == null)
+            {
+                source = new DataTable();
+                source.Columns.Add("Invoice ID", typeof(long));
+                source.Columns["Invoice ID"].AllowDBNull = true;
+                source.Columns.Add("DisplayText", typeof(string));
+            }
+            if (!source.Columns.Contains("DisplayText"))
+                source.Columns.Add("DisplayText", typeof(string));
+            if (!source.Columns["Invoice ID"].AllowDBNull)
+                source.Columns["Invoice ID"].AllowDBNull = true;
+            InsertBlankPickerRow(source, "Invoice ID", "DisplayText", "(Select Invoice)");
+            return source;
+        }
+
+        private static void InsertBlankPickerRow(DataTable dt, string idColumn, string displayColumn, string blankLabel)
+        {
+            if (dt == null || !dt.Columns.Contains(idColumn)) return;
+            if (!dt.Columns[idColumn].AllowDBNull)
+                dt.Columns[idColumn].AllowDBNull = true;
+            if (!dt.Columns.Contains(displayColumn))
+                dt.Columns.Add(displayColumn, typeof(string));
+
+            foreach (DataRow row in dt.Rows)
+            {
+                if (row[idColumn] == DBNull.Value) return;
+            }
+
+            var blank = dt.NewRow();
+            blank[idColumn] = DBNull.Value;
+            blank[displayColumn] = blankLabel;
+            dt.Rows.InsertAt(blank, 0);
+        }
+
+        private static IEnumerable<long> CollectPoIdsFromGrid(DataGridView grid)
+        {
+            var ids = new List<long>();
+            if (grid == null) return ids;
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                object val = row.Cells["colPo"]?.Value;
+                if (val == null || val == DBNull.Value) continue;
+                if (long.TryParse(val.ToString(), out long poId) && poId > 0)
+                    ids.Add(poId);
+            }
+            return ids;
+        }
+
+        private static int GetClearingTypeFromCell(object cellValue, int defaultCode)
+        {
+            if (cellValue is int intVal) return intVal > 0 ? intVal : defaultCode;
+            if (cellValue is DictionaryUIHelper.ComboBoxItem typeItem) return typeItem.Code;
+            if (cellValue != null && int.TryParse(cellValue.ToString(), out int parsed) && parsed > 0)
+                return parsed;
+            return defaultCode;
+        }
+
+        private static DataTable CreatePoSettlementEditorTable()
+        {
+            var dt = new DataTable();
+            var colPo = dt.Columns.Add("Purchase Order ID", typeof(long));
+            colPo.AllowDBNull = true;
+            dt.Columns.Add("Purchase Order Code", typeof(string));
+            dt.Columns.Add("Request Delivery Date", typeof(string));
+            dt.Columns.Add("Clearing Type", typeof(int));
+            dt.Columns.Add("Pay Amount", typeof(decimal));
+            return dt;
+        }
+
+        private static void SyncPoRowFromPicker(DataGridViewRow row, DataTable poPicker)
+        {
+            if (row == null || poPicker == null) return;
+            object val = row.Cells["colPo"]?.Value;
+            if (val == null || !long.TryParse(val.ToString(), out long poId) || poId <= 0) return;
+            foreach (DataRow pr in poPicker.Rows)
+            {
+                if (pr["Purchase Order ID"] == DBNull.Value) continue;
+                if (Convert.ToInt64(pr["Purchase Order ID"]) != poId) continue;
+                row.Cells["colReqDate"].Value = pr["Request Delivery Date"] == DBNull.Value
+                    ? ""
+                    : Convert.ToDateTime(pr["Request Delivery Date"]).ToString("yyyy-MM-dd");
+                if (row.DataBoundItem is DataRowView drv)
+                {
+                    drv.Row["Purchase Order Code"] = pr["Purchase Order Code"]?.ToString();
+                    drv.Row["Request Delivery Date"] = row.Cells["colReqDate"].Value;
+                }
+                break;
+            }
+        }
+
+        private static bool TryBuildPoSettlements(DataGridView grid, decimal voucherAmount,
+            out List<VoucherPurchaseOrderLine> lines, out string error)
+        {
+            lines = new List<VoucherPurchaseOrderLine>();
+            error = null;
+            var seenPo = new HashSet<long>();
+            decimal sum = 0;
+
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                object poObj = row.Cells["colPo"]?.Value;
+                if (poObj == null || !long.TryParse(poObj.ToString(), out long poId) || poId <= 0)
+                    continue;
+
+                if (!seenPo.Add(poId))
+                {
+                    error = "Duplicate purchase order in settlement lines.";
+                    return false;
+                }
+
+                if (!decimal.TryParse(row.Cells["colPay"]?.Value?.ToString(), out decimal payAmount) || payAmount <= 0)
+                {
+                    error = "Each PO line must have a positive pay amount.";
+                    return false;
+                }
+
+                int typeCode = GetClearingTypeFromCell(row.Cells["colClearing"]?.Value, 1);
+
+                sum += payAmount;
+                lines.Add(new VoucherPurchaseOrderLine
+                {
+                    PurchaseOrderID = poId,
+                    ClearingType = typeCode > 0 ? typeCode : 1,
+                    PayAmount = payAmount
+                });
+            }
+
+            if (lines.Count > 0 && Math.Abs(sum - voucherAmount) > 0.01m)
+            {
+                error = $"PO settlement total ({sum:N2}) must equal voucher amount ({voucherAmount:N2}).";
+                return false;
+            }
+            return true;
+        }
+
+        private static bool TryValidateVoucherCode(string code, bool isNew, long recordId,
+            Func<string, long, bool> existsByCode, out string error)
+        {
+            error = null;
+            code = (code ?? "").Trim();
+            if (string.IsNullOrEmpty(code))
+            {
+                error = "Voucher Code is required.";
+                return false;
+            }
+            if (code.Length > 30)
+            {
+                error = "Voucher Code must be 30 characters or less.";
+                return false;
+            }
+            long excludeId = isNew ? 0 : recordId;
+            if (existsByCode(code, excludeId))
+            {
+                error = "Voucher Code already exists. Please use a unique code.";
+                return false;
+            }
+            return true;
+        }
+
+        private static long GetComboLongId(ComboBox cmb)
+        {
+            if (cmb?.SelectedValue == null) return 0;
+            return long.TryParse(cmb.SelectedValue.ToString(), out long id) ? id : 0;
+        }
+
+        private static void SetComboLongValue(ComboBox cmb, long value)
+        {
+            if (cmb?.Items == null || value <= 0) return;
+            cmb.SelectedValue = value;
+            if (cmb.SelectedValue == null || Convert.ToInt64(cmb.SelectedValue) != value)
+            {
+                for (int i = 0; i < cmb.Items.Count; i++)
+                {
+                    if (cmb.Items[i] is DataRowView drv &&
+                        long.TryParse(drv[cmb.ValueMember]?.ToString(), out long id) && id == value)
+                    {
+                        cmb.SelectedIndex = i;
+                        return;
+                    }
+                }
             }
         }
     }

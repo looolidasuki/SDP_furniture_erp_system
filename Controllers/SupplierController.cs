@@ -38,6 +38,19 @@ namespace Sales_user.Controllers
             });
         }
 
+        public long FindSupplierIdByName(string supplierName)
+        {
+            if (string.IsNullOrWhiteSpace(supplierName)) return 0;
+            string sql = @"SELECT supplierID FROM Supplier
+                           WHERE supplierName = @name
+                           ORDER BY supplierID LIMIT 1";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] {
+                new MySqlParameter("@name", supplierName.Trim())
+            });
+            if (dt == null || dt.Rows.Count == 0) return 0;
+            return System.Convert.ToInt64(dt.Rows[0]["supplierID"]);
+        }
+
         public Supplier GetById(long id)
         {
             string sql = "SELECT * FROM Supplier WHERE supplierID = @id";

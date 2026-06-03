@@ -13,6 +13,7 @@ namespace FurnitureERP.Helpers
         {
             if (user == null) return false;
             if (string.Equals(user.Username, "root", StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(user.Username, "admin", StringComparison.OrdinalIgnoreCase)) return true;
             if (string.Equals(user.Username, "superuser", StringComparison.OrdinalIgnoreCase)) return true;
             var dept = NormalizeDepartment(user.Department);
             return dept == "superuser";
@@ -62,6 +63,7 @@ namespace FurnitureERP.Helpers
             matrix["sales"] = Dict(
                 P(PermissionModule.SalesOrder, PermissionFlags.All),
                 P(PermissionModule.Quotation, PermissionFlags.All),
+                P(PermissionModule.ReplySlip, PermissionFlags.All),
                 P(PermissionModule.Customer, PermissionFlags.All),
                 P(PermissionModule.DeliveryNote, PermissionFlags.View),
                 P(PermissionModule.Invoice, PermissionFlags.View),

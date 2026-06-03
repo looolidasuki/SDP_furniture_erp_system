@@ -6,16 +6,31 @@ namespace Sales_user.Controllers
 {
     public class GoodsReceivedNoteController
     {
+        public DataTable GetGrnsByPurchaseOrder(long purchaseOrderId)
+        {
+            string sql = @"SELECT grn.goodsReceivedNoteID AS 'GRN ID',
+                                  grn.goodsReceivedNoteCode AS 'GRN Code',
+                                  grn.createDate AS 'Create Date',
+                                  grn.status AS 'Status',
+                                  grn.remark AS 'Remark'
+                           FROM GoodsReceivedNote grn
+                           WHERE grn.PurchaseOrderID = @poId
+                           ORDER BY grn.createDate DESC";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@poId", purchaseOrderId) });
+        }
+
         public DataTable GetAllGoodsReceivedNotes()
         {
             string sql = @"SELECT grn.goodsReceivedNoteID AS 'GRN ID',
                                   grn.goodsReceivedNoteCode AS 'GRN Code',
+                                  po.purchaseOrderCode AS 'Purchase Order',
                                   s.supplierName AS 'Supplier',
-                                  grn.PurchaseOrderID AS 'Purchase Order ID',
                                   grn.createDate AS 'Create Date',
-                                  grn.status AS 'Status'
+                                  grn.status AS 'Status',
+                                  grn.remark AS 'Remark'
                            FROM GoodsReceivedNote grn
                            LEFT JOIN Supplier s ON grn.supplierID = s.supplierID
+                           LEFT JOIN PurchaseOrder po ON grn.PurchaseOrderID = po.purchaseOrderID
                            ORDER BY grn.createDate DESC";
             return DatabaseConnect.ExecuteQuery(sql);
         }
@@ -47,11 +62,67 @@ namespace Sales_user.Controllers
 
         public DataTable GetReceivedLines(long grnId)
         {
-            string sql = @"SELECT rm.rawMaterialCode AS 'Raw Material', grl.receivedQuantity AS 'Received Qty'
+            return GetReceivedLinesDetailed(grnId);
+        }
+
+        public DataTable GetReceivedLinesDetailed(long grnId)
+        {
+            string sql = @"SELECT rm.rawMaterialCode AS 'Raw Material',
+                                  COALESCE(pol.orderQuantity, 0) AS 'Order Qty',
+                                  COALESCE(pol.receivedQuantity, 0) AS 'PO Received Qty',
+                                  grl.receivedQuantity AS 'Received Qty',
+                                  CASE
+                                    WHEN grn.status >= 2 THEN GREATEST(COALESCE(pol.orderQuantity, 0) - COALESCE(pol.receivedQuantity, 0), 0)
+                                    ELSE GREATEST(
+                                        COALESCE(pol.orderQuantity, 0) - COALESCE(pol.receivedQuantity, 0) - grl.receivedQuantity,
+                                        0)
+                                  END AS 'Remaining Need'
                            FROM GoodsReceivedNoteRawMaterialLine grl
+                           INNER JOIN GoodsReceivedNote grn ON grl.goodsReceivedNoteID = grn.goodsReceivedNoteID
                            INNER JOIN RawMaterial rm ON grl.rawMaterialID = rm.rawMaterialID
-                           WHERE grl.goodsReceivedNoteID = @id";
+                           LEFT JOIN PurchaseOrderRawMaterialLine pol
+                                ON pol.purchaseOrderID = grn.PurchaseOrderID
+                               AND pol.rawMaterialID = grl.rawMaterialID
+                           WHERE grl.goodsReceivedNoteID = @id
+                           ORDER BY rm.rawMaterialCode";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", grnId) });
+        }
+
+        public DataTable GetHeaderDetail(long grnId)
+        {
+            string sql = @"SELECT grn.goodsReceivedNoteCode AS 'GRN Code',
+                                  po.purchaseOrderCode AS 'Purchase Order',
+                                  po.requestDeliveryDate AS 'PO Request Delivery Date',
+                                  po.status AS 'PO Status',
+                                  s.supplierName AS 'Supplier',
+                                  s.contactPerson AS 'Supplier Contact',
+                                  s.phone AS 'Supplier Phone',
+                                  s.billingAddress AS 'Supplier Address',
+                                  s.paymentTerm AS 'Supplier Payment Terms',
+                                  CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Received By',
+                                  grn.createDate AS 'Create Date',
+                                  grn.status AS 'GRN Status',
+                                  grn.remark AS 'Remark'
+                           FROM GoodsReceivedNote grn
+                           LEFT JOIN Supplier s ON grn.supplierID = s.supplierID
+                           LEFT JOIN PurchaseOrder po ON grn.PurchaseOrderID = po.purchaseOrderID
+                           LEFT JOIN Staff st ON grn.staffID = st.staffID
+                           WHERE grn.goodsReceivedNoteID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", grnId) });
+        }
+
+        public bool ExistsByCode(string code, long excludeId = 0)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return false;
+            string sql = @"SELECT COUNT(*) FROM GoodsReceivedNote
+                           WHERE goodsReceivedNoteCode = @code AND goodsReceivedNoteID <> @excludeId";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[]
+            {
+                new MySqlParameter("@code", code.Trim()),
+                new MySqlParameter("@excludeId", excludeId)
+            });
+            if (dt == null || dt.Rows.Count == 0) return false;
+            return System.Convert.ToInt32(dt.Rows[0][0]) > 0;
         }
 
         public GoodsReceivedNote GetById(long id)
@@ -107,6 +178,27 @@ namespace Sales_user.Controllers
                            FROM GoodsReceivedNoteRawMaterialLine
                            WHERE goodsReceivedNoteID = @id";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", grnId) });
+        }
+
+        public bool DeleteLines(long grnId)
+        {
+            DatabaseConnect.ExecuteNonQuery(
+                "DELETE FROM GoodsReceivedNoteRawMaterialLine WHERE goodsReceivedNoteID = @id",
+                new[] { new MySqlParameter("@id", grnId) });
+            return true;
+        }
+
+        public bool ReplaceLines(long grnId, System.Collections.Generic.IEnumerable<(long RawMaterialID, decimal ReceivedQty)> lines)
+        {
+            DeleteLines(grnId);
+            bool hasAny = false;
+            foreach (var line in lines)
+            {
+                if (line.RawMaterialID <= 0) continue;
+                InsertRawMaterialLine(grnId, line.RawMaterialID, line.ReceivedQty);
+                hasAny = true;
+            }
+            return hasAny;
         }
     }
 }

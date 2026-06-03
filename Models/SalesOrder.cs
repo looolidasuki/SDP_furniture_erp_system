@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Sales_user.Models
 {
@@ -10,6 +10,8 @@ namespace Sales_user.Models
         public long StaffID { get; set; }
         public long CurrencyCurrencyID { get; set; }
         public string DeliveryAddress { get; set; }
+        public DateTime? RequestedDeliveryDate { get; set; }
+        public string CustomerRefNumber { get; set; }
         public DateTime CreateDate { get; set; }
         public DateTime LastModifyDate { get; set; }
         public string DiscountType { get; set; }

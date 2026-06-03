@@ -1,5 +1,6 @@
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
+using System.Collections.Generic;
 using System.Data;
 
 namespace Sales_user.Controllers
@@ -59,6 +60,28 @@ namespace Sales_user.Controllers
             }) > 0;
         }
 
+        public bool DeleteProductLines(long quotationId)
+        {
+            string sql = "DELETE FROM QuotationProductLine WHERE quotationID = @qid";
+            DatabaseConnect.ExecuteNonQuery(sql, new[]
+            {
+                new MySqlParameter("@qid", quotationId)
+            });
+            return true;
+        }
+
+        public bool ReplaceProductLines(long quotationId, IEnumerable<(long ProductID, decimal Price, decimal Quantity, decimal Discount)> lines)
+        {
+            DeleteProductLines(quotationId);
+            bool hasAny = false;
+            foreach (var line in lines)
+            {
+                InsertProductLine(quotationId, line.ProductID, line.Price, line.Quantity, line.Discount);
+                hasAny = true;
+            }
+            return hasAny;
+        }
+
         public DataTable GetProductLines(long quotationId)
         {
             string sql = @"SELECT p.productCode AS 'Product Code', qpl.price AS 'Price',
@@ -67,6 +90,46 @@ namespace Sales_user.Controllers
                            INNER JOIN Product p ON qpl.productID = p.productID
                            WHERE qpl.quotationID = @id";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", quotationId) });
+        }
+
+        public DataTable GetProductLinesDetailed(long quotationId)
+        {
+            string sql = @"SELECT p.productCode AS 'Product Code',
+                                  p.category AS 'Category',
+                                  p.styleNumber AS 'Style Number',
+                                  p.size AS 'Size',
+                                  p.color AS 'Color',
+                                  p.unit AS 'Unit',
+                                  qpl.price AS 'Price',
+                                  qpl.quantity AS 'Quantity',
+                                  qpl.discountAmount AS 'Discount',
+                                  (qpl.price * qpl.quantity - qpl.discountAmount) AS 'Amount'
+                           FROM QuotationProductLine qpl
+                           INNER JOIN Product p ON qpl.productID = p.productID
+                           WHERE qpl.quotationID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", quotationId) });
+        }
+
+        public DataTable GetHeaderDetail(long quotationId)
+        {
+            string sql = @"SELECT q.quotationCode AS 'Quotation Code',
+                                  c.customerName AS 'Customer',
+                                  q.createDate AS 'Create Date',
+                                  q.status AS 'Status',
+                                  q.remark AS 'Remark'
+                           FROM Quotation q
+                           LEFT JOIN Customer c ON q.customerID = c.customerID
+                           WHERE q.quotationID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", quotationId) });
+        }
+
+        public decimal GetTotalAmount(long quotationId)
+        {
+            object value = DatabaseConnect.ExecuteScalar(
+                @"SELECT COALESCE(SUM(price * quantity - discountAmount), 0)
+                  FROM QuotationProductLine WHERE quotationID = @id",
+                new[] { new MySqlParameter("@id", quotationId) });
+            return value == null || value == System.DBNull.Value ? 0 : System.Convert.ToDecimal(value);
         }
 
         public Quotation GetById(long quotationId)

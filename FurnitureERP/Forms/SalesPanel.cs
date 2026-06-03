@@ -15,6 +15,8 @@ namespace FurnitureERP.Forms
         private readonly CustomerController _customerCtrl = new CustomerController();
         private readonly SalesOrderController _salesOrderCtrl = new SalesOrderController();
         private readonly QuotationController _quotationCtrl = new QuotationController();
+        private readonly ReplySlipController _replySlipCtrl = new ReplySlipController();
+        private readonly ProductController _productCtrl = new ProductController();
         private readonly SalesWorkflowService _salesWorkflow = new SalesWorkflowService();
 
         private TabControl _tabs;
@@ -38,6 +40,8 @@ namespace FurnitureERP.Forms
                 _tabs.TabPages.Add(BuildQuotationTab());
             if (AppSession.CanView(PermissionModule.SalesOrder))
                 _tabs.TabPages.Add(BuildSalesOrderTab());
+            if (AppSession.CanView(PermissionModule.ReplySlip))
+                _tabs.TabPages.Add(BuildReplySlipTab());
 
             Controls.Add(_tabs);
 
@@ -78,7 +82,11 @@ namespace FurnitureERP.Forms
             page.Controls.Add(BuildCrudPanel("Customer", PermissionModule.Customer,
                 () => _customerCtrl.GetAllCustomers(),
                 ShowCreateCustomerDialog,
-                row => OpenCustomerRow(row)));
+                row => ShowCustomerDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
+                row => OpenCustomerRow(row),
+                null,
+                null,
+                row => ShowCustomerDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
             return page;
         }
 
@@ -88,6 +96,7 @@ namespace FurnitureERP.Forms
             page.Controls.Add(BuildCrudPanel("Quotation", PermissionModule.Quotation,
                 () => DictionaryUIHelper.LoadWithStatusLabels(() => _quotationCtrl.GetAllQuotations(), "Status", DictionaryService.Categories.Quotation),
                 ShowCreateQuotationDialog,
+                row => ShowQuotationDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
                 row => OpenQuotationRow(row),
                 DictionaryService.Categories.Quotation,
                 grid =>
@@ -99,7 +108,8 @@ namespace FurnitureERP.Forms
                         ConvertQuotationToSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
                     };
                     return btnConvert;
-                }));
+                },
+                row => ShowQuotationViewDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
             return page;
         }
 
@@ -109,6 +119,7 @@ namespace FurnitureERP.Forms
             page.Controls.Add(BuildCrudPanel("Sales Order", PermissionModule.SalesOrder,
                 () => DictionaryUIHelper.LoadWithStatusLabels(() => _salesOrderCtrl.GetAllSalesOrders(), "Status", DictionaryService.Categories.SalesOrder),
                 ShowCreateSalesOrderDialog,
+                row => ShowSalesOrderDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
                 row => OpenSalesOrderRow(row),
                 DictionaryService.Categories.SalesOrder,
                 grid =>
@@ -120,13 +131,30 @@ namespace FurnitureERP.Forms
                         CreateProductionFromSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
                     };
                     return btnProduction;
-                }));
+                },
+                row => ShowSalesOrderViewDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
+            return page;
+        }
+
+        private TabPage BuildReplySlipTab()
+        {
+            var page = new TabPage("Reply Slips");
+            page.Controls.Add(BuildCrudPanel("Reply Slip", PermissionModule.ReplySlip,
+                () => DictionaryUIHelper.LoadWithStatusLabels(() => _replySlipCtrl.GetAllReplySlips(), "Status", DictionaryService.Categories.ReplySlip),
+                ShowCreateReplySlipDialog,
+                row => ShowReplySlipDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
+                row => ShowReplySlipDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
+                DictionaryService.Categories.ReplySlip));
             return page;
         }
 
         private void OpenQuotationRow(DataGridViewRow row)
         {
-            long id = Convert.ToInt64(row.Cells[0].Value);
+            ShowQuotationViewDetailDialog(Convert.ToInt64(row.Cells[0].Value));
+        }
+
+        private void ShowQuotationDetailDialog(long id)
+        {
             var quotation = _quotationCtrl.GetById(id);
             if (quotation == null) return;
 
@@ -155,6 +183,15 @@ namespace FurnitureERP.Forms
                 }
                 catch { }
 
+                var btnEdit = UITheme.CreateSecondaryButton("Edit");
+                btnEdit.Click += (s, e) =>
+                {
+                    dlg.Hide();
+                    ShowEditQuotationDialog(id);
+                    dlg.Close();
+                };
+                PermissionGuard.ApplyEditButton(btnEdit, PermissionModule.Quotation);
+
                 var btnConvert = UITheme.CreatePrimaryButton("Convert to Sales Order");
                 btnConvert.Click += (s, e) =>
                 {
@@ -167,6 +204,7 @@ namespace FurnitureERP.Forms
                 btnClose.Click += (s, e) => dlg.Close();
                 var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
                 btnPanel.Controls.Add(btnConvert);
+                btnPanel.Controls.Add(btnEdit);
                 btnPanel.Controls.Add(btnClose);
 
                 dlg.Controls.Add(lineGrid);
@@ -198,21 +236,15 @@ namespace FurnitureERP.Forms
 
         private void OpenCustomerRow(DataGridViewRow row)
         {
-            if (AppSession.CanEdit(PermissionModule.Customer))
-                ShowCustomerDetailDialog(Convert.ToInt64(row.Cells[0].Value));
-            else
-                ShowGenericDetailDialog("Customer Details", row);
+            ShowCustomerDetailDialog(Convert.ToInt64(row.Cells[0].Value));
         }
 
         private void OpenSalesOrderRow(DataGridViewRow row)
         {
-            if (AppSession.CanEdit(PermissionModule.SalesOrder))
-                ShowSalesOrderDetailDialog(Convert.ToInt64(row.Cells[0].Value));
-            else
-                ShowGenericDetailDialog("Sales Order Details", row);
+            ShowSalesOrderViewDetailDialog(Convert.ToInt64(row.Cells[0].Value));
         }
 
-        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Button> extraButtonFactory = null)
+        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onEdit, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Button> extraButtonFactory = null, Action<DataGridViewRow> onViewDetail = null)
         {
             Panel panel = new Panel { Dock = DockStyle.Fill };
 
@@ -226,20 +258,21 @@ namespace FurnitureERP.Forms
             btnRefresh.Location = new Point(btnNew.Width + 18, 8);
             Button btnDetail = UITheme.CreateSecondaryButton("View Detail");
             btnDetail.Location = new Point(btnRefresh.Right + 10, 8);
+            Button btnEdit = UITheme.CreateSecondaryButton("Edit");
+            btnEdit.Location = new Point(btnDetail.Right + 10, 8);
+            btnEdit.Click += (s, e) =>
+            {
+                if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a record first."); return; }
+                if (!PermissionGuard.Ensure(permissionModule, PermissionAction.Edit, this)) return;
+                onEdit?.Invoke(grid.CurrentRow);
+            };
+            PermissionGuard.ApplyEditButton(btnEdit, permissionModule);
             btnDetail.Click += (s, e) =>
             {
                 if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a record first."); return; }
-                ShowGenericDetailDialog($"{entity} Details", grid.CurrentRow);
+                if (onViewDetail != null) onViewDetail(grid.CurrentRow);
+                else ShowGenericDetailDialog($"{entity} Details", grid.CurrentRow);
             };
-            TextBox txtSearch = new TextBox { Width = 180, Height = 28, Location = new Point(btnDetail.Right + 10, 10) };
-            ComboBox cmbStatus = new ComboBox { Width = 140, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(txtSearch.Right + 10, 10) };
-            if (!string.IsNullOrEmpty(statusCategory))
-                DictionaryUIHelper.BindStatusFilter(cmbStatus, statusCategory);
-            else
-            {
-                cmbStatus.Items.Add("All Status");
-                cmbStatus.SelectedIndex = 0;
-            }
 
             grid.CellDoubleClick += (s, e) =>
             {
@@ -250,46 +283,141 @@ namespace FurnitureERP.Forms
                 try { grid.DataSource = loadData(); GridHelper.StyleGrid(grid); } catch { }
             };
 
-            Action applyFilter = () =>
-            {
-                if (!(grid.DataSource is DataTable dt)) return;
-                string keyword = txtSearch.Text.Trim().Replace("'", "''");
-                var conditions = new System.Collections.Generic.List<string>();
-                if (!string.IsNullOrWhiteSpace(keyword))
-                {
-                    var textColumns = dt.Columns.Cast<DataColumn>()
-                        .Where(c => c.DataType == typeof(string))
-                        .Select(c => $"[{c.ColumnName}] LIKE '%{keyword}%'");
-                    string textFilter = string.Join(" OR ", textColumns);
-                    if (!string.IsNullOrWhiteSpace(textFilter)) conditions.Add("(" + textFilter + ")");
-                }
-                int? statusCode = DictionaryUIHelper.GetFilterStatusCode(cmbStatus);
-                if (statusCode.HasValue && dt.Columns.Contains("Status"))
-                    conditions.Add("[Status] = " + statusCode.Value);
-                dt.DefaultView.RowFilter = string.Join(" AND ", conditions);
-            };
-            txtSearch.TextChanged += (s, e) => applyFilter();
-            cmbStatus.SelectedIndexChanged += (s, e) => applyFilter();
-
             toolbar.Controls.Add(btnNew);
             toolbar.Controls.Add(btnRefresh);
             toolbar.Controls.Add(btnDetail);
+            toolbar.Controls.Add(btnEdit);
             if (extraButtonFactory != null)
             {
                 var extraBtn = extraButtonFactory(grid);
-                extraBtn.Location = new Point(btnDetail.Right + 10, 8);
+                extraBtn.Location = new Point(btnEdit.Right + 10, 8);
                 toolbar.Controls.Add(extraBtn);
-                txtSearch.Location = new Point(extraBtn.Right + 10, 10);
-                cmbStatus.Location = new Point(txtSearch.Right + 10, 10);
             }
-            toolbar.Controls.Add(txtSearch);
-            toolbar.Controls.Add(cmbStatus);
+
+            var filterBox = FilterBlockHelper.CreateFilterBlock(grid, $"{entity} Filters");
 
             try { grid.DataSource = loadData(); GridHelper.StyleGrid(grid); } catch { }
 
             panel.Controls.Add(grid);
+            panel.Controls.Add(filterBox);
             panel.Controls.Add(toolbar);
             return panel;
+        }
+
+        private void ShowSalesOrderViewDetailDialog(long salesOrderId)
+        {
+            DataTable header = null;
+            DataTable lines = null;
+            try { header = _salesOrderCtrl.GetHeaderDetail(salesOrderId); } catch { }
+            try { lines = _salesOrderCtrl.GetProductLinesDetailed(salesOrderId); } catch { }
+
+            decimal total = 0;
+            try { total = _salesOrderCtrl.GetTotalAmount(salesOrderId); } catch { }
+
+            string remark = "";
+            try
+            {
+                if (header != null && header.Rows.Count > 0 && header.Columns.Contains("Remark"))
+                    remark = header.Rows[0]["Remark"]?.ToString() ?? "";
+            }
+            catch { }
+
+            // Append TOTAL row into product lines grid.
+            try
+            {
+                if (lines != null && lines.Columns.Contains("Amount"))
+                {
+                    var totalRow = lines.NewRow();
+                    foreach (DataColumn col in lines.Columns)
+                    {
+                        if (col.ColumnName == "Item") totalRow[col] = "Total Amount";
+                        else if (col.ColumnName == "Amount") totalRow[col] = total;
+                        else
+                        {
+                            if (col.DataType == typeof(string)) totalRow[col] = "";
+                            else totalRow[col] = DBNull.Value;
+                        }
+                    }
+                    lines.Rows.Add(totalRow);
+                }
+            }
+            catch { }
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = $"Sales Order Detail — ID: {salesOrderId}";
+                dlg.Size = new Size(920, 620);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var split = new SplitContainer
+                {
+                    Dock = DockStyle.Fill,
+                    Orientation = Orientation.Horizontal,
+                    SplitterDistance = 240
+                };
+
+                var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+                // Remark is shown below the items grid.
+                if (fields != null)
+                {
+                    var remarkRows = fields.Select("Field = 'Remark'");
+                    foreach (var r in remarkRows) r.Delete();
+                    fields.AcceptChanges();
+                }
+
+                var headerGrid = GridHelper.CreateStyledGrid();
+                headerGrid.DataSource = fields;
+                GridHelper.StyleGrid(headerGrid);
+
+                var lineLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+                lineLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                lineLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
+
+                var lineGrid = GridHelper.CreateStyledGrid();
+                lineGrid.DataSource = lines;
+                GridHelper.StyleGrid(lineGrid);
+
+                var lblRemark = new Label
+                {
+                    Dock = DockStyle.Fill,
+                    AutoSize = false,
+                    TextAlign = ContentAlignment.TopLeft,
+                    Padding = new Padding(12, 10, 12, 0),
+                    Font = new Font("Segoe UI", 9),
+                    ForeColor = UITheme.TextDark,
+                    Text = "Remark: " + (string.IsNullOrWhiteSpace(remark) ? "—" : remark)
+                };
+
+                lineLayout.Controls.Add(lineGrid, 0, 0);
+                lineLayout.Controls.Add(lblRemark, 0, 1);
+
+                split.Panel1.Controls.Add(headerGrid);
+                split.Panel2.Controls.Add(lineLayout);
+                dlg.Controls.Add(split);
+
+                DetailViewHelper.AttachPrintToolbar(dlg, () =>
+                    DetailViewHelper.FromFieldValueTable(dlg.Text, fields, lines, $"SalesOrder_{salesOrderId}"));
+
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private void ShowQuotationViewDetailDialog(long quotationId)
+        {
+            DataTable header = null;
+            DataTable lines = null;
+            try { header = _quotationCtrl.GetHeaderDetail(quotationId); } catch { }
+            try { lines = _quotationCtrl.GetProductLinesDetailed(quotationId); } catch { }
+
+            var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+            try
+            {
+                fields.Rows.Add("Total Amount", _quotationCtrl.GetTotalAmount(quotationId).ToString("0.00"));
+            }
+            catch { }
+
+            DetailViewHelper.ShowDetail(this, $"Quotation Detail — ID: {quotationId}", fields, lines, $"Quotation_{quotationId}");
         }
 
         private void ShowCreateCustomerDialog()
@@ -332,19 +460,25 @@ namespace FurnitureERP.Forms
                 var tabs = new TabControl { Dock = DockStyle.Fill };
 
                 var generalPage = new TabPage("General");
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(16) };
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5, Padding = new Padding(16) };
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
 
                 var txtName = new TextBox { Text = existing?.CustomerName ?? "" };
+                var txtCode = new TextBox { Text = existing?.CustomerCode ?? "", ReadOnly = existing != null };
+                var txtRef = new TextBox { Text = existing?.CustomerRefNumber ?? "" };
                 var txtAddr = new TextBox { Text = existing?.BillingAddress ?? "" };
                 var txtTerm = new TextBox { Text = existing?.PaymentTerm ?? "" };
-                UITheme.AddFormRow(layout, 0, "Customer Name *", txtName);
-                UITheme.AddFormRow(layout, 1, "Billing Address", txtAddr);
-                UITheme.AddFormRow(layout, 2, "Payment Term", txtTerm);
+                UITheme.AddFormRow(layout, 0, "Customer Code", txtCode);
+                UITheme.AddFormRow(layout, 1, "Customer Ref Number (PO-PL-#########)", txtRef);
+                UITheme.AddFormRow(layout, 2, "Customer Name *", txtName);
+                UITheme.AddFormRow(layout, 3, "Billing Address", txtAddr);
+                UITheme.AddFormRow(layout, 4, "Payment Term", txtTerm);
                 generalPage.Controls.Add(layout);
 
                 var contactGrid = CreateCustomerChildGrid(
@@ -386,6 +520,8 @@ namespace FurnitureERP.Forms
                         long customerId;
                         if (isEdit)
                         {
+                            existing.CustomerCode = txtCode.Text.Trim();
+                            existing.CustomerRefNumber = txtRef.Text.Trim();
                             existing.CustomerName = txtName.Text.Trim();
                             existing.BillingAddress = txtAddr.Text.Trim();
                             existing.PaymentTerm = txtTerm.Text.Trim();
@@ -400,10 +536,16 @@ namespace FurnitureERP.Forms
                         {
                             customerId = _customerCtrl.Insert(new Customer
                             {
+                                CustomerCode = txtCode.Text.Trim(),
+                                CustomerRefNumber = txtRef.Text.Trim(),
                                 CustomerName = txtName.Text.Trim(),
                                 BillingAddress = txtAddr.Text.Trim(),
                                 PaymentTerm = txtTerm.Text.Trim()
                             });
+                            if (string.IsNullOrWhiteSpace(txtCode.Text))
+                                _customerCtrl.UpdateCodeAfterInsert(customerId);
+                            if (string.IsNullOrWhiteSpace(txtRef.Text))
+                                _customerCtrl.UpdateRefNumberAfterInsert(customerId);
                         }
 
                         _customerCtrl.SyncContactPersons(customerId, ReadContactPersonsFromGrid(contactGrid), originalContactIds);
@@ -540,71 +682,9 @@ namespace FurnitureERP.Forms
 
         private void ShowSalesOrderDetailDialog(long id)
         {
-            var so = _salesOrderCtrl.GetById(id);
+            var so = _salesOrderCtrl.GetFullById(id);
             if (so == null) return;
-            using (var dlg = new Form())
-            {
-                dlg.Text = "Sales Order Details / Edit";
-                dlg.Size = new Size(520, 360);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-                dlg.MaximizeBox = false;
-                dlg.BackColor = UITheme.Background;
-
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(16) };
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-                var txtAddress = new TextBox { Text = so.DeliveryAddress ?? "" };
-                var txtDiscount = new TextBox { Text = so.Discount.ToString() };
-                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.SalesOrder, so.Status);
-                var txtRemark = new TextBox { Text = so.Remark ?? "", Multiline = true, Height = 70 };
-
-                UITheme.AddFormRow(layout, 0, "Order Code", new Label { Text = so.SalesOrderCode, AutoSize = true, ForeColor = UITheme.TextDark });
-                UITheme.AddFormRow(layout, 1, "Delivery Address", txtAddress);
-                UITheme.AddFormRow(layout, 2, "Discount", txtDiscount);
-                UITheme.AddFormRow(layout, 3, "Status", cmbStatus);
-                UITheme.AddFormRow(layout, 4, "Remark", txtRemark);
-
-                var btnSave = UITheme.CreatePrimaryButton("Update");
-                PermissionGuard.ApplyEditButton(btnSave, PermissionModule.SalesOrder);
-                var btnClose = UITheme.CreateSecondaryButton("Close");
-                btnClose.Click += (s, e) => dlg.Close();
-                btnSave.Click += (s, e) =>
-                {
-                    if (!PermissionGuard.Ensure(PermissionModule.SalesOrder, PermissionAction.Edit, dlg)) return;
-                    if (!decimal.TryParse(txtDiscount.Text.Trim(), out decimal discount))
-                    {
-                        UITheme.ShowWarning("Discount must be a valid number.");
-                        return;
-                    }
-                    so.DeliveryAddress = txtAddress.Text.Trim();
-                    so.Discount = discount;
-                    int newStatus = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
-                    var validateResult = _salesWorkflow.ValidateSalesOrderStatus(so.SalesOrderID, newStatus);
-                    if (!validateResult.Success)
-                    {
-                        UITheme.ShowWarning(validateResult.Message);
-                        return;
-                    }
-                    so.Status = newStatus;
-                    so.Remark = txtRemark.Text.Trim();
-                    if (_salesOrderCtrl.Update(so))
-                    {
-                        UITheme.ShowSuccess("Sales order updated.");
-                        dlg.DialogResult = DialogResult.OK;
-                        dlg.Close();
-                    }
-                };
-
-                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-                btnPanel.Controls.Add(btnSave);
-                btnPanel.Controls.Add(btnClose);
-                dlg.Controls.Add(layout);
-                dlg.Controls.Add(btnPanel);
-                if (dlg.ShowDialog(this) == DialogResult.OK) BuildUIRefresh();
-            }
+            ShowSalesOrderFormDialog(so);
         }
 
         private void BuildUIRefresh()
@@ -616,62 +696,762 @@ namespace FurnitureERP.Forms
         private void ShowCreateQuotationDialog()
         {
             if (!PermissionGuard.Ensure(PermissionModule.Quotation, PermissionAction.Create, this)) return;
-            using (var dlg = UITheme.BuildInputDialog("New Quotation",
-                new[] { "Customer ID *", "Staff ID *", "Currency ID", "Status (0-3)", "Remark" }))
+            ShowQuotationFormDialog(null);
+        }
+
+        private void ShowEditQuotationDialog(long quotationId)
+        {
+            if (!PermissionGuard.Ensure(PermissionModule.Quotation, PermissionAction.Edit, this)) return;
+            var quotation = _quotationCtrl.GetById(quotationId);
+            if (quotation == null) return;
+            ShowQuotationFormDialog(quotation);
+        }
+
+        private void ShowQuotationFormDialog(Quotation existing)
+        {
+            bool isEdit = existing != null;
+            using (var dlg = new Form())
             {
-                if (dlg.ShowDialog(this) == DialogResult.OK)
+                dlg.Text = isEdit ? "Edit Quotation" : "New Quotation";
+                dlg.Size = new Size(860, 560);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2 };
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 190));
+                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+                var form = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 2, RowCount = 4 };
+                form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+                form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                var cmbCustomer = BuildCustomerCombo();
+                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.Quotation, existing?.Status ?? 0);
+                var txtRemark = new TextBox { Multiline = true, Height = 70, Text = existing?.Remark ?? string.Empty };
+                var lblStaff = new Label { Text = AppSession.CurrentUser?.Username ?? "Current User", AutoSize = true, ForeColor = UITheme.TextDark };
+                var lblCurrency = new Label { Text = "Default Currency", AutoSize = true, ForeColor = UITheme.TextDark };
+                if (isEdit) SetComboValue(cmbCustomer, existing.CustomerID);
+                UITheme.AddFormRow(form, 0, "Customer *", cmbCustomer);
+                UITheme.AddFormRow(form, 1, "Staff", lblStaff);
+                UITheme.AddFormRow(form, 2, "Currency", lblCurrency);
+                UITheme.AddFormRow(form, 3, "Status / Remark", BuildStatusRemarkRow(cmbStatus, txtRemark));
+
+                var lineGrid = BuildEditableProductLineGrid();
+                if (isEdit) LoadProductLinesToGrid(lineGrid, _quotationCtrl.GetProductLinesInternal(existing.QuotationID));
+
+                root.Controls.Add(form, 0, 0);
+                root.Controls.Add(WrapEditableGrid(lineGrid, "Pick multiple products and set quantity/price/discount."), 0, 1);
+
+                var btnSave = UITheme.CreatePrimaryButton(isEdit ? "Update" : "Create");
+                var btnClose = UITheme.CreateSecondaryButton("Close");
+                btnClose.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
                 {
+                    var action = isEdit ? PermissionAction.Edit : PermissionAction.Create;
+                    if (!PermissionGuard.Ensure(PermissionModule.Quotation, action, dlg)) return;
+                    long customerId = GetComboId(cmbCustomer);
+                    if (customerId <= 0)
+                    {
+                        UITheme.ShowWarning("Please select a customer.");
+                        return;
+                    }
+                    var lines = ReadProductLinesFromGrid(lineGrid);
+                    if (lines.Count == 0)
+                    {
+                        UITheme.ShowWarning("Please add at least one product line.");
+                        return;
+                    }
                     try
                     {
-                        var vals = UITheme.GetDialogValues(dlg);
-                        var q = new Quotation
+                        if (isEdit)
                         {
-                            QuotationCode = "QT-TEMP",
-                            CustomerID = long.Parse(vals[0]),
-                            StaffID = long.Parse(vals[1]),
-                            CurrencyID = string.IsNullOrEmpty(vals[2]) ? 1 : long.Parse(vals[2]),
-                            Status = string.IsNullOrEmpty(vals[3]) ? 0 : int.Parse(vals[3]),
-                            Remark = vals[4],
-                            SequenceNumber = 1
-                        };
-                        long id = _quotationCtrl.Insert(q);
-                        _quotationCtrl.UpdateCodeAfterInsert(id);
-                        MessageBox.Show($"Quotation QT-{id} created.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            existing.CustomerID = customerId;
+                            existing.StaffID = AppSession.CurrentUser?.StaffID ?? 1;
+                            existing.CurrencyID = 1;
+                            existing.Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
+                            existing.Remark = txtRemark.Text.Trim();
+                            _quotationCtrl.UpdateStatus(existing.QuotationID, existing.Status);
+                            _quotationCtrl.ReplaceProductLines(existing.QuotationID, lines);
+                        }
+                        else
+                        {
+                            var q = new Quotation
+                            {
+                                QuotationCode = "QT-TEMP",
+                                CustomerID = customerId,
+                                StaffID = AppSession.CurrentUser?.StaffID ?? 1,
+                                CurrencyID = 1,
+                                Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus),
+                                Remark = txtRemark.Text.Trim(),
+                                SequenceNumber = 1
+                            };
+                            long id = _quotationCtrl.Insert(q);
+                            _quotationCtrl.UpdateCodeAfterInsert(id);
+                            _quotationCtrl.ReplaceProductLines(id, lines);
+                        }
+                        UITheme.ShowSuccess(isEdit ? "Quotation updated." : "Quotation created.");
+                        dlg.DialogResult = DialogResult.OK;
+                        dlg.Close();
                     }
-                    catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-                }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError(ex.Message);
+                    }
+                };
+
+                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnClose);
+                dlg.Controls.Add(root);
+                dlg.Controls.Add(btnPanel);
+                if (dlg.ShowDialog(this) == DialogResult.OK) BuildUIRefresh();
             }
         }
 
         private void ShowCreateSalesOrderDialog()
         {
             if (!PermissionGuard.Ensure(PermissionModule.SalesOrder, PermissionAction.Create, this)) return;
-            using (var dlg = UITheme.BuildInputDialog("New Sales Order",
-                new[] { "Customer ID *", "Staff ID *", "Currency ID", "Delivery Address *", "Discount", "Status", "Remark" }))
+            ShowSalesOrderFormDialog(null);
+        }
+
+        private void ShowCreateReplySlipDialog()
+        {
+            if (!PermissionGuard.Ensure(PermissionModule.ReplySlip, PermissionAction.Create, this)) return;
+            ShowReplySlipFormDialog(null);
+        }
+
+        private void ShowReplySlipDetailDialog(long id)
+        {
+            var slip = _replySlipCtrl.GetById(id);
+            if (slip == null) return;
+            ShowReplySlipFormDialog(slip);
+        }
+
+        private void ShowReplySlipFormDialog(ReplySlip existing)
+        {
+            bool isEdit = existing != null;
+            using (var dlg = new Form())
             {
-                if (dlg.ShowDialog(this) == DialogResult.OK)
+                dlg.Text = isEdit ? "Edit Reply Slip" : "New Reply Slip";
+                dlg.Size = new Size(900, 620);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2 };
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 250));
+                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+                var form = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 2, RowCount = 8 };
+                form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+                form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var cmbSalesOrder = BuildSalesOrderCombo();
+                var cmbCustomer = BuildCustomerCombo();
+                var txtSignedBy = new TextBox { Text = existing?.SignedBy ?? "" };
+                var dtpSignedDate = new DateTimePicker { Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = existing?.SignedDate.HasValue ?? false };
+                if (existing?.SignedDate.HasValue == true) dtpSignedDate.Value = existing.SignedDate.Value;
+                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.ReplySlip, existing?.Status ?? 0);
+                var txtRemark = new TextBox { Multiline = true, Height = 70, Text = existing?.Remark ?? string.Empty };
+                var lblStaff = new Label { Text = AppSession.CurrentUser?.Username ?? "Current User", AutoSize = true, ForeColor = UITheme.TextDark };
+                var lblCurrency = new Label { Text = "Default Currency", AutoSize = true, ForeColor = UITheme.TextDark };
+
+                if (isEdit)
+                {
+                    SetComboValue(cmbSalesOrder, existing.SalesOrderID);
+                    SetComboValue(cmbCustomer, existing.CustomerID);
+                }
+
+                cmbSalesOrder.SelectedIndexChanged += (s, e) =>
+                {
+                    if (!(cmbSalesOrder.SelectedItem is DataRowView rowView)) return;
+                    if (!rowView.Row.Table.Columns.Contains("Customer ID")) return;
+                    long cid = Convert.ToInt64(rowView["Customer ID"]);
+                    SetComboValue(cmbCustomer, cid);
+                };
+
+                UITheme.AddFormRow(form, 0, "Sales Order *", cmbSalesOrder);
+                UITheme.AddFormRow(form, 1, "Customer *", cmbCustomer);
+                UITheme.AddFormRow(form, 2, "Staff", lblStaff);
+                UITheme.AddFormRow(form, 3, "Currency", lblCurrency);
+                UITheme.AddFormRow(form, 4, "Signed By / Date", BuildSignerRow(txtSignedBy, dtpSignedDate));
+                UITheme.AddFormRow(form, 5, "Status", cmbStatus);
+                UITheme.AddFormRow(form, 6, "Remark", txtRemark);
+
+                var lineGrid = BuildEditableProductLineGrid();
+                if (isEdit) LoadProductLinesToGrid(lineGrid, _replySlipCtrl.GetProductLinesInternal(existing.ReplySlipID));
+
+                root.Controls.Add(form, 0, 0);
+                root.Controls.Add(WrapEditableGrid(lineGrid, "Pick products and signed quantities for this reply slip."), 0, 1);
+
+                var btnSave = UITheme.CreatePrimaryButton(isEdit ? "Update" : "Create");
+                var btnClose = UITheme.CreateSecondaryButton("Close");
+                btnClose.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
+                {
+                    var action = isEdit ? PermissionAction.Edit : PermissionAction.Create;
+                    if (!PermissionGuard.Ensure(PermissionModule.ReplySlip, action, dlg)) return;
+                    long soId = GetComboId(cmbSalesOrder);
+                    long customerId = GetComboId(cmbCustomer);
+                    if (soId <= 0 || customerId <= 0)
+                    {
+                        UITheme.ShowWarning("Please select sales order and customer.");
+                        return;
+                    }
+                    var lines = ReadProductLinesFromGrid(lineGrid);
+                    if (lines.Count == 0)
+                    {
+                        UITheme.ShowWarning("Please add at least one product line.");
+                        return;
+                    }
+                    try
+                    {
+                        if (isEdit)
+                        {
+                            existing.SalesOrderID = soId;
+                            existing.CustomerID = customerId;
+                            existing.SignedBy = txtSignedBy.Text.Trim();
+                            existing.SignedDate = dtpSignedDate.Checked ? (DateTime?)dtpSignedDate.Value.Date : null;
+                            existing.Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
+                            existing.Remark = txtRemark.Text.Trim();
+                            if (!_replySlipCtrl.Update(existing))
+                            {
+                                UITheme.ShowWarning("Failed to update reply slip.");
+                                return;
+                            }
+                            _replySlipCtrl.ReplaceProductLines(existing.ReplySlipID, lines);
+                        }
+                        else
+                        {
+                            var slip = new ReplySlip
+                            {
+                                ReplySlipCode = "RS-TEMP",
+                                SalesOrderID = soId,
+                                CustomerID = customerId,
+                                StaffID = AppSession.CurrentUser?.StaffID ?? 1,
+                                CurrencyID = 1,
+                                SignedBy = txtSignedBy.Text.Trim(),
+                                SignedDate = dtpSignedDate.Checked ? (DateTime?)dtpSignedDate.Value.Date : null,
+                                Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus),
+                                Remark = txtRemark.Text.Trim()
+                            };
+                            long id = _replySlipCtrl.Insert(slip);
+                            _replySlipCtrl.UpdateCodeAfterInsert(id);
+                            _replySlipCtrl.ReplaceProductLines(id, lines);
+                        }
+
+                        UITheme.ShowSuccess(isEdit ? "Reply slip updated." : "Reply slip created.");
+                        dlg.DialogResult = DialogResult.OK;
+                        dlg.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError(ex.Message);
+                    }
+                };
+
+                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnClose);
+                dlg.Controls.Add(root);
+                dlg.Controls.Add(btnPanel);
+                if (dlg.ShowDialog(this) == DialogResult.OK) BuildUIRefresh();
+            }
+        }
+
+        private void ShowSalesOrderFormDialog(SalesOrder existing)
+        {
+            bool isEdit = existing != null;
+            using (var dlg = new Form())
+            {
+                dlg.Text = isEdit ? "Edit Sales Order" : "New Sales Order";
+                dlg.Size = new Size(900, 600);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2 };
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 240));
+                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+                var form = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 2, RowCount = 7 };
+                form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+                form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var cmbCustomer = BuildCustomerCombo();
+                var cmbDeliveryAddress = new ComboBox
+                {
+                    DropDownStyle = ComboBoxStyle.DropDown,
+                    Width = 340
+                };
+                var dtpRequestedDelivery = new DateTimePicker
+                {
+                    Format = DateTimePickerFormat.Short,
+                    Value = existing?.RequestedDeliveryDate ?? DateTime.Today
+                };
+                var txtDiscount = new TextBox { Text = (existing?.Discount ?? 0).ToString() };
+                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.SalesOrder, existing?.Status ?? 0);
+                var txtRemark = new TextBox { Multiline = true, Height = 70, Text = existing?.Remark ?? string.Empty };
+                var lblStaff = new Label { Text = AppSession.CurrentUser?.Username ?? "Current User", AutoSize = true, ForeColor = UITheme.TextDark };
+                var lblCurrency = new Label { Text = "Default Currency", AutoSize = true, ForeColor = UITheme.TextDark };
+                var cmbCustomerRefNumber = new ComboBox
+                {
+                    DropDownStyle = ComboBoxStyle.DropDown,
+                    Width = 340
+                };
+
+                Action<long> loadDeliveryAddresses = customerId =>
                 {
                     try
                     {
-                        var vals = UITheme.GetDialogValues(dlg);
-                        var so = new SalesOrder
+                        var addrs = _customerCtrl.GetDeliveryAddresses(customerId);
+                        var commonFromSo = _salesOrderCtrl.GetCommonDeliveryAddressesByCustomer(customerId);
+                        var dt = new DataTable();
+                        dt.Columns.Add("DisplayText", typeof(string));
+                        dt.Columns.Add("DeliveryAddress", typeof(string));
+                        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var a in addrs)
                         {
-                            SalesOrderCode = "SO-TEMP",
-                            CustomerID = long.Parse(vals[0]),
-                            StaffID = long.Parse(vals[1]),
-                            CurrencyCurrencyID = string.IsNullOrEmpty(vals[2]) ? 1 : long.Parse(vals[2]),
-                            DeliveryAddress = vals[3],
-                            Discount = string.IsNullOrEmpty(vals[4]) ? 0 : decimal.Parse(vals[4]),
-                            Status = string.IsNullOrEmpty(vals[5]) ? 0 : int.Parse(vals[5]),
-                            Remark = vals[6]
-                        };
-                        long id = _salesOrderCtrl.Insert(so);
-                        _salesOrderCtrl.UpdateCodeAfterInsert(id);
-                        MessageBox.Show($"Sales Order SO-{id} created.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            var addr = (a.DeliveryAddress ?? "").Trim();
+                            if (string.IsNullOrWhiteSpace(addr) || !seen.Add(addr)) continue;
+                            var display = DeliveryAddressDisplayHelper.FormatDisplay(addr, a.ContactPerson, a.Phone);
+                            dt.Rows.Add(display, addr);
+                        }
+
+                        if (commonFromSo != null && commonFromSo.Columns.Contains("Delivery Address"))
+                        {
+                            foreach (DataRow r in commonFromSo.Rows)
+                            {
+                                var raw = r["Delivery Address"]?.ToString()?.Trim();
+                                if (string.IsNullOrWhiteSpace(raw)) continue;
+                                var addr = DeliveryAddressDisplayHelper.TryParseCombined(raw, out string onlyAddr, out _, out _)
+                                    ? onlyAddr
+                                    : raw;
+                                if (string.IsNullOrWhiteSpace(addr) || !seen.Add(addr)) continue;
+                                dt.Rows.Add(addr, addr);
+                            }
+                        }
+
+                        if (dt.Rows.Count == 0)
+                        {
+                            dt.Rows.Add(existing?.DeliveryAddress ?? "", existing?.DeliveryAddress ?? "");
+                        }
+
+                        cmbDeliveryAddress.DataSource = dt;
+                        cmbDeliveryAddress.DisplayMember = "DisplayText";
+                        cmbDeliveryAddress.ValueMember = "DeliveryAddress";
+                        if (isEdit && !string.IsNullOrWhiteSpace(existing?.DeliveryAddress))
+                        {
+                            var addrOnly = existing.DeliveryAddress;
+                            if (DeliveryAddressDisplayHelper.TryParseCombined(addrOnly, out string parsedAddr, out _, out _))
+                                addrOnly = parsedAddr;
+                            try { cmbDeliveryAddress.SelectedValue = addrOnly; }
+                            catch { cmbDeliveryAddress.Text = addrOnly; }
+                            if (cmbDeliveryAddress.SelectedIndex < 0)
+                                cmbDeliveryAddress.Text = addrOnly;
+                        }
                     }
-                    catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                    catch { }
+                };
+
+                Action<long> loadCustomerRefNumbers = customerId =>
+                {
+                    try
+                    {
+                        var dt = new DataTable();
+                        dt.Columns.Add("Value", typeof(string));
+                        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var refs = _salesOrderCtrl.GetCommonCustomerRefNumbersByCustomer(customerId);
+                        if (refs != null && refs.Columns.Contains("Customer Ref Number"))
+                        {
+                            foreach (DataRow r in refs.Rows)
+                            {
+                                var v = r["Customer Ref Number"]?.ToString()?.Trim();
+                                if (string.IsNullOrWhiteSpace(v) || !seen.Add(v)) continue;
+                                dt.Rows.Add(v);
+                            }
+                        }
+
+                        cmbCustomerRefNumber.DataSource = dt;
+                        cmbCustomerRefNumber.DisplayMember = "Value";
+                        cmbCustomerRefNumber.ValueMember = "Value";
+                        if (isEdit && !string.IsNullOrWhiteSpace(existing?.CustomerRefNumber))
+                            cmbCustomerRefNumber.Text = existing.CustomerRefNumber;
+                    }
+                    catch { }
+                };
+
+                if (isEdit) SetComboValue(cmbCustomer, existing.CustomerID);
+                if (isEdit)
+                {
+                    loadDeliveryAddresses(existing.CustomerID);
+                    loadCustomerRefNumbers(existing.CustomerID);
                 }
+
+                cmbCustomer.SelectedIndexChanged += (s, e) =>
+                {
+                    long cid = GetComboId(cmbCustomer);
+                    if (cid > 0)
+                    {
+                        loadDeliveryAddresses(cid);
+                        loadCustomerRefNumbers(cid);
+                    }
+                };
+
+                // For newly created order, ensure delivery address list is populated
+                // if ComboBox default-selected customer exists.
+                if (!isEdit)
+                {
+                    long cid = GetComboId(cmbCustomer);
+                    if (cid > 0)
+                    {
+                        loadDeliveryAddresses(cid);
+                        loadCustomerRefNumbers(cid);
+                    }
+                }
+
+                UITheme.AddFormRow(form, 0, "Customer *", cmbCustomer);
+                UITheme.AddFormRow(form, 1, "Staff", lblStaff);
+                UITheme.AddFormRow(form, 2, "Currency", lblCurrency);
+                UITheme.AddFormRow(form, 3, "Delivery Address *", cmbDeliveryAddress);
+                UITheme.AddFormRow(form, 4, "Requested Delivery Date", dtpRequestedDelivery);
+                UITheme.AddFormRow(form, 5, "Discount", txtDiscount);
+                UITheme.AddFormRow(form, 6, "Customer Ref Number (PO-PL-#########)", cmbCustomerRefNumber);
+                UITheme.AddFormRow(form, 7, "Status / Remark", BuildStatusRemarkRow(cmbStatus, txtRemark));
+
+                var lineGrid = BuildEditableSalesOrderLineGrid();
+                if (isEdit) LoadProductLinesToGrid(lineGrid, _salesOrderCtrl.GetProductLinesInternal(existing.SalesOrderID));
+
+                root.Controls.Add(form, 0, 0);
+                root.Controls.Add(WrapEditableGrid(lineGrid, "Pick multiple products and set quantity/price/discount."), 0, 1);
+
+                var btnSave = UITheme.CreatePrimaryButton(isEdit ? "Update" : "Create");
+                var btnClose = UITheme.CreateSecondaryButton("Close");
+                btnClose.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
+                {
+                    var action = isEdit ? PermissionAction.Edit : PermissionAction.Create;
+                    if (!PermissionGuard.Ensure(PermissionModule.SalesOrder, action, dlg)) return;
+                    long customerId = GetComboId(cmbCustomer);
+                    if (customerId <= 0)
+                    {
+                        UITheme.ShowWarning("Please select a customer.");
+                        return;
+                    }
+                    var selectedDeliveryAddress = DeliveryAddressDisplayHelper.ResolveAddressOnly(
+                        cmbDeliveryAddress.SelectedValue?.ToString(),
+                        cmbDeliveryAddress.Text);
+                    if (string.IsNullOrWhiteSpace(selectedDeliveryAddress))
+                    {
+                        UITheme.ShowWarning("Delivery address is required.");
+                        return;
+                    }
+                    if (!decimal.TryParse(txtDiscount.Text.Trim(), out decimal discount))
+                    {
+                        UITheme.ShowWarning("Discount must be numeric.");
+                        return;
+                    }
+                    var lines = ReadProductLinesFromGrid(lineGrid);
+                    if (lines.Count == 0)
+                    {
+                        UITheme.ShowWarning("Please add at least one product line.");
+                        return;
+                    }
+                    try
+                    {
+                        if (isEdit)
+                        {
+                            existing.CustomerID = customerId;
+                            existing.DeliveryAddress = selectedDeliveryAddress.Trim();
+                            existing.RequestedDeliveryDate = dtpRequestedDelivery.Value.Date;
+                            existing.CustomerRefNumber = (cmbCustomerRefNumber.Text ?? "").Trim();
+                            existing.Discount = discount;
+                            existing.Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
+                            existing.Remark = txtRemark.Text.Trim();
+                            var validateResult = _salesWorkflow.ValidateSalesOrderStatus(existing.SalesOrderID, existing.Status);
+                            if (!validateResult.Success)
+                            {
+                                UITheme.ShowWarning(validateResult.Message);
+                                return;
+                            }
+                            if (!_salesOrderCtrl.Update(existing))
+                            {
+                                UITheme.ShowWarning("Failed to update sales order.");
+                                return;
+                            }
+                            _salesOrderCtrl.ReplaceProductLines(existing.SalesOrderID, lines);
+                        }
+                        else
+                        {
+                            var so = new SalesOrder
+                            {
+                                SalesOrderCode = "SO-TEMP",
+                                CustomerID = customerId,
+                                StaffID = AppSession.CurrentUser?.StaffID ?? 1,
+                                CurrencyCurrencyID = 1,
+                                DeliveryAddress = selectedDeliveryAddress.Trim(),
+                                RequestedDeliveryDate = dtpRequestedDelivery.Value.Date,
+                                CustomerRefNumber = (cmbCustomerRefNumber.Text ?? "").Trim(),
+                                Discount = discount,
+                                Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus),
+                                Remark = txtRemark.Text.Trim()
+                            };
+                            long id = _salesOrderCtrl.Insert(so);
+                            _salesOrderCtrl.UpdateCodeAfterInsert(id);
+                            if (string.IsNullOrWhiteSpace((cmbCustomerRefNumber.Text ?? "").Trim()))
+                                _salesOrderCtrl.UpdateCustomerRefNumberAfterInsert(id);
+                            _salesOrderCtrl.ReplaceProductLines(id, lines);
+                        }
+                        UITheme.ShowSuccess(isEdit ? "Sales order updated." : "Sales order created.");
+                        dlg.DialogResult = DialogResult.OK;
+                        dlg.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError(ex.Message);
+                    }
+                };
+
+                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnClose);
+                dlg.Controls.Add(root);
+                dlg.Controls.Add(btnPanel);
+                if (dlg.ShowDialog(this) == DialogResult.OK) BuildUIRefresh();
             }
+        }
+
+        private ComboBox BuildCustomerCombo()
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
+            var dt = _customerCtrl.GetAllCustomers();
+            if (!dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+            foreach (DataRow row in dt.Rows)
+            {
+                string code = dt.Columns.Contains("Customer Code") ? row["Customer Code"]?.ToString() : "";
+                string refNo = dt.Columns.Contains("Customer Ref Number") ? row["Customer Ref Number"]?.ToString() : "";
+                string name = row["Customer Name"]?.ToString();
+                string prefix = "";
+                if (!string.IsNullOrWhiteSpace(code)) prefix += code;
+                if (!string.IsNullOrWhiteSpace(refNo)) prefix += (prefix.Length > 0 ? " / " : "") + refNo;
+                row["DisplayText"] = string.IsNullOrWhiteSpace(prefix) ? name : (prefix + " - " + name);
+            }
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "DisplayText";
+            cmb.ValueMember = "Customer ID";
+            return cmb;
+        }
+
+        private ComboBox BuildSalesOrderCombo()
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
+            var dt = _salesOrderCtrl.GetAllSalesOrders();
+            if (!dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+            foreach (DataRow row in dt.Rows)
+                row["DisplayText"] = row["Order Code"]?.ToString();
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "DisplayText";
+            cmb.ValueMember = "Order ID";
+            return cmb;
+        }
+
+        private static FlowLayoutPanel BuildSignerRow(TextBox txtSignedBy, DateTimePicker dtpSignedDate)
+        {
+            var row = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+            txtSignedBy.Width = 220;
+            dtpSignedDate.Width = 160;
+            row.Controls.Add(txtSignedBy);
+            row.Controls.Add(dtpSignedDate);
+            return row;
+        }
+
+        private static FlowLayoutPanel BuildStatusRemarkRow(ComboBox cmbStatus, TextBox txtRemark)
+        {
+            var row = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+            cmbStatus.Width = 180;
+            txtRemark.Width = 420;
+            row.Controls.Add(cmbStatus);
+            row.Controls.Add(txtRemark);
+            return row;
+        }
+
+        private DataGridView BuildEditableProductLineGrid()
+        {
+            var grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                AllowUserToAddRows = true,
+                AllowUserToDeleteRows = true,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                BackgroundColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                RowHeadersVisible = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect
+            };
+
+            var products = _productCtrl.GetProductsForPicker();
+            if (!products.Columns.Contains("DisplayText"))
+                products.Columns.Add("DisplayText", typeof(string));
+            foreach (DataRow row in products.Rows)
+                row["DisplayText"] = row["Product Code"]?.ToString();
+
+            var productCol = new DataGridViewComboBoxColumn
+            {
+                Name = "ProductID",
+                HeaderText = "Product",
+                DataSource = products,
+                DisplayMember = "DisplayText",
+                ValueMember = "Product ID",
+                FlatStyle = FlatStyle.Flat
+            };
+            grid.Columns.Add(productCol);
+            grid.Columns.Add("Price", "Price");
+            grid.Columns.Add("Quantity", "Quantity");
+            grid.Columns.Add("Discount", "Discount");
+            GridHelper.ApplyStyle(grid);
+            grid.Columns["ProductID"].Visible = true;
+            return grid;
+        }
+
+        private DataGridView BuildEditableSalesOrderLineGrid()
+        {
+            var grid = BuildEditableProductLineGrid();
+
+            // Sales order requires product picker to support typing + dropdown.
+            grid.EditingControlShowing += (s, e) =>
+            {
+                if (grid.CurrentCell == null || grid.CurrentCell.OwningColumn == null) return;
+                if (!string.Equals(grid.CurrentCell.OwningColumn.Name, "ProductID", StringComparison.OrdinalIgnoreCase)) return;
+                if (!(e.Control is ComboBox cb)) return;
+
+                cb.DropDownStyle = ComboBoxStyle.DropDown;
+                cb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                cb.AutoCompleteSource = AutoCompleteSource.ListItems;
+            };
+
+            // Existing product unit price should be fixed in SO lines.
+            grid.CellValueChanged += (s, e) =>
+            {
+                if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+                if (!string.Equals(grid.Columns[e.ColumnIndex].Name, "ProductID", StringComparison.OrdinalIgnoreCase)) return;
+                ApplySalesOrderFixedUnitPrice(grid, e.RowIndex);
+            };
+            grid.CurrentCellDirtyStateChanged += (s, e) =>
+            {
+                if (grid.IsCurrentCellDirty && grid.CurrentCell is DataGridViewComboBoxCell)
+                    grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            };
+            grid.RowsAdded += (s, e) =>
+            {
+                for (int i = 0; i < e.RowCount; i++)
+                    EnsureSalesOrderPriceCellState(grid, e.RowIndex + i);
+            };
+            grid.DataError += (s, e) =>
+            {
+                // Ignore temporary mismatch while user is typing in combo box.
+                e.ThrowException = false;
+            };
+
+            for (int i = 0; i < grid.Rows.Count; i++)
+                EnsureSalesOrderPriceCellState(grid, i);
+
+            return grid;
+        }
+
+        private void ApplySalesOrderFixedUnitPrice(DataGridView grid, int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= grid.Rows.Count) return;
+            var row = grid.Rows[rowIndex];
+            if (row.IsNewRow) return;
+
+            if (!TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, out decimal basePrice))
+            {
+                EnsureSalesOrderPriceCellState(grid, rowIndex);
+                return;
+            }
+
+            row.Cells["Price"].Value = basePrice;
+            EnsureSalesOrderPriceCellState(grid, rowIndex);
+        }
+
+        private void EnsureSalesOrderPriceCellState(DataGridView grid, int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= grid.Rows.Count) return;
+            var row = grid.Rows[rowIndex];
+            if (row.IsNewRow) return;
+            row.Cells["Price"].ReadOnly = TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, out _);
+        }
+
+        private bool TryGetProductBasePrice(DataGridView grid, object productCellValue, out decimal basePrice)
+        {
+            basePrice = 0m;
+            if (productCellValue == null || productCellValue == DBNull.Value) return false;
+            if (!long.TryParse(productCellValue.ToString(), out long productId) || productId <= 0) return false;
+
+            if (!(grid.Columns["ProductID"] is DataGridViewComboBoxColumn comboCol)) return false;
+            if (!(comboCol.DataSource is DataTable dt)) return false;
+            if (!dt.Columns.Contains("Product ID") || !dt.Columns.Contains("Base Price")) return false;
+
+            foreach (DataRow dr in dt.Rows)
+            {
+                if (dr["Product ID"] == DBNull.Value) continue;
+                if (Convert.ToInt64(dr["Product ID"]) != productId) continue;
+                basePrice = dr["Base Price"] == DBNull.Value ? 0m : Convert.ToDecimal(dr["Base Price"]);
+                return true;
+            }
+            return false;
+        }
+
+        private void LoadProductLinesToGrid(DataGridView grid, DataTable lines)
+        {
+            if (lines == null) return;
+            grid.Rows.Clear();
+            foreach (DataRow row in lines.Rows)
+            {
+                decimal discount = row.Table.Columns.Contains("discountAmount") && row["discountAmount"] != DBNull.Value
+                    ? Convert.ToDecimal(row["discountAmount"])
+                    : 0;
+                decimal qty = row.Table.Columns.Contains("quantity")
+                    ? Convert.ToDecimal(row["quantity"])
+                    : Convert.ToDecimal(row["orderQuantity"]);
+                grid.Rows.Add(
+                    Convert.ToInt64(row["productID"]),
+                    Convert.ToDecimal(row["price"]),
+                    qty,
+                    discount);
+            }
+        }
+
+        private static List<(long ProductID, decimal Price, decimal Quantity, decimal Discount)> ReadProductLinesFromGrid(DataGridView grid)
+        {
+            var list = new List<(long ProductID, decimal Price, decimal Quantity, decimal Discount)>();
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                if (row.Cells["ProductID"].Value == null) continue;
+                if (!long.TryParse(row.Cells["ProductID"].Value.ToString(), out long productId) || productId <= 0) continue;
+                decimal.TryParse(row.Cells["Price"].Value?.ToString(), out decimal price);
+                decimal.TryParse(row.Cells["Quantity"].Value?.ToString(), out decimal quantity);
+                decimal.TryParse(row.Cells["Discount"].Value?.ToString(), out decimal discount);
+                if (quantity <= 0) continue;
+                list.Add((productId, price, quantity, discount));
+            }
+            return list;
+        }
+
+        private static void SetComboValue(ComboBox cmb, long value)
+        {
+            try { cmb.SelectedValue = value; }
+            catch { }
+        }
+
+        private static long GetComboId(ComboBox cmb)
+        {
+            if (cmb?.SelectedValue == null) return 0;
+            long.TryParse(cmb.SelectedValue.ToString(), out long id);
+            return id;
         }
     }
 }

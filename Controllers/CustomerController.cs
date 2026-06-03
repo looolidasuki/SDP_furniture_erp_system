@@ -12,6 +12,8 @@ namespace Sales_user.Controllers
         public DataTable GetAllCustomers()
         {
             string sql = @"SELECT customerID AS 'Customer ID',
+                                  customerCode AS 'Customer Code',
+                                  customerRefNumber AS 'Customer Ref Number',
                                   customerName AS 'Customer Name',
                                   billingAddress AS 'Billing Address',
                                   paymentTerm AS 'Payment Term',
@@ -24,7 +26,7 @@ namespace Sales_user.Controllers
 
         public Customer GetById(long customerId)
         {
-            string sql = @"SELECT customerID, customerName, billingAddress, paymentTerm
+            string sql = @"SELECT customerID, customerCode, customerRefNumber, customerName, billingAddress, paymentTerm
                            FROM Customer WHERE customerID = @id";
             DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] {
                 new MySqlParameter("@id", customerId)
@@ -34,6 +36,8 @@ namespace Sales_user.Controllers
             return new Customer
             {
                 CustomerID = System.Convert.ToInt64(row["customerID"]),
+                CustomerCode = row["customerCode"] == System.DBNull.Value ? null : row["customerCode"].ToString(),
+                CustomerRefNumber = row["customerRefNumber"] == System.DBNull.Value ? null : row["customerRefNumber"].ToString(),
                 CustomerName = row["customerName"].ToString(),
                 BillingAddress = row["billingAddress"].ToString(),
                 PaymentTerm = row["paymentTerm"].ToString()
@@ -42,20 +46,55 @@ namespace Sales_user.Controllers
 
         public long Insert(Customer customer)
         {
-            string sql = @"INSERT INTO Customer (customerName, billingAddress, paymentTerm)
-                           VALUES (@name, @address, @term)";
+            string sql = @"INSERT INTO Customer (customerCode, customerRefNumber, customerName, billingAddress, paymentTerm)
+                           VALUES (@code, @ref, @name, @address, @term)";
             return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                new MySqlParameter("@code", string.IsNullOrWhiteSpace(customer.CustomerCode) ? (object)System.DBNull.Value : customer.CustomerCode.Trim()),
+                new MySqlParameter("@ref", string.IsNullOrWhiteSpace(customer.CustomerRefNumber) ? (object)System.DBNull.Value : customer.CustomerRefNumber.Trim()),
                 new MySqlParameter("@name", customer.CustomerName ?? ""),
                 new MySqlParameter("@address", customer.BillingAddress ?? (object)System.DBNull.Value),
                 new MySqlParameter("@term", customer.PaymentTerm ?? (object)System.DBNull.Value)
             });
         }
 
+        public void UpdateCodeAfterInsert(long customerId)
+        {
+            string code = "CU-" + customerId.ToString("D9");
+            DatabaseConnect.ExecuteNonQuery(
+                "UPDATE Customer SET customerCode = @code WHERE customerID = @id",
+                new[]
+                {
+                    new MySqlParameter("@code", code),
+                    new MySqlParameter("@id", customerId)
+                });
+        }
+
+        public void UpdateRefNumberAfterInsert(long customerId)
+        {
+            string refNo = FormatCustomerRefNumber(customerId);
+            DatabaseConnect.ExecuteNonQuery(
+                @"UPDATE Customer SET customerRefNumber = @ref
+                  WHERE customerID = @id
+                    AND (customerRefNumber IS NULL OR TRIM(customerRefNumber) = '')",
+                new[]
+                {
+                    new MySqlParameter("@ref", refNo),
+                    new MySqlParameter("@id", customerId)
+                });
+        }
+
+        public static string FormatCustomerRefNumber(long id)
+        {
+            return "PO-PL-" + id.ToString("D9");
+        }
+
         public bool Update(Customer customer)
         {
-            string sql = @"UPDATE Customer SET customerName = @name, billingAddress = @address,
+            string sql = @"UPDATE Customer SET customerCode = @code, customerRefNumber = @ref, customerName = @name, billingAddress = @address,
                            paymentTerm = @term, lastModifyDate = NOW() WHERE customerID = @id";
             return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+                new MySqlParameter("@code", string.IsNullOrWhiteSpace(customer.CustomerCode) ? (object)System.DBNull.Value : customer.CustomerCode.Trim()),
+                new MySqlParameter("@ref", string.IsNullOrWhiteSpace(customer.CustomerRefNumber) ? (object)System.DBNull.Value : customer.CustomerRefNumber.Trim()),
                 new MySqlParameter("@name", customer.CustomerName ?? ""),
                 new MySqlParameter("@address", customer.BillingAddress ?? (object)System.DBNull.Value),
                 new MySqlParameter("@term", customer.PaymentTerm ?? (object)System.DBNull.Value),
@@ -81,6 +120,8 @@ namespace Sales_user.Controllers
         public DataTable Search(SearchFilterCriteria filter)
         {
             string sql = @"SELECT customerID AS 'Customer ID',
+                                  customerCode AS 'Customer Code',
+                                  customerRefNumber AS 'Customer Ref Number',
                                   customerName AS 'Customer Name',
                                   billingAddress AS 'Billing Address',
                                   paymentTerm AS 'Payment Term',
@@ -89,6 +130,8 @@ namespace Sales_user.Controllers
                            FROM Customer WHERE 1=1";
             var conditions = new List<string>();
             var parameters = new List<MySqlParameter>();
+            SearchQueryHelper.AddLike(conditions, parameters, "customerCode", filter.Keyword, "@code");
+            SearchQueryHelper.AddLike(conditions, parameters, "customerRefNumber", filter.Keyword, "@ref");
             SearchQueryHelper.AddLike(conditions, parameters, "customerName", filter.Name ?? filter.Keyword, "@name");
             SearchQueryHelper.AddLike(conditions, parameters, "billingAddress", filter.Keyword, "@addr");
             SearchQueryHelper.AddDateFrom(conditions, parameters, "createDate", filter.FromDate);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
 using System.Linq;
@@ -19,6 +20,13 @@ namespace FurnitureERP.Forms
         private DataGridView _deliveryGrid;
         private readonly DeliveryNoteController _deliveryCtrl = new DeliveryNoteController();
         private readonly InventoryWorkflowService _inventoryWorkflow = new InventoryWorkflowService();
+        private readonly CustomerController _customerCtrl = new CustomerController();
+        private readonly SalesOrderController _salesOrderCtrl = new SalesOrderController();
+
+        private static readonly string[] DefaultShipMethods =
+        {
+            "Courier", "Company Truck", "Customer Pickup", "Sea Freight", "Air Freight", "Express"
+        };
         private TextBox _warehouseSearchBox;
         private ComboBox _warehouseStatusFilter;
         private TextBox _deliverySearchBox;
@@ -54,8 +62,17 @@ namespace FurnitureERP.Forms
                 if (_grid?.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a warehouse first."); return; }
                 ShowWarehouseTableDialog(_grid.CurrentRow);
             };
+            var btnEditWarehouse = UITheme.CreateSecondaryButton("Edit");
+            btnEditWarehouse.Location = new Point(btnDetailWarehouse.Right + 10, 8);
+            btnEditWarehouse.Click += (s, e) =>
+            {
+                if (_grid?.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a warehouse first."); return; }
+                if (!PermissionGuard.Ensure(PermissionModule.Warehouse, PermissionAction.Edit, this)) return;
+                ShowEditDialog(Convert.ToInt64(_grid.CurrentRow.Cells[0].Value));
+            };
+            PermissionGuard.ApplyEditButton(btnEditWarehouse, PermissionModule.Warehouse);
 
-            _warehouseSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnDetailWarehouse.Right + 10, 10) };
+            _warehouseSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnEditWarehouse.Right + 10, 10) };
             _warehouseSearchBox.TextChanged += (s, e) => LoadData();
             _warehouseStatusFilter = new ComboBox
             {
@@ -70,6 +87,7 @@ namespace FurnitureERP.Forms
             toolbar.Controls.Add(btnNew);
             toolbar.Controls.Add(btnRefresh);
             toolbar.Controls.Add(btnDetailWarehouse);
+            toolbar.Controls.Add(btnEditWarehouse);
             toolbar.Controls.Add(_warehouseSearchBox);
             toolbar.Controls.Add(_warehouseStatusFilter);
 
@@ -77,8 +95,9 @@ namespace FurnitureERP.Forms
             _grid.CellDoubleClick += Grid_CellDoubleClick;
 
             var warehouseContent = new Panel { Dock = DockStyle.Fill };
-            warehouseContent.Controls.Add(toolbar);
             warehouseContent.Controls.Add(_grid);
+            warehouseContent.Controls.Add(FilterBlockHelper.CreateFilterBlock(_grid, "Warehouse Filters"));
+            warehouseContent.Controls.Add(toolbar);
             warehouseTab.Controls.Add(warehouseContent);
 
             // Delivery Notes Tab
@@ -107,7 +126,16 @@ namespace FurnitureERP.Forms
             btnConfirmDelivery.Location = new Point(btnDetailDelivery.Right + 10, 8);
             btnConfirmDelivery.Click += (s, e) => ConfirmSelectedDelivery();
             PermissionGuard.ApplyEditButton(btnConfirmDelivery, PermissionModule.DeliveryNote);
-            _deliverySearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnConfirmDelivery.Right + 10, 10) };
+            var btnEditDelivery = UITheme.CreateSecondaryButton("Edit");
+            btnEditDelivery.Location = new Point(btnConfirmDelivery.Right + 10, 8);
+            btnEditDelivery.Click += (s, e) =>
+            {
+                if (_deliveryGrid?.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a delivery note first."); return; }
+                if (!PermissionGuard.Ensure(PermissionModule.DeliveryNote, PermissionAction.Edit, this)) return;
+                OpenDeliveryEditDialog(Convert.ToInt64(_deliveryGrid.CurrentRow.Cells[0].Value));
+            };
+            PermissionGuard.ApplyEditButton(btnEditDelivery, PermissionModule.DeliveryNote);
+            _deliverySearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnEditDelivery.Right + 10, 10) };
             _deliverySearchBox.TextChanged += (s, e) => LoadDeliveryNotes();
             _deliveryStatusFilter = new ComboBox
             {
@@ -122,6 +150,7 @@ namespace FurnitureERP.Forms
             deliveryToolbar.Controls.Add(btnRefreshDelivery);
             deliveryToolbar.Controls.Add(btnDetailDelivery);
             deliveryToolbar.Controls.Add(btnConfirmDelivery);
+            deliveryToolbar.Controls.Add(btnEditDelivery);
             deliveryToolbar.Controls.Add(_deliverySearchBox);
             deliveryToolbar.Controls.Add(_deliveryStatusFilter);
 
@@ -129,8 +158,9 @@ namespace FurnitureERP.Forms
             _deliveryGrid.CellDoubleClick += DeliveryGrid_CellDoubleClick;
 
             var deliveryContent = new Panel { Dock = DockStyle.Fill };
-            deliveryContent.Controls.Add(deliveryToolbar);
             deliveryContent.Controls.Add(_deliveryGrid);
+            deliveryContent.Controls.Add(FilterBlockHelper.CreateFilterBlock(_deliveryGrid, "Delivery Note Filters"));
+            deliveryContent.Controls.Add(deliveryToolbar);
             deliveryTab.Controls.Add(deliveryContent);
 
             if (AppSession.CanView(PermissionModule.Warehouse))
@@ -181,28 +211,51 @@ namespace FurnitureERP.Forms
                 var dt = DictionaryService.DecorateStatusColumn(_deliveryCtrl.GetAllDeliveryNotes(), "Status", DictionaryService.Categories.Delivery);
                 if (dt == null) return;
 
+                var filters = new List<string>();
                 string keyword = _deliverySearchBox?.Text?.Trim();
                 if (!string.IsNullOrWhiteSpace(keyword))
                 {
                     string escaped = keyword.Replace("'", "''");
-                    dt.DefaultView.RowFilter = $"[Delivery Note Code] LIKE '%{escaped}%' OR Convert([Customer ID], 'System.String') LIKE '%{escaped}%'";
-                    dt = dt.DefaultView.ToTable();
+                    var parts = new List<string>
+                    {
+                        $"[Delivery Note Code] LIKE '%{escaped}%'",
+                        $"[Customer] LIKE '%{escaped}%'",
+                        $"[Sales Order] LIKE '%{escaped}%'",
+                        $"[Ship Method] LIKE '%{escaped}%'",
+                        $"[Tracking Number] LIKE '%{escaped}%'"
+                    };
+                    if (dt.Columns.Contains("Status Label"))
+                        parts.Add($"[Status Label] LIKE '%{escaped}%'");
+                    filters.Add("(" + string.Join(" OR ", parts) + ")");
                 }
 
                 if (_deliveryStatusFilter != null && _deliveryStatusFilter.SelectedIndex > 0)
                 {
                     int? status = DictionaryUIHelper.GetFilterStatusCode(_deliveryStatusFilter);
                     if (status.HasValue)
-                    {
-                        dt.DefaultView.RowFilter = "[Status] = " + status.Value;
-                        dt = dt.DefaultView.ToTable();
-                    }
+                        filters.Add("[Status] = " + status.Value);
+                }
+
+                if (filters.Count > 0)
+                {
+                    dt.DefaultView.RowFilter = string.Join(" AND ", filters);
+                    dt = dt.DefaultView.ToTable();
                 }
 
                 _deliveryGrid.DataSource = dt;
                 GridHelper.StyleGrid(_deliveryGrid);
+                HideDeliveryGridIdColumns();
             }
             catch { }
+        }
+
+        private void HideDeliveryGridIdColumns()
+        {
+            if (_deliveryGrid == null) return;
+            if (_deliveryGrid.Columns.Contains("Delivery Note ID"))
+                _deliveryGrid.Columns["Delivery Note ID"].Visible = false;
+            if (_deliveryGrid.Columns.Contains("Status"))
+                _deliveryGrid.Columns["Status"].Visible = false;
         }
 
         private void Grid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
@@ -232,102 +285,10 @@ namespace FurnitureERP.Forms
             }
 
             long id = Convert.ToInt64(row.Cells[0].Value);
-            var dn = _deliveryCtrl.GetById(id);
-            if (dn == null) return;
-
-            using (var dlg = new Form())
-            {
-                dlg.Text = "Delivery Note Details / Edit";
-                dlg.Size = new Size(680, 500);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var formLayout = new TableLayoutPanel
-                {
-                    Dock = DockStyle.Top,
-                    Height = 230,
-                    ColumnCount = 2,
-                    RowCount = 8,
-                    Padding = new Padding(12)
-                };
-                formLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
-                formLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-                var txtCustomer = new TextBox { Text = dn.CustomerID.ToString() };
-                var txtSalesOrder = new TextBox { Text = dn.SalesOrderID.ToString() };
-                var txtStaff = new TextBox { Text = dn.StaffID.ToString() };
-                var txtWarehouse = new TextBox { Text = dn.WarehouseID.ToString() };
-                var txtShipMethod = new TextBox { Text = dn.ShipMethod ?? "" };
-                var txtTracking = new TextBox { Text = dn.TrackingNumber ?? "" };
-                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-                cmbStatus.Items.AddRange(new object[] { "0 - Draft", "1 - Dispatched", "2 - Delivered" });
-                cmbStatus.SelectedIndex = Math.Max(0, Math.Min(dn.Status, 2));
-
-                UITheme.AddFormRow(formLayout, 0, "Delivery Note Code", new Label { Text = dn.DeliveryNoteCode, AutoSize = true, ForeColor = UITheme.TextDark });
-                UITheme.AddFormRow(formLayout, 1, "Customer ID *", txtCustomer);
-                UITheme.AddFormRow(formLayout, 2, "Sales Order ID *", txtSalesOrder);
-                UITheme.AddFormRow(formLayout, 3, "Staff ID *", txtStaff);
-                UITheme.AddFormRow(formLayout, 4, "Warehouse ID", txtWarehouse);
-                UITheme.AddFormRow(formLayout, 5, "Ship Method", txtShipMethod);
-                UITheme.AddFormRow(formLayout, 6, "Tracking Number", txtTracking);
-                UITheme.AddFormRow(formLayout, 7, "Status", cmbStatus);
-
-                var lineGrid = GridHelper.CreateStyledGrid();
-                try
-                {
-                    lineGrid.DataSource = _deliveryCtrl.GetDeliveryLines(id);
-                    GridHelper.StyleGrid(lineGrid);
-                }
-                catch { }
-
-                var btnUpdate = UITheme.CreatePrimaryButton("Update");
-                PermissionGuard.ApplyEditButton(btnUpdate, PermissionModule.DeliveryNote);
-                var btnClose = UITheme.CreateSecondaryButton("Close");
-                btnClose.Click += (s, args) => dlg.Close();
-                btnUpdate.Click += (s, args) =>
-                {
-                    if (!PermissionGuard.Ensure(PermissionModule.DeliveryNote, PermissionAction.Edit, dlg)) return;
-                    if (!long.TryParse(txtCustomer.Text.Trim(), out long customerId) ||
-                        !long.TryParse(txtSalesOrder.Text.Trim(), out long salesOrderId) ||
-                        !long.TryParse(txtStaff.Text.Trim(), out long staffId))
-                    {
-                        UITheme.ShowWarning("Valid Customer ID, Sales Order ID and Staff ID are required.");
-                        return;
-                    }
-
-                    dn.CustomerID = customerId;
-                    dn.SalesOrderID = salesOrderId;
-                    dn.StaffID = staffId;
-                    dn.WarehouseID = long.TryParse(txtWarehouse.Text.Trim(), out long whId) ? whId : 0;
-                    dn.ShipMethod = txtShipMethod.Text.Trim();
-                    dn.TrackingNumber = txtTracking.Text.Trim();
-                    dn.Status = cmbStatus.SelectedIndex;
-
-                    if (_deliveryCtrl.Update(dn))
-                    {
-                        UITheme.ShowSuccess("Delivery note updated.");
-                        dlg.DialogResult = DialogResult.OK;
-                        dlg.Close();
-                        LoadDeliveryNotes();
-                    }
-                };
-
-                var btnPanel = new FlowLayoutPanel
-                {
-                    Dock = DockStyle.Bottom,
-                    Height = 50,
-                    FlowDirection = FlowDirection.RightToLeft,
-                    Padding = new Padding(8)
-                };
-                btnPanel.Controls.Add(btnUpdate);
-                btnPanel.Controls.Add(btnClose);
-
-                dlg.Controls.Add(lineGrid);
-                dlg.Controls.Add(formLayout);
-                dlg.Controls.Add(btnPanel);
-                dlg.ShowDialog(this);
-            }
+            OpenDeliveryEditDialog(id);
         }
+
+        private void OpenDeliveryEditDialog(long id) => ShowDeliveryNoteEditorDialog(id);
 
         private void ShowWarehouseTableDialog(DataGridViewRow row)
         {
@@ -358,35 +319,20 @@ namespace FurnitureERP.Forms
         {
             if (row?.Cells[0].Value == null) return;
             long id = Convert.ToInt64(row.Cells[0].Value);
-            using (var dlg = new Form())
+            DataTable header = null;
+            DataTable lines = null;
+            try { header = _deliveryCtrl.GetHeaderDetail(id); } catch { }
+            try { lines = _deliveryCtrl.GetDeliveryLines(id); } catch { }
+            if (header != null && header.Rows.Count > 0 && header.Columns.Contains("Status"))
             {
-                dlg.Text = "Delivery Note Detail";
-                dlg.Size = new Size(760, 520);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
-
-                var headGrid = GridHelper.CreateStyledGrid();
-                var headDt = new DataTable();
-                headDt.Columns.Add("Field");
-                headDt.Columns.Add("Value");
-                foreach (DataGridViewCell cell in row.Cells)
-                {
-                    if (cell.OwningColumn == null) continue;
-                    headDt.Rows.Add(cell.OwningColumn.HeaderText, cell.Value?.ToString() ?? "");
-                }
-                headGrid.DataSource = headDt;
-                GridHelper.StyleGrid(headGrid);
-
-                var lineGrid = GridHelper.CreateStyledGrid();
-                try { lineGrid.DataSource = _deliveryCtrl.GetDeliveryLines(id); GridHelper.StyleGrid(lineGrid); } catch { }
-
-                split.Panel1.Controls.Add(headGrid);
-                split.Panel2.Controls.Add(lineGrid);
-                dlg.Controls.Add(split);
-                dlg.ShowDialog(this);
+                int code = Convert.ToInt32(header.Rows[0]["Status"]);
+                header.Rows[0]["Status"] = DictionaryService.GetDisplayName(DictionaryService.Categories.Delivery, code);
             }
+            string titleCode = header?.Rows.Count > 0 && header.Columns.Contains("Delivery Note Code")
+                ? header.Rows[0]["Delivery Note Code"]?.ToString()
+                : "DN-" + id;
+            var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+            DetailViewHelper.ShowDetail(this, $"Delivery Note — {titleCode}", fields, lines, $"DeliveryNote_{id}");
         }
 
         private void ShowCreateDialog()
@@ -520,68 +466,445 @@ namespace FurnitureERP.Forms
             }
         }
 
-        private void ShowCreateDeliveryDialog()
+        private void ShowCreateDeliveryDialog() => ShowDeliveryNoteEditorDialog(null);
+
+        private void ShowDeliveryNoteEditorDialog(long? deliveryNoteId)
         {
+            bool isNew = !deliveryNoteId.HasValue;
+            DeliveryNote dn = null;
+            if (!isNew)
+            {
+                dn = _deliveryCtrl.GetById(deliveryNoteId.Value);
+                if (dn == null)
+                {
+                    UITheme.ShowWarning("Delivery note not found.");
+                    return;
+                }
+            }
+
+            long dnId = dn?.DeliveryNoteID ?? 0;
+            bool confirmed = dn != null && DeliveryNoteController.IsDeliveryConfirmed(dn.Status);
+            bool hasInvoice = dnId > 0 && _deliveryCtrl.HasInvoiceLines(dnId);
+            bool linesLocked = confirmed || hasInvoice;
+
             using (var dlg = new Form())
             {
-                dlg.Text = "New Delivery Note";
-                dlg.Size = new Size(480, 320);
+                dlg.Text = isNew ? "New Delivery Note" : $"Edit Delivery Note — {dn.DeliveryNoteCode}";
+                dlg.Size = new Size(920, 640);
                 dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-                dlg.MaximizeBox = false;
+                dlg.MinimumSize = new Size(800, 520);
                 dlg.BackColor = UITheme.Background;
 
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5, Padding = new Padding(16) };
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                var split = new SplitContainer
+                {
+                    Dock = DockStyle.Fill,
+                    Orientation = Orientation.Horizontal,
+                    SplitterDistance = 260
+                };
 
-                var txtCustomerId = new TextBox();
-                var txtSalesOrderId = new TextBox();
-                var txtStaffId = new TextBox();
-                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-                cmbStatus.Items.AddRange(new object[] { "0 - Draft", "1 - Dispatched", "2 - Delivered" });
-                cmbStatus.SelectedIndex = 0;
-                var txtRemark = new TextBox();
+                var formLayout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 2,
+                    RowCount = 9,
+                    Padding = new Padding(12)
+                };
+                formLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+                formLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-                UITheme.AddFormRow(layout, 0, "Customer ID *", txtCustomerId);
-                UITheme.AddFormRow(layout, 1, "Sales Order ID *", txtSalesOrderId);
-                UITheme.AddFormRow(layout, 2, "Staff ID *", txtStaffId);
-                UITheme.AddFormRow(layout, 3, "Status", cmbStatus);
-                UITheme.AddFormRow(layout, 4, "Remark", txtRemark);
+                var lblCode = new Label
+                {
+                    Text = isNew ? "(assigned on save)" : dn.DeliveryNoteCode,
+                    AutoSize = true,
+                    ForeColor = UITheme.TextDark
+                };
+                var cmbCustomer = BuildCustomerCombo(dn?.CustomerID ?? 0);
+                var cmbSalesOrder = BuildSalesOrderCombo(dn?.CustomerID ?? 0, dn?.SalesOrderID ?? 0);
+                var cmbWarehouse = BuildWarehouseCombo(dn?.WarehouseID ?? 0);
+                var cmbShipMethod = BuildShipMethodCombo(dn?.ShipMethod);
+                var txtTracking = new TextBox { Text = dn?.TrackingNumber ?? "" };
+                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
+                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.Delivery, dn?.Status ?? 0);
+                if (isNew)
+                {
+                    cmbStatus.Enabled = false;
+                    DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.Delivery, 0);
+                }
+                var txtRemark = new TextBox { Text = dn?.Remark ?? "", Multiline = true, Height = 48, ScrollBars = ScrollBars.Vertical };
+                string staffLabel = AppSession.CurrentUser != null
+                    ? (string.IsNullOrWhiteSpace(AppSession.CurrentUser.FullName)
+                        ? AppSession.CurrentUser.Username
+                        : AppSession.CurrentUser.FullName)
+                    : (dn != null ? dn.StaffID.ToString() : "—");
+                var lblStaff = new Label { Text = staffLabel, AutoSize = true, ForeColor = UITheme.TextDark };
 
-                var btnSave = UITheme.CreatePrimaryButton("Save");
-                PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.DeliveryNote);
+                int row = 0;
+                if (!isNew) UITheme.AddFormRow(formLayout, row++, "Delivery Note Code", lblCode);
+                UITheme.AddFormRow(formLayout, row++, "Customer *", cmbCustomer);
+                UITheme.AddFormRow(formLayout, row++, "Sales Order *", cmbSalesOrder);
+                UITheme.AddFormRow(formLayout, row++, "Warehouse *", cmbWarehouse);
+                UITheme.AddFormRow(formLayout, row++, "Ship Method *", cmbShipMethod);
+                UITheme.AddFormRow(formLayout, row++, "Tracking Number", txtTracking);
+                UITheme.AddFormRow(formLayout, row++, "Staff", lblStaff);
+                UITheme.AddFormRow(formLayout, row++, "Status", cmbStatus);
+                UITheme.AddFormRow(formLayout, row, "Remark", txtRemark);
+
+                var lineGrid = CreateDeliveryLineGrid();
+                Action reloadLines = () =>
+                {
+                    long soId = GetComboLongId(cmbSalesOrder);
+                    if (soId <= 0)
+                    {
+                        lineGrid.DataSource = null;
+                        lineGrid.ReadOnly = true;
+                        return;
+                    }
+                    LoadDeliveryLineGrid(lineGrid, soId, isNew ? 0 : dnId, linesLocked);
+                };
+
+                cmbCustomer.SelectedIndexChanged += (s, e) =>
+                {
+                    if (confirmed) return;
+                    BindSalesOrderCombo(cmbSalesOrder, GetComboLongId(cmbCustomer), 0);
+                    reloadLines();
+                };
+                cmbSalesOrder.SelectedIndexChanged += (s, e) => reloadLines();
+
+                if (confirmed)
+                {
+                    cmbCustomer.Enabled = false;
+                    cmbSalesOrder.Enabled = false;
+                    cmbWarehouse.Enabled = false;
+                    cmbShipMethod.Enabled = false;
+                }
+
+                split.Panel1.Controls.Add(formLayout);
+
+                string lineHint = linesLocked
+                    ? (confirmed
+                        ? "Lines locked (confirmed). Tracking/remark/status can still be updated."
+                        : "Lines locked (invoiced). Header fields can still be updated.")
+                    : isNew
+                        ? "Select Sales Order to load lines. Edit Ship Qty only (optional — leave 0 to auto-fill on Confirm Delivery)."
+                        : "Edit Ship Qty only (≤ Remaining). Leave blank to auto-fill on Confirm Delivery.";
+                var lineHeader = new Panel { Dock = DockStyle.Top, Height = 32 };
+                lineHeader.Controls.Add(new Label
+                {
+                    Text = lineHint,
+                    Dock = DockStyle.Fill,
+                    AutoSize = false,
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                    ForeColor = UITheme.TextDark
+                });
+                split.Panel2.Controls.Add(lineGrid);
+                split.Panel2.Controls.Add(lineHeader);
+
+                reloadLines();
+
+                var btnSave = UITheme.CreatePrimaryButton(isNew ? "Create" : "Update");
+                if (isNew)
+                    PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.DeliveryNote);
+                else
+                    PermissionGuard.ApplyEditButton(btnSave, PermissionModule.DeliveryNote);
                 var btnCancel = UITheme.CreateSecondaryButton("Cancel");
                 btnCancel.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
-                    if (!PermissionGuard.Ensure(PermissionModule.DeliveryNote, PermissionAction.Create, dlg)) return;
-                    if (!long.TryParse(txtCustomerId.Text, out long custId) || !long.TryParse(txtSalesOrderId.Text, out long soId) || !long.TryParse(txtStaffId.Text, out long staffId))
-                    { MessageBox.Show("Valid Customer ID, Sales Order ID and Staff ID are required.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                    var action = isNew ? PermissionAction.Create : PermissionAction.Edit;
+                    if (!PermissionGuard.Ensure(PermissionModule.DeliveryNote, action, dlg)) return;
+
+                    long customerId = GetComboLongId(cmbCustomer);
+                    long salesOrderId = GetComboLongId(cmbSalesOrder);
+                    long warehouseId = GetComboLongId(cmbWarehouse);
+                    if (customerId <= 0 || salesOrderId <= 0)
+                    {
+                        UITheme.ShowWarning("Please select Customer and Sales Order.");
+                        return;
+                    }
+                    if (warehouseId <= 0)
+                    {
+                        UITheme.ShowWarning("Please select a Warehouse.");
+                        return;
+                    }
+                    string shipMethod = cmbShipMethod.Text.Trim();
+                    if (string.IsNullOrWhiteSpace(shipMethod))
+                    {
+                        UITheme.ShowWarning("Ship Method is required.");
+                        return;
+                    }
+
+                    long staffId = AppSession.CurrentUser?.StaffID ?? dn?.StaffID ?? 0;
+                    if (staffId <= 0)
+                    {
+                        UITheme.ShowWarning("Current user has no Staff ID; cannot save delivery note.");
+                        return;
+                    }
+
+                    List<(long ProductId, int ShipQty)> lines = null;
+                    if (!linesLocked)
+                    {
+                        if (!TryReadDeliveryLines(lineGrid, out lines, out string lineError))
+                        {
+                            UITheme.ShowWarning(lineError);
+                            return;
+                        }
+                    }
+
                     try
                     {
-                        var dn = new DeliveryNote
+                        var note = new DeliveryNote
                         {
-                            DeliveryNoteCode = "DN-TEMP",
-                            CustomerID = custId,
-                            SalesOrderID = soId,
+                            DeliveryNoteID = dnId,
+                            DeliveryNoteCode = isNew ? "DN-TEMP" : dn.DeliveryNoteCode,
+                            CustomerID = customerId,
+                            SalesOrderID = salesOrderId,
                             StaffID = staffId,
-                            Status = cmbStatus.SelectedIndex,
+                            WarehouseID = warehouseId,
+                            ShipMethod = shipMethod,
+                            TrackingNumber = txtTracking.Text.Trim(),
+                            Status = isNew ? 0 : DictionaryUIHelper.GetSelectedStatusCode(cmbStatus),
                             Remark = txtRemark.Text.Trim()
                         };
-                        long newId = _deliveryCtrl.Insert(dn);
-                        _deliveryCtrl.UpdateCodeAfterInsert(newId);
-                        MessageBox.Show($"Delivery Note DN-{newId} created.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        dlg.DialogResult = DialogResult.OK; dlg.Close();
+
+                        if (isNew)
+                        {
+                            long newId = _deliveryCtrl.CreateWithLines(note, lines ?? Enumerable.Empty<(long, int)>());
+                            UITheme.ShowSuccess(
+                                $"Delivery note DN-{newId} created.\r\nNext: select it in the list and click Confirm Delivery (then Finance → Invoice from Delivery).");
+                        }
+                        else if (!_deliveryCtrl.UpdateWithLines(note, lines))
+                        {
+                            UITheme.ShowWarning("Update failed.");
+                            return;
+                        }
+                        else
+                            UITheme.ShowSuccess("Delivery note updated.");
+
+                        dlg.DialogResult = DialogResult.OK;
+                        dlg.Close();
                     }
-                    catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError(ex.Message);
+                    }
                 };
 
-                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-                btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
-                dlg.Controls.Add(layout); dlg.Controls.Add(btnPanel);
-                if (dlg.ShowDialog(this) == DialogResult.OK) LoadDeliveryNotes();
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnCancel);
+
+                dlg.Controls.Add(split);
+                dlg.Controls.Add(btnPanel);
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    LoadDeliveryNotes();
             }
+        }
+
+        private ComboBox BuildCustomerCombo(long selectedCustomerId = 0)
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
+            var dt = _customerCtrl.GetAllCustomers();
+            if (dt != null && !dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+            if (dt != null)
+            {
+                foreach (DataRow row in dt.Rows)
+                {
+                    string code = dt.Columns.Contains("Customer Code") ? row["Customer Code"]?.ToString() : "";
+                    string name = row["Customer Name"]?.ToString();
+                    row["DisplayText"] = string.IsNullOrWhiteSpace(code) ? name : $"{code} — {name}";
+                }
+            }
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "DisplayText";
+            cmb.ValueMember = "Customer ID";
+            if (selectedCustomerId > 0) SetComboLongValue(cmb, selectedCustomerId);
+            return cmb;
+        }
+
+        private ComboBox BuildSalesOrderCombo(long customerId, long selectedSalesOrderId)
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
+            BindSalesOrderCombo(cmb, customerId, selectedSalesOrderId);
+            return cmb;
+        }
+
+        private void BindSalesOrderCombo(ComboBox cmb, long customerId, long selectedSalesOrderId)
+        {
+            DataTable dt;
+            if (customerId > 0)
+                dt = _salesOrderCtrl.GetSalesOrdersPickerByCustomer(customerId);
+            else
+            {
+                dt = new DataTable();
+                dt.Columns.Add("Order ID", typeof(long));
+                dt.Columns.Add("DisplayText", typeof(string));
+            }
+            if (dt != null && !dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+            if (dt != null)
+            {
+                foreach (DataRow row in dt.Rows)
+                {
+                    string code = row.Table.Columns.Contains("Order Code") ? row["Order Code"]?.ToString() : "";
+                    string cref = row.Table.Columns.Contains("Customer Ref") ? row["Customer Ref"]?.ToString() : "";
+                    row["DisplayText"] = string.IsNullOrWhiteSpace(cref) ? code : $"{code} ({cref})";
+                }
+            }
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "DisplayText";
+            cmb.ValueMember = "Order ID";
+            if (selectedSalesOrderId > 0) SetComboLongValue(cmb, selectedSalesOrderId);
+            else if (cmb.Items.Count > 0) cmb.SelectedIndex = 0;
+        }
+
+        private ComboBox BuildWarehouseCombo(long selectedWarehouseId = 0)
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
+            var dt = _warehouseCtrl.GetAllWarehouses();
+            if (dt != null && !dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+            if (dt != null)
+            {
+                foreach (DataRow row in dt.Rows)
+                {
+                    string name = row["Warehouse Name"]?.ToString();
+                    string addr = row["Address"]?.ToString();
+                    row["DisplayText"] = string.IsNullOrWhiteSpace(addr) ? name : $"{name} — {addr}";
+                }
+            }
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "DisplayText";
+            cmb.ValueMember = "Warehouse ID";
+            if (selectedWarehouseId > 0) SetComboLongValue(cmb, selectedWarehouseId);
+            else if (cmb.Items.Count > 0) cmb.SelectedIndex = 0;
+            return cmb;
+        }
+
+        private static ComboBox BuildShipMethodCombo(string current = null)
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 340 };
+            cmb.Items.AddRange(DefaultShipMethods);
+            if (!string.IsNullOrWhiteSpace(current))
+                cmb.Text = current;
+            else if (cmb.Items.Count > 0)
+                cmb.SelectedIndex = 0;
+            return cmb;
+        }
+
+        private static DataGridView CreateDeliveryLineGrid()
+        {
+            return new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = false,
+                EditMode = DataGridViewEditMode.EditOnEnter,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                BackgroundColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                RowHeadersVisible = false,
+                SelectionMode = DataGridViewSelectionMode.CellSelect
+            };
+        }
+
+        private static bool IsShipQtyColumn(DataGridViewColumn col)
+        {
+            if (col == null) return false;
+            string name = (col.DataPropertyName ?? col.Name ?? col.HeaderText ?? "").Trim();
+            return string.Equals(name, "Ship Qty", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void LoadDeliveryLineGrid(DataGridView grid, long salesOrderId, long deliveryNoteId, bool readOnly)
+        {
+            var dt = _deliveryCtrl.GetLineEditorData(salesOrderId, deliveryNoteId);
+            if (dt != null && dt.Columns.Contains("Ship Qty"))
+                dt.Columns["Ship Qty"].ReadOnly = false;
+
+            grid.ReadOnly = readOnly;
+            grid.DataSource = dt;
+            GridHelper.StyleGrid(grid);
+
+            if (grid.Columns.Contains("ProductID"))
+                grid.Columns["ProductID"].Visible = false;
+
+            var shipQtyStyle = new DataGridViewCellStyle
+            {
+                BackColor = readOnly ? Color.White : Color.FromArgb(255, 250, 230)
+            };
+
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                if (IsShipQtyColumn(col))
+                {
+                    col.ReadOnly = readOnly;
+                    col.DefaultCellStyle = shipQtyStyle;
+                }
+                else
+                {
+                    col.ReadOnly = true;
+                }
+            }
+        }
+
+        private static int GetRowInt(DataRow row, string columnName)
+        {
+            if (row == null || !row.Table.Columns.Contains(columnName) || row[columnName] == DBNull.Value)
+                return 0;
+            return Convert.ToInt32(row[columnName]);
+        }
+
+        private static bool TryReadDeliveryLines(DataGridView grid, out List<(long ProductId, int ShipQty)> lines, out string error)
+        {
+            lines = new List<(long, int)>();
+            error = null;
+            if (!(grid.DataSource is DataTable dt))
+            {
+                error = "No product lines for this sales order.";
+                return false;
+            }
+            foreach (DataRow row in dt.Rows)
+            {
+                if (row.RowState == DataRowState.Deleted) continue;
+                long productId = Convert.ToInt64(row["ProductID"]);
+                int shipQty = GetRowInt(row, "Ship Qty");
+                int remaining = GetRowInt(row, "Remaining Qty");
+                if (shipQty < 0)
+                {
+                    error = "Ship quantity cannot be negative.";
+                    return false;
+                }
+                if (shipQty > remaining)
+                {
+                    string product = row["Product"]?.ToString() ?? productId.ToString();
+                    error = $"Ship qty for {product} ({shipQty}) exceeds remaining ({remaining}).";
+                    return false;
+                }
+                if (shipQty > 0)
+                    lines.Add((productId, shipQty));
+            }
+            return true;
+        }
+
+        private static long GetComboLongId(ComboBox cmb)
+        {
+            if (cmb?.SelectedValue == null) return 0;
+            long.TryParse(cmb.SelectedValue.ToString(), out long id);
+            return id;
+        }
+
+        private static void SetComboLongValue(ComboBox cmb, long value)
+        {
+            try { cmb.SelectedValue = value; }
+            catch { }
         }
 
         private void ConfirmSelectedDelivery()
