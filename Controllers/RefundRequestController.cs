@@ -1,4 +1,4 @@
-﻿using FurnitureERP.Helpers;
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;

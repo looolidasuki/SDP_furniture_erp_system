@@ -314,7 +314,7 @@ namespace Sales_user.Controllers
             UpsertProductStock(conn, trans, productId, toWarehouseId, qty);
         }
 
-        private static void UpsertProductStock(MySqlConnection conn, MySqlTransaction trans, long productId, long warehouseId, decimal qty)
+        public static void UpsertProductStock(MySqlConnection conn, MySqlTransaction trans, long productId, long warehouseId, decimal qty)
         {
             object exists = DatabaseConnect.ExecuteScalar(conn, trans,
                 "SELECT COUNT(*) FROM WarehouseProduct WHERE productID = @itemId AND warehouseID = @whId",

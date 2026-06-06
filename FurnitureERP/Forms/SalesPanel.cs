@@ -45,23 +45,6 @@ namespace FurnitureERP.Forms
             // Reply slip is printed from Delivery Note (paired RS-* code); standalone Sales tab retired.
 
             Controls.Add(_tabs);
-
-            if (AppSession.CanView(PermissionModule.Product))
-            {
-                var productBar = new Panel
-                {
-                    Dock = DockStyle.Top,
-                    Height = 44,
-                    BackColor = UITheme.Background,
-                    Padding = new Padding(8, 6, 8, 4)
-                };
-                Button btnViewProducts = UITheme.CreateSecondaryButton("📦 View Products");
-                btnViewProducts.Location = new Point(8, 6);
-                btnViewProducts.Click += (s, e) => ProductionPanel.ShowProductsViewerDialog(this);
-                productBar.Controls.Add(btnViewProducts);
-                Controls.Add(productBar);
-            }
-
             SelectModuleTab();
         }
 
@@ -103,13 +86,16 @@ namespace FurnitureERP.Forms
                 DictionaryService.Categories.Quotation,
                 grid =>
                 {
+                    var extras = new List<Control>();
                     var btnConvert = UITheme.CreateSecondaryButton("Convert to SO");
                     btnConvert.Click += (s, e) =>
                     {
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a quotation first."); return; }
                         ConvertQuotationToSalesOrder(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Quotation ID"));
                     };
-                    return new Control[] { btnConvert };
+                    extras.Add(btnConvert);
+                    extras.AddRange(CreateViewProductsToolbarExtras());
+                    return extras.ToArray();
                 },
                 row => ShowQuotationViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Quotation ID")),
                 "Quotation ID"));
@@ -139,7 +125,9 @@ namespace FurnitureERP.Forms
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a sales order first."); return; }
                         CreateProductionFromSalesOrder(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Order ID"));
                     };
-                    return new Control[] { btnConfirm, btnProduction };
+                    var extras = new List<Control> { btnConfirm, btnProduction };
+                    extras.AddRange(CreateViewProductsToolbarExtras());
+                    return extras.ToArray();
                 },
                 row => ShowSalesOrderViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Order ID")),
                 "Order ID"));
@@ -575,85 +563,27 @@ namespace FurnitureERP.Forms
             }
             catch { }
 
-            // Append TOTAL row into product lines grid.
-            try
+            AppendSalesOrderTotalRow(lines, total);
+
+            var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+            if (fields != null)
             {
-                if (lines != null && lines.Columns.Contains("Amount"))
-                {
-                    var totalRow = lines.NewRow();
-                    foreach (DataColumn col in lines.Columns)
-                    {
-                        if (col.ColumnName == "Item") totalRow[col] = "Total Amount";
-                        else if (col.ColumnName == "Amount") totalRow[col] = total;
-                        else
-                        {
-                            if (col.DataType == typeof(string)) totalRow[col] = "";
-                            else totalRow[col] = DBNull.Value;
-                        }
-                    }
-                    lines.Rows.Add(totalRow);
-                }
+                var remarkRows = fields.Select("Field = 'Remark'");
+                foreach (var r in remarkRows) r.Delete();
+                fields.AcceptChanges();
             }
-            catch { }
 
-            using (var dlg = new Form())
-            {
-                dlg.Text = $"Sales Order Detail — ID: {salesOrderId}";
-                dlg.Size = new Size(920, 620);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.BackColor = UITheme.Background;
-
-                var split = new SplitContainer
-                {
-                    Dock = DockStyle.Fill,
-                    Orientation = Orientation.Horizontal,
-                    SplitterDistance = 240
-                };
-
-                var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
-                // Remark is shown below the items grid.
-                if (fields != null)
-                {
-                    var remarkRows = fields.Select("Field = 'Remark'");
-                    foreach (var r in remarkRows) r.Delete();
-                    fields.AcceptChanges();
-                }
-
-                var headerGrid = GridHelper.CreateStyledGrid();
-                headerGrid.DataSource = fields;
-                GridHelper.StyleGrid(headerGrid);
-
-                var lineLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-                lineLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-                lineLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
-
-                var lineGrid = GridHelper.CreateStyledGrid();
-                lineGrid.DataSource = lines;
-                GridHelper.StyleGrid(lineGrid);
-
-                var lblRemark = new Label
-                {
-                    Dock = DockStyle.Fill,
-                    AutoSize = false,
-                    TextAlign = ContentAlignment.TopLeft,
-                    Padding = new Padding(12, 10, 12, 0),
-                    Font = new Font("Segoe UI", 9),
-                    ForeColor = UITheme.TextDark,
-                    Text = "Remark: " + (string.IsNullOrWhiteSpace(remark) ? "—" : remark)
-                };
-
-                lineLayout.Controls.Add(lineGrid, 0, 0);
-                lineLayout.Controls.Add(lblRemark, 0, 1);
-
-                split.Panel1.Controls.Add(headerGrid);
-                split.Panel2.Controls.Add(lineLayout);
-                dlg.Controls.Add(split);
-
-                DetailViewHelper.AttachPrintToolbar(dlg, () =>
-                    DetailViewHelper.FromFieldValueTable(dlg.Text, fields, lines, $"SalesOrder_{salesOrderId}"));
-
-                dlg.ShowDialog(this);
-            }
+            string code = header?.Rows.Count > 0 && header.Columns.Contains("Order Code")
+                ? header.Rows[0]["Order Code"]?.ToString()
+                : salesOrderId.ToString();
+            ShowDocumentTabbedViewDetail(
+                $"Sales Order — {code}",
+                fields,
+                lines,
+                $"SalesOrder_{salesOrderId}",
+                "Order",
+                "Product Lines",
+                string.IsNullOrWhiteSpace(remark) ? "—" : remark);
         }
 
         private void ShowQuotationViewDetailDialog(long quotationId)
@@ -670,7 +600,158 @@ namespace FurnitureERP.Forms
             }
             catch { }
 
-            DetailViewHelper.ShowDetail(this, $"Quotation Detail — ID: {quotationId}", fields, lines, $"Quotation_{quotationId}");
+            string code = header?.Rows.Count > 0 && header.Columns.Contains("Quotation Code")
+                ? header.Rows[0]["Quotation Code"]?.ToString()
+                : quotationId.ToString();
+            ShowDocumentTabbedViewDetail(
+                $"Quotation — {code}",
+                fields,
+                lines,
+                $"Quotation_{quotationId}",
+                "Quotation",
+                "Product Lines");
+        }
+
+        private void ShowDocumentTabbedViewDetail(string title, DataTable fields, DataTable lines, string fileNameHint, string headerTabTitle, string linesTabTitle, string linesRemark = null)
+        {
+            using (var dlg = new Form())
+            {
+                dlg.Text = title;
+                dlg.Size = new Size(920, 620);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+
+                var tabHeader = new TabPage(headerTabTitle);
+                var headerGrid = GridHelper.CreateStyledGrid();
+                headerGrid.DataSource = fields;
+                GridHelper.StyleGrid(headerGrid);
+                headerGrid.Dock = DockStyle.Fill;
+                tabHeader.Controls.Add(headerGrid);
+                tabs.TabPages.Add(tabHeader);
+
+                if (lines != null)
+                {
+                    var tabLines = new TabPage(linesTabTitle);
+                    Control linesContent;
+                    if (linesRemark != null)
+                    {
+                        var lineLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+                        lineLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+                        lineLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
+
+                        var lineGrid = GridHelper.CreateStyledGrid();
+                        lineGrid.DataSource = lines;
+                        GridHelper.StyleGrid(lineGrid);
+                        lineGrid.Dock = DockStyle.Fill;
+
+                        var lblRemark = new Label
+                        {
+                            Dock = DockStyle.Fill,
+                            AutoSize = false,
+                            TextAlign = ContentAlignment.TopLeft,
+                            Padding = new Padding(12, 10, 12, 0),
+                            Font = new Font("Segoe UI", 9),
+                            ForeColor = UITheme.TextDark,
+                            Text = "Remark: " + linesRemark
+                        };
+
+                        lineLayout.Controls.Add(lineGrid, 0, 0);
+                        lineLayout.Controls.Add(lblRemark, 0, 1);
+                        linesContent = lineLayout;
+                    }
+                    else
+                    {
+                        var lineGrid = GridHelper.CreateStyledGrid();
+                        lineGrid.DataSource = lines;
+                        GridHelper.StyleGrid(lineGrid);
+                        lineGrid.Dock = DockStyle.Fill;
+                        linesContent = lineGrid;
+                    }
+
+                    tabLines.Controls.Add(linesContent);
+                    linesContent.Dock = DockStyle.Fill;
+                    tabs.TabPages.Add(tabLines);
+                }
+
+                var btnClose = UITheme.CreateSecondaryButton("Close");
+                btnClose.Click += (s, e) => dlg.Close();
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnClose);
+                dlg.Controls.Add(tabs);
+                dlg.Controls.Add(btnPanel);
+
+                DetailViewHelper.AttachPrintToolbar(dlg, () =>
+                    DetailViewHelper.FromFieldValueTable(title, fields?.Copy(), lines?.Copy(), fileNameHint));
+
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private static void AppendSalesOrderTotalRow(DataTable lines, decimal total)
+        {
+            if (lines == null || !lines.Columns.Contains("Amount")) return;
+
+            var totalRow = lines.NewRow();
+            foreach (DataColumn col in lines.Columns)
+            {
+                if (col.ColumnName == "Item") totalRow[col] = "Total Amount";
+                else if (col.ColumnName == "Amount") totalRow[col] = total;
+                else if (col.DataType == typeof(string)) totalRow[col] = "";
+                else totalRow[col] = DBNull.Value;
+            }
+            lines.Rows.Add(totalRow);
+        }
+
+        private IEnumerable<Control> CreateViewProductsToolbarExtras()
+        {
+            if (!AppSession.CanView(PermissionModule.Product))
+                yield break;
+            yield return CreateViewProductsButton(this);
+        }
+
+        private static Button CreateViewProductsButton(Control owner)
+        {
+            var btn = UITheme.CreateSecondaryButton("View Products");
+            btn.Click += (s, e) => ProductionPanel.ShowProductsViewerDialog(owner);
+            return btn;
+        }
+
+        private Panel WrapEditableProductGrid(DataGridView grid, string hint, Control owner)
+        {
+            var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
+
+            var topBar = new Panel { Dock = DockStyle.Top, Height = 36 };
+            int x = 0;
+            if (AppSession.CanView(PermissionModule.Product))
+            {
+                var btnViewProducts = CreateViewProductsButton(owner);
+                btnViewProducts.Location = new Point(x, 4);
+                topBar.Controls.Add(btnViewProducts);
+                x = btnViewProducts.Right + 12;
+            }
+
+            var lbl = new Label
+            {
+                Text = hint,
+                Location = new Point(x, 10),
+                AutoSize = true,
+                ForeColor = UITheme.TextGray,
+                Font = new Font("Segoe UI", 8.5f)
+            };
+            topBar.Controls.Add(lbl);
+
+            grid.Dock = DockStyle.Fill;
+            panel.Controls.Add(grid);
+            panel.Controls.Add(topBar);
+            return panel;
         }
 
         private void ShowCreateCustomerDialog()
@@ -1341,7 +1422,7 @@ namespace FurnitureERP.Forms
                 if (isEdit) LoadProductLinesToGrid(lineGrid, _quotationCtrl.GetProductLinesInternal(existing.QuotationID));
 
                 root.Controls.Add(form, 0, 0);
-                root.Controls.Add(WrapEditableGrid(lineGrid, "Pick multiple products and set quantity/price/discount."), 0, 1);
+                root.Controls.Add(WrapEditableProductGrid(lineGrid, "Pick multiple products and set quantity/price/discount.", dlg), 0, 1);
 
                 var btnSave = UITheme.CreatePrimaryButton(isEdit ? "Update" : "Create");
                 var btnClose = UITheme.CreateSecondaryButton("Close");
@@ -1730,7 +1811,7 @@ namespace FurnitureERP.Forms
                 if (isEdit) LoadProductLinesToGrid(lineGrid, _salesOrderCtrl.GetProductLinesInternal(existing.SalesOrderID));
 
                 root.Controls.Add(form, 0, 0);
-                root.Controls.Add(WrapEditableGrid(lineGrid, "Pick multiple products and set quantity/price/discount."), 0, 1);
+                root.Controls.Add(WrapEditableProductGrid(lineGrid, "Pick multiple products and set quantity/price/discount.", dlg), 0, 1);
 
                 var btnSave = UITheme.CreatePrimaryButton(isEdit ? "Update" : "Create");
                 var btnClose = UITheme.CreateSecondaryButton("Close");

@@ -12,6 +12,7 @@ namespace Sales_user.Controllers
         public DataTable GetAllProductionOrders()
         {
             string sql = @"SELECT po.productionOrderCode AS 'Production Order Code',
+                                  CASE WHEN so.salesOrderCode = @sampleCode THEN 'Sample' ELSE 'Sales' END AS 'Order Type',
                                   so.salesOrderCode AS 'Sales Order',
                                   CONCAT(st.firstName, ' ', st.lastName) AS 'Staff',
                                   po.createDate AS 'Create Date',
@@ -22,7 +23,10 @@ namespace Sales_user.Controllers
                            LEFT JOIN SalesOrder so ON po.salesOrderID = so.salesOrderID
                            LEFT JOIN Staff st ON po.staffID = st.staffID
                            ORDER BY po.createDate DESC";
-            return DatabaseConnect.ExecuteQuery(sql);
+            return DatabaseConnect.ExecuteQuery(sql, new[]
+            {
+                new MySqlParameter("@sampleCode", InternalSampleProductionService.InternalSalesOrderCode)
+            });
         }
 
         public DataTable GetSalesOrdersForProductionPicker()
@@ -112,6 +116,53 @@ namespace Sales_user.Controllers
                                 ON spl.salesOrderID = po.salesOrderID AND spl.productID = popl.productID
                            WHERE popl.ProductionOrderID = @id
                            ORDER BY p.productCode";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", productionOrderId) });
+        }
+
+        public DataTable GetSampleLinesForEditor(long productionOrderId)
+        {
+            string sql = @"SELECT popl.productID AS ProductID,
+                                  p.productCode AS ProductCode,
+                                  p.category AS Category,
+                                  popl.productionQty AS ProductionQty
+                           FROM ProductionOrderProductLine popl
+                           INNER JOIN Product p ON popl.productID = p.productID
+                           WHERE popl.ProductionOrderID = @id
+                           ORDER BY p.productCode";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", productionOrderId) });
+        }
+
+        public long CreateSampleWithLines(
+            long staffId,
+            DateTime estFinishDate,
+            int status,
+            string remark,
+            System.Collections.Generic.IEnumerable<(long ProductId, int ProductionQty)> lines)
+        {
+            long salesOrderId = InternalSampleProductionService.GetOrCreateInternalSampleSalesOrderId(staffId);
+            return CreateWithLines(new ProductionOrder
+            {
+                ProductionOrderCode = "PO-TEMP",
+                SalesOrderID = salesOrderId,
+                StaffID = staffId > 0 ? staffId : 1,
+                EstFinishDate = estFinishDate,
+                Status = status,
+                Remark = InternalSampleProductionService.EnsureSampleRemark(remark)
+            }, lines);
+        }
+
+        public bool IsSampleProductionOrder(long productionOrderId)
+        {
+            var order = GetById(productionOrderId);
+            return order != null
+                && InternalSampleProductionService.IsInternalSampleSalesOrder(order.SalesOrderID);
+        }
+
+        public DataTable GetProductLinesInternal(long productionOrderId)
+        {
+            string sql = @"SELECT productID, productionQty
+                           FROM ProductionOrderProductLine
+                           WHERE ProductionOrderID = @id";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", productionOrderId) });
         }
 

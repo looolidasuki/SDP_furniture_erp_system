@@ -12,6 +12,8 @@ namespace FurnitureERP.Forms
     public class ProductionPanel : UserControl
     {
         private readonly ProductionOrderController _productionCtrl = new ProductionOrderController();
+        private readonly ProductionWorkflowService _productionWorkflow = new ProductionWorkflowService();
+        private readonly WarehouseController _warehouseCtrl = new WarehouseController();
         private readonly RawMaterialController _rawMaterialCtrl = new RawMaterialController();
         private readonly RawMaterialRequestNoteController _rmrnCtrl = new RawMaterialRequestNoteController();
         private readonly ProductController _productCtrl = new ProductController();
@@ -71,8 +73,13 @@ namespace FurnitureERP.Forms
             btnQuickNew.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.ProductionOrder, PermissionAction.Create, this)) ShowBatchCreateDialog(); };
             PermissionGuard.ApplyCreateButton(btnQuickNew, PermissionModule.ProductionOrder);
 
+            Button btnSample = UITheme.CreateSecondaryButton("🧪 Sample Production");
+            btnSample.Location = new Point(btnQuickNew.Right + 10, 9);
+            btnSample.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.ProductionOrder, PermissionAction.Create, this)) ShowSampleProductionForm(null, false); };
+            PermissionGuard.ApplyCreateButton(btnSample, PermissionModule.ProductionOrder);
+
             Button btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
-            btnRefresh.Location = new Point(btnQuickNew.Right + 10, 9);
+            btnRefresh.Location = new Point(btnSample.Right + 10, 9);
             btnRefresh.Click += (s, e) => LoadData();
 
             Button btnDetail = UITheme.CreateSecondaryButton("View Detail");
@@ -94,8 +101,13 @@ namespace FurnitureERP.Forms
             };
             PermissionGuard.ApplyEditButton(btnEdit, PermissionModule.ProductionOrder);
 
+            Button btnComplete = UITheme.CreatePrimaryButton("Complete & Stock In");
+            btnComplete.Location = new Point(btnEdit.Right + 10, 9);
+            btnComplete.Click += (s, e) => CompleteSelectedProductionOrder();
+            PermissionGuard.ApplyEditButton(btnComplete, PermissionModule.ProductionOrder);
+
             Button btnViewProducts = UITheme.CreateSecondaryButton("📦 View Products");
-            btnViewProducts.Location = new Point(btnEdit.Right + 10, 9);
+            btnViewProducts.Location = new Point(btnComplete.Right + 10, 9);
             btnViewProducts.Click += (s, e) => ShowProductsViewer();
 
             Button btnAddProduct = UITheme.CreateSecondaryButton("🗂 Add Product");
@@ -115,7 +127,7 @@ namespace FurnitureERP.Forms
             DictionaryUIHelper.BindStatusFilter(_statusFilter, DictionaryService.Categories.Production);
             _statusFilter.SelectedIndexChanged += (s, e) => LoadData(_searchBox.Text.Trim());
 
-            toolbar.Controls.AddRange(new Control[] { btnNew, btnQuickNew, btnRefresh, btnDetail, btnEdit, btnViewProducts, btnAddProduct, btnRMRN, _searchBox, _statusFilter });
+            toolbar.Controls.AddRange(new Control[] { btnNew, btnQuickNew, btnSample, btnRefresh, btnDetail, btnEdit, btnComplete, btnViewProducts, btnAddProduct, btnRMRN, _searchBox, _statusFilter });
 
             _grid = GridHelper.CreateStyledGrid();
             _grid.CellDoubleClick += (s, e) =>
@@ -384,6 +396,7 @@ namespace FurnitureERP.Forms
                 infoLayout.Visible = false;
                 picBox.Visible = false;
 
+                int imageLoadVersion = 0;
                 grid.SelectionChanged += (s, e) =>
                 {
                     if (grid.CurrentRow?.Cells[0].Value == null) return;
@@ -429,20 +442,18 @@ namespace FurnitureERP.Forms
                         valueLabels[8].Text = p.Remark ?? "—";
                         valueLabels[9].Text = p.LastModifyDate.HasValue ? p.LastModifyDate.Value.ToString("yyyy-MM-dd") : "—";
 
-                        picBox.Image = null;
-                        try
+                        int version = ++imageLoadVersion;
+                        string imageRef = productCtrl.GetProductImageUrl(pid);
+                        ProductImageHelper.SetPictureBoxImage(picBox, (Image)ProductImageHelper.PlaceholderImage.Clone());
+                        ProductImageHelper.LoadImageAsync(imageRef, pid, img =>
                         {
-                            string imageUrl = productCtrl.GetProductImageUrl(pid);
-                            if (!string.IsNullOrWhiteSpace(imageUrl) &&
-                                (imageUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                                 imageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+                            if (version != imageLoadVersion)
                             {
-                                using (var wc = new System.Net.WebClient())
-                                using (var ms = new System.IO.MemoryStream(wc.DownloadData(imageUrl)))
-                                    picBox.Image = Image.FromStream(ms);
+                                ProductImageHelper.DisposeIfOwned(img);
+                                return;
                             }
-                        }
-                        catch { picBox.Image = null; }
+                            ProductImageHelper.SetPictureBoxImage(picBox, img);
+                        }, picBox);
                     }
                     catch { }
                 };
@@ -629,6 +640,497 @@ namespace FurnitureERP.Forms
             return id > 0 ? id : (long?)null;
         }
 
+        private void CompleteSelectedProductionOrder()
+        {
+            long? id = GetSelectedProductionOrderId();
+            if (!id.HasValue)
+            {
+                UITheme.ShowWarning("Please select a production order first.");
+                return;
+            }
+            if (!PermissionGuard.Ensure(PermissionModule.ProductionOrder, PermissionAction.Edit, this))
+                return;
+
+            var order = _productionCtrl.GetById(id.Value);
+            if (order == null)
+            {
+                UITheme.ShowWarning("Production order not found.");
+                return;
+            }
+            if (order.Status >= ProductionWorkflowService.StatusCompleted)
+            {
+                UITheme.ShowWarning("This production order has already been completed.");
+                return;
+            }
+
+            if (TryCompleteProductionOrder(id.Value))
+                LoadData(_searchBox?.Text?.Trim());
+        }
+
+        private bool TryCompleteProductionOrder(long productionOrderId)
+        {
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Complete Production & Stock In";
+                dlg.Size = new Size(500, 220);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.BackColor = UITheme.Background;
+
+                var layout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 2,
+                    RowCount = 2,
+                    Padding = new Padding(16)
+                };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+                layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+                var lblInfo = new Label
+                {
+                    Text = "Finished goods will be received into the selected warehouse.\r\nStock will be auto-reserved for the linked sales order where needed.",
+                    Dock = DockStyle.Fill,
+                    ForeColor = UITheme.TextGray,
+                    Font = new Font("Segoe UI", 9f)
+                };
+                layout.SetColumnSpan(lblInfo, 2);
+                layout.Controls.Add(lblInfo, 0, 1);
+
+                var cmbWarehouse = BuildWarehouseCombo();
+                if (cmbWarehouse.Items.Count > 0)
+                {
+                    try { cmbWarehouse.SelectedValue = SalesWorkflowService.DefaultFinishedGoodsWarehouseId; }
+                    catch { cmbWarehouse.SelectedIndex = 0; }
+                }
+                UITheme.AddFormField(layout, 0, "Warehouse *", cmbWarehouse);
+
+                bool completed = false;
+                var btnConfirm = UITheme.CreatePrimaryButton("Complete");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => dlg.Close();
+                btnConfirm.Click += (s, e) =>
+                {
+                    long warehouseId = GetComboLongId(cmbWarehouse, "Warehouse ID");
+                    if (warehouseId <= 0)
+                    {
+                        UITheme.ShowWarning("Please select a warehouse.");
+                        return;
+                    }
+
+                    var result = _productionWorkflow.CompleteProductionOrder(productionOrderId, warehouseId);
+                    if (!result.Success)
+                    {
+                        UITheme.ShowWarning(result.Message);
+                        return;
+                    }
+
+                    UITheme.ShowSuccess(result.Message);
+                    completed = true;
+                    dlg.DialogResult = DialogResult.OK;
+                    dlg.Close();
+                };
+
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnConfirm);
+                btnPanel.Controls.Add(btnCancel);
+                dlg.Controls.Add(layout);
+                dlg.Controls.Add(btnPanel);
+                dlg.ShowDialog(this);
+                return completed;
+            }
+        }
+
+        private ComboBox BuildWarehouseCombo()
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320 };
+            var dt = _warehouseCtrl.GetAllWarehouses();
+            if (dt != null && !dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+            if (dt != null)
+            {
+                foreach (DataRow row in dt.Rows)
+                {
+                    string name = row["Warehouse Name"]?.ToString();
+                    string addr = row["Address"]?.ToString();
+                    row["DisplayText"] = string.IsNullOrWhiteSpace(addr) ? name : $"{name} — {addr}";
+                }
+            }
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "DisplayText";
+            cmb.ValueMember = "Warehouse ID";
+            return cmb;
+        }
+
+        private void ShowSampleProductionForm(long? productionOrderId, bool readOnly)
+        {
+            bool isEdit = productionOrderId.HasValue;
+            ProductionOrder existing = isEdit ? _productionCtrl.GetById(productionOrderId.Value) : null;
+            if (isEdit && existing == null)
+            {
+                UITheme.ShowWarning("Sample production order not found.");
+                return;
+            }
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = readOnly
+                    ? "Sample Production — " + (existing?.ProductionOrderCode ?? "")
+                    : isEdit ? "Edit Sample Production" : "New Sample Production";
+                dlg.Size = new Size(920, 600);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, Padding = new Padding(12) };
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 188));
+                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+                var form = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5 };
+                form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+                form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var lblOrderCode = new Label
+                {
+                    AutoSize = true,
+                    Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                    ForeColor = UITheme.TextDark,
+                    Text = isEdit ? (existing.ProductionOrderCode ?? "") : "(assigned on save)"
+                };
+                var lblType = new Label
+                {
+                    AutoSize = true,
+                    ForeColor = UITheme.Primary,
+                    Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                    Text = "Sample / Trial (no sales order)"
+                };
+
+                ComboBox cmbStaff = null;
+                var lblStaff = new Label { AutoSize = true, ForeColor = UITheme.TextDark };
+                if (!readOnly)
+                {
+                    cmbStaff = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
+                    try
+                    {
+                        cmbStaff.DataSource = _productionCtrl.GetStaffForPicker();
+                        cmbStaff.DisplayMember = "DisplayText";
+                        cmbStaff.ValueMember = "Staff ID";
+                        long currentStaff = isEdit ? existing.StaffID : (AppSession.CurrentUser?.StaffID ?? 1);
+                        try { cmbStaff.SelectedValue = currentStaff; } catch { }
+                    }
+                    catch { }
+                }
+                else
+                {
+                    try
+                    {
+                        var staff = new StaffController().GetById(existing.StaffID);
+                        lblStaff.Text = staff != null
+                            ? staff.Username + " (" + staff.FirstName + " " + staff.LastName + ")"
+                            : existing.StaffID.ToString();
+                    }
+                    catch { lblStaff.Text = existing.StaffID.ToString(); }
+                }
+
+                var dtpFinish = new DateTimePicker
+                {
+                    Format = DateTimePickerFormat.Short,
+                    Value = existing?.EstFinishDate ?? DateTime.Today.AddDays(14),
+                    Enabled = !readOnly
+                };
+                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Enabled = !readOnly };
+                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.Production, existing?.Status ?? 0);
+                var txtRemark = new TextBox
+                {
+                    Multiline = true,
+                    Height = 56,
+                    Text = existing?.Remark ?? "Trial production for design / QA",
+                    ReadOnly = readOnly
+                };
+
+                int row = 0;
+                UITheme.AddFormField(form, row++, isEdit ? "Production Order" : "Order Code", lblOrderCode);
+                UITheme.AddFormField(form, row++, "Type", lblType);
+                UITheme.AddFormField(form, row++, "Staff *", readOnly ? (Control)lblStaff : cmbStaff);
+                UITheme.AddFormField(form, row++, "Est. Finish Date", dtpFinish);
+                UITheme.AddFormField(form, row++, "Status", cmbStatus);
+                UITheme.AddFormField(form, row++, "Remark", txtRemark);
+
+                var lineGrid = BuildSampleLineGrid(readOnly);
+                if (isEdit)
+                {
+                    try { LoadSampleLinesToGrid(lineGrid, _productionCtrl.GetSampleLinesForEditor(existing.ProductionOrderID)); }
+                    catch { }
+                }
+
+                var linePanel = new Panel { Dock = DockStyle.Fill };
+                if (!readOnly)
+                {
+                    var lineToolbar = new Panel { Dock = DockStyle.Top, Height = 40 };
+                    var btnAddLine = UITheme.CreateSecondaryButton("+ Add Product");
+                    btnAddLine.Location = new Point(0, 6);
+                    btnAddLine.Click += (s, e) => AddSampleProductLine(lineGrid);
+                    var btnRemoveLine = UITheme.CreateSecondaryButton("Remove Line");
+                    btnRemoveLine.Location = new Point(btnAddLine.Right + 10, 6);
+                    btnRemoveLine.Click += (s, e) =>
+                    {
+                        if (lineGrid.CurrentRow == null || lineGrid.CurrentRow.IsNewRow) return;
+                        lineGrid.Rows.Remove(lineGrid.CurrentRow);
+                    };
+                    lineToolbar.Controls.Add(btnAddLine);
+                    lineToolbar.Controls.Add(btnRemoveLine);
+                    linePanel.Controls.Add(lineGrid);
+                    linePanel.Controls.Add(lineToolbar);
+                }
+                else
+                {
+                    linePanel.Controls.Add(WrapEditableGrid(lineGrid, "Sample production product lines"));
+                }
+
+                root.Controls.Add(form, 0, 0);
+                root.Controls.Add(linePanel, 0, 1);
+
+                var btnSave = UITheme.CreatePrimaryButton("Save");
+                var btnClose = UITheme.CreateSecondaryButton(readOnly ? "Close" : "Cancel");
+                btnClose.Click += (s, e) => dlg.Close();
+
+                if (!readOnly)
+                {
+                    btnSave.Click += (s, e) =>
+                    {
+                        try
+                        {
+                            var lineData = ReadSampleLinesFromGrid(lineGrid);
+                            if (lineData.Count == 0)
+                            {
+                                UITheme.ShowWarning("Add at least one product line with quantity > 0.");
+                                return;
+                            }
+
+                            long staffId = cmbStaff != null ? GetComboLongId(cmbStaff, "Staff ID") : existing.StaffID;
+                            if (staffId <= 0)
+                            {
+                                UITheme.ShowWarning("Please select staff.");
+                                return;
+                            }
+
+                            if (isEdit)
+                            {
+                                int newStatus = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
+                                existing.EstFinishDate = dtpFinish.Value;
+                                existing.Remark = InternalSampleProductionService.EnsureSampleRemark(txtRemark.Text.Trim());
+
+                                if (newStatus == ProductionWorkflowService.StatusCompleted
+                                    && existing.Status != ProductionWorkflowService.StatusCompleted)
+                                {
+                                    existing.Status = existing.Status;
+                                    _productionCtrl.UpdateWithLines(existing, lineData);
+                                    if (!TryCompleteProductionOrder(existing.ProductionOrderID))
+                                        return;
+                                }
+                                else
+                                {
+                                    if (existing.Status == ProductionWorkflowService.StatusCompleted
+                                        && newStatus != ProductionWorkflowService.StatusCompleted)
+                                    {
+                                        UITheme.ShowWarning("Completed production orders cannot be reverted to an earlier status.");
+                                        return;
+                                    }
+                                    existing.Status = newStatus;
+                                    existing.Remark = InternalSampleProductionService.EnsureSampleRemark(txtRemark.Text.Trim());
+                                    _productionCtrl.UpdateWithLines(existing, lineData);
+                                    UITheme.ShowSuccess("Sample production order updated.");
+                                }
+                            }
+                            else
+                            {
+                                long newId = _productionCtrl.CreateSampleWithLines(
+                                    staffId,
+                                    dtpFinish.Value,
+                                    DictionaryUIHelper.GetSelectedStatusCode(cmbStatus),
+                                    txtRemark.Text.Trim(),
+                                    lineData);
+                                UITheme.ShowSuccess("Sample production order PO-" + newId + " created.");
+                            }
+
+                            dlg.DialogResult = DialogResult.OK;
+                            dlg.Close();
+                            LoadData(_searchBox?.Text?.Trim());
+                        }
+                        catch (Exception ex) { UITheme.ShowError(ex.Message); }
+                    };
+                }
+
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                if (!readOnly) btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnClose);
+                dlg.Controls.Add(root);
+                dlg.Controls.Add(btnPanel);
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private void AddSampleProductLine(DataGridView grid)
+        {
+            using (var picker = new Form())
+            {
+                picker.Text = "Add Sample Product Line";
+                picker.Size = new Size(480, 200);
+                picker.StartPosition = FormStartPosition.CenterParent;
+                picker.FormBorderStyle = FormBorderStyle.FixedDialog;
+                picker.MaximizeBox = false;
+                picker.BackColor = UITheme.Background;
+
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Padding = new Padding(16) };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+
+                var cmbProduct = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+                try
+                {
+                    cmbProduct.DataSource = _productCtrl.GetProductsForPicker();
+                    cmbProduct.DisplayMember = "Product Code";
+                    cmbProduct.ValueMember = "Product ID";
+                }
+                catch { }
+
+                var txtQty = new TextBox { Text = "1", Dock = DockStyle.Fill };
+                UITheme.AddFormField(layout, 0, "Product *", cmbProduct);
+                UITheme.AddFormField(layout, 1, "Qty *", txtQty);
+
+                long selectedProductId = 0;
+                string selectedCode = "";
+                string selectedCategory = "";
+                var btnOk = UITheme.CreatePrimaryButton("Add");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => picker.Close();
+                btnOk.Click += (s, e) =>
+                {
+                    selectedProductId = GetComboLongId(cmbProduct, "Product ID");
+                    if (selectedProductId <= 0)
+                    {
+                        UITheme.ShowWarning("Please select a product.");
+                        return;
+                    }
+                    if (!int.TryParse(txtQty.Text.Trim(), out int qty) || qty <= 0)
+                    {
+                        UITheme.ShowWarning("Quantity must be a positive number.");
+                        return;
+                    }
+                    if (cmbProduct.SelectedItem is DataRowView rv)
+                    {
+                        selectedCode = rv["Product Code"]?.ToString() ?? "";
+                        selectedCategory = rv["Category"]?.ToString() ?? "";
+                    }
+                    picker.Tag = qty;
+                    picker.DialogResult = DialogResult.OK;
+                    picker.Close();
+                };
+
+                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+                btnPanel.Controls.Add(btnOk);
+                btnPanel.Controls.Add(btnCancel);
+                picker.Controls.Add(layout);
+                picker.Controls.Add(btnPanel);
+                if (picker.ShowDialog(this) != DialogResult.OK) return;
+
+                int quantity = picker.Tag is int q ? q : 1;
+                foreach (DataGridViewRow row in grid.Rows)
+                {
+                    if (row.IsNewRow) continue;
+                    if (long.TryParse(row.Cells["ProductID"].Value?.ToString(), out long pid) && pid == selectedProductId)
+                    {
+                        UITheme.ShowWarning("Product already on this order. Edit the quantity on the existing line.");
+                        return;
+                    }
+                }
+                grid.Rows.Add(selectedCode, selectedCategory, quantity, selectedProductId);
+            }
+        }
+
+        private static DataGridView BuildSampleLineGrid(bool readOnly)
+        {
+            var grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                BackgroundColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                RowHeadersVisible = false,
+                ReadOnly = readOnly,
+                EditMode = readOnly ? DataGridViewEditMode.EditProgrammatically : DataGridViewEditMode.EditOnEnter
+            };
+            grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ProductCode", HeaderText = "Product", ReadOnly = true });
+            grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Category", HeaderText = "Category", ReadOnly = true });
+            var qtyCol = new DataGridViewTextBoxColumn
+            {
+                Name = "ProductionQty",
+                HeaderText = "Sample Qty",
+                ReadOnly = readOnly,
+                ValueType = typeof(int)
+            };
+            if (!readOnly)
+            {
+                qtyCol.DefaultCellStyle.BackColor = Color.FromArgb(255, 252, 235);
+                qtyCol.DefaultCellStyle.ForeColor = UITheme.TextDark;
+            }
+            grid.Columns.Add(qtyCol);
+            grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ProductID", HeaderText = "ProductID", Visible = false, ReadOnly = true });
+            GridHelper.ApplyStyle(grid);
+            return grid;
+        }
+
+        private static void LoadSampleLinesToGrid(DataGridView grid, DataTable lines)
+        {
+            grid.Rows.Clear();
+            if (lines == null || lines.Rows.Count == 0) return;
+            foreach (DataRow row in lines.Rows)
+            {
+                int qty = row["ProductionQty"] == DBNull.Value ? 0 : Convert.ToInt32(row["ProductionQty"]);
+                grid.Rows.Add(
+                    row["ProductCode"]?.ToString() ?? "",
+                    row["Category"]?.ToString() ?? "",
+                    qty,
+                    Convert.ToInt64(row["ProductID"]));
+            }
+        }
+
+        private static List<(long ProductId, int ProductionQty)> ReadSampleLinesFromGrid(DataGridView grid)
+        {
+            var list = new List<(long ProductId, int ProductionQty)>();
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                if (!long.TryParse(row.Cells["ProductID"].Value?.ToString(), out long productId) || productId <= 0) continue;
+                if (!int.TryParse(row.Cells["ProductionQty"].Value?.ToString(), out int qty))
+                {
+                    if (!decimal.TryParse(row.Cells["ProductionQty"].Value?.ToString(), out decimal dQty))
+                        continue;
+                    qty = (int)Math.Round(dQty);
+                }
+                if (qty > 0) list.Add((productId, qty));
+            }
+            return list;
+        }
+
         private void ShowProductionOrderForm(long? productionOrderId, bool readOnly)
         {
             bool isEdit = productionOrderId.HasValue;
@@ -636,6 +1138,11 @@ namespace FurnitureERP.Forms
             if (isEdit && existing == null)
             {
                 UITheme.ShowWarning("Production order not found.");
+                return;
+            }
+            if (isEdit && _productionCtrl.IsSampleProductionOrder(existing.ProductionOrderID))
+            {
+                ShowSampleProductionForm(productionOrderId, readOnly);
                 return;
             }
 
@@ -777,11 +1284,32 @@ namespace FurnitureERP.Forms
 
                             if (isEdit)
                             {
+                                int newStatus = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
                                 existing.EstFinishDate = dtpFinish.Value;
-                                existing.Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
                                 existing.Remark = txtRemark.Text.Trim();
-                                _productionCtrl.UpdateWithLines(existing, lineData);
-                                UITheme.ShowSuccess("Production order updated.");
+
+                                if (newStatus == ProductionWorkflowService.StatusCompleted
+                                    && existing.Status != ProductionWorkflowService.StatusCompleted)
+                                {
+                                    existing.Status = existing.Status;
+                                    _productionCtrl.UpdateWithLines(existing, lineData);
+
+                                    if (!TryCompleteProductionOrder(existing.ProductionOrderID))
+                                        return;
+                                }
+                                else
+                                {
+                                    if (existing.Status == ProductionWorkflowService.StatusCompleted
+                                        && newStatus != ProductionWorkflowService.StatusCompleted)
+                                    {
+                                        UITheme.ShowWarning("Completed production orders cannot be reverted to an earlier status.");
+                                        return;
+                                    }
+
+                                    existing.Status = newStatus;
+                                    _productionCtrl.UpdateWithLines(existing, lineData);
+                                    UITheme.ShowSuccess("Production order updated.");
+                                }
                             }
                             else
                             {
@@ -1400,6 +1928,7 @@ namespace FurnitureERP.Forms
             }
 
             byte[] selectedImageBytes = null;
+            string selectedImageFileName = null;
             DialogResult result = DialogResult.Cancel;
             using (var dlg = new Form())
             {
@@ -1472,7 +2001,8 @@ namespace FurnitureERP.Forms
                         if (ofd.ShowDialog() == DialogResult.OK)
                         {
                             selectedImageBytes = System.IO.File.ReadAllBytes(ofd.FileName);
-                            picBox.Image = Image.FromFile(ofd.FileName);
+                            selectedImageFileName = ofd.FileName;
+                            ProductImageHelper.SetPictureBoxImage(picBox, Image.FromFile(ofd.FileName));
                         }
                     }
                 };
@@ -1512,17 +2042,10 @@ namespace FurnitureERP.Forms
                 imageSection.Controls.Add(lblImage, 0, 0);
                 imageSection.Controls.Add(imgRow, 1, 0);
 
-                if (isEdit && !string.IsNullOrWhiteSpace(txtImageUrl.Text) &&
-                    (txtImageUrl.Text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                     txtImageUrl.Text.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+                if (isEdit)
                 {
-                    try
-                    {
-                        using (var wc = new System.Net.WebClient())
-                        using (var ms = new System.IO.MemoryStream(wc.DownloadData(txtImageUrl.Text.Trim())))
-                            picBox.Image = Image.FromStream(ms);
-                    }
-                    catch { }
+                    string existingImageRef = txtImageUrl.Text.Trim();
+                    ProductImageHelper.SetPictureBoxImage(picBox, ProductImageHelper.LoadImage(existingImageRef, existing.ProductID));
                 }
 
                 var sectionGap = new Panel { Dock = DockStyle.Fill, Height = 12 };
@@ -1591,7 +2114,13 @@ namespace FurnitureERP.Forms
                                 UITheme.ShowError("Failed to update product.");
                                 return;
                             }
-                            productCtrl.UpsertProductImageUrl(existing.ProductID, txtImageUrl.Text.Trim());
+                            string imageRef = txtImageUrl.Text.Trim();
+                            if (selectedImageBytes != null)
+                            {
+                                imageRef = ProductImageHelper.SaveProductImage(existing.ProductID, selectedImageBytes, selectedImageFileName);
+                                ProductImageHelper.Invalidate(existing.ProductID);
+                            }
+                            productCtrl.UpsertProductImageUrl(existing.ProductID, imageRef);
                             if (!productCtrl.ReplaceBomLines(existing.ProductID, bomLines))
                             {
                                 UITheme.ShowError("Product saved but BOM update failed.");
@@ -1601,7 +2130,7 @@ namespace FurnitureERP.Forms
                         }
                         else
                         {
-                            productCtrl.InsertWithBom(new Product
+                            var newProduct = new Product
                             {
                                 ProductCode = txtCode.Text.Trim(),
                                 Category = txtCategory.Text.Trim(),
@@ -1610,9 +2139,18 @@ namespace FurnitureERP.Forms
                                 Color = txtColor.Text.Trim(),
                                 Unit = txtUnit.Text.Trim(),
                                 BasePriceByCurrency = string.IsNullOrEmpty(txtPrice.Text) ? 0 : decimal.Parse(txtPrice.Text),
-                                Status = string.IsNullOrEmpty(txtStatus.Text) ? 1 : int.Parse(txtStatus.Text),
-                                ProductImage = selectedImageBytes
-                            }, bomLines, txtImageUrl.Text.Trim());
+                                Status = string.IsNullOrEmpty(txtStatus.Text) ? 1 : int.Parse(txtStatus.Text)
+                            };
+                            string imageRef = txtImageUrl.Text.Trim();
+                            long newProductId = productCtrl.InsertWithBom(
+                                newProduct,
+                                bomLines,
+                                selectedImageBytes == null && !string.IsNullOrWhiteSpace(imageRef) ? imageRef : null);
+                            if (selectedImageBytes != null)
+                            {
+                                imageRef = ProductImageHelper.SaveProductImage(newProductId, selectedImageBytes, selectedImageFileName);
+                                productCtrl.UpsertProductImageUrl(newProductId, imageRef);
+                            }
                             UITheme.ShowSuccess("Product added successfully.");
                         }
                         result = DialogResult.OK;

@@ -135,6 +135,7 @@
     <Compile Include="Helpers\DictionaryUIHelper.cs" />
     <Compile Include="Helpers\PasswordHasher.cs" />
     <Compile Include="Helpers\StockAlertHelper.cs" />
+    <Compile Include="Helpers\ProductImageHelper.cs" />
     <Compile Include="Helpers\UITheme.cs" />
     <Compile Include="Helpers\PermissionModule.cs" />
     <Compile Include="Helpers\PermissionFlags.cs" />
@@ -224,6 +225,12 @@
     </Compile>
     <Compile Include="..\Controllers\InventoryWorkflowService.cs">
       <Link>Controllers\InventoryWorkflowService.cs</Link>
+    </Compile>
+    <Compile Include="..\Controllers\InternalSampleProductionService.cs">
+      <Link>Controllers\InternalSampleProductionService.cs</Link>
+    </Compile>
+    <Compile Include="..\Controllers\ProductionWorkflowService.cs">
+      <Link>Controllers\ProductionWorkflowService.cs</Link>
     </Compile>
     <Compile Include="..\Controllers\FinanceWorkflowService.cs">
       <Link>Controllers\FinanceWorkflowService.cs</Link>
