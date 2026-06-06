@@ -1797,7 +1797,7 @@ namespace FurnitureERP.Forms
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
 
                 var txtCode = new TextBox();
-                var cmbPO = BuildPurchaseOrderCombo();
+                var cmbPO = BuildPurchaseOrderCombo(allowTypeToSearch: true);
                 var lblSupplier = new Label { AutoSize = true, ForeColor = UITheme.TextDark, Text = "—" };
                 var txtRemark = new TextBox { Multiline = true, Dock = DockStyle.Fill };
 
@@ -1814,13 +1814,18 @@ namespace FurnitureERP.Forms
                 };
 
                 var lineGrid = CreateGrnReceiptLineGrid(0, 0, out _);
-                cmbPO.SelectedIndexChanged += (s, e) =>
+
+                Action onPurchaseOrderChanged = () =>
                 {
                     refreshSupplier();
                     long poId = GetComboLongId(cmbPO);
                     if (poId > 0)
                         LoadPoLinesForNewGrn(lineGrid, poId);
                 };
+
+                cmbPO.SelectedIndexChanged += (s, e) => onPurchaseOrderChanged();
+                cmbPO.SelectionChangeCommitted += (s, e) => onPurchaseOrderChanged();
+                cmbPO.Leave += (s, e) => onPurchaseOrderChanged();
 
                 UITheme.AddFormField(layout, 0, "GRN Code *", txtCode);
                 UITheme.AddFormField(layout, 1, "Purchase Order *", cmbPO);
@@ -2125,9 +2130,20 @@ namespace FurnitureERP.Forms
             catch { }
         }
 
-        private ComboBox BuildPurchaseOrderCombo(long selectedPoId = 0)
+        private ComboBox BuildPurchaseOrderCombo(long selectedPoId = 0, bool allowTypeToSearch = false)
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 360 };
+            var cmb = new ComboBox { Width = 360 };
+            if (allowTypeToSearch)
+            {
+                cmb.DropDownStyle = ComboBoxStyle.DropDown;
+                cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
+            }
+            else
+            {
+                cmb.DropDownStyle = ComboBoxStyle.DropDownList;
+            }
+
             var dt = _purchaseOrderCtrl.GetPurchaseOrdersForPicker();
             if (dt != null && !dt.Columns.Contains("DisplayText"))
                 dt.Columns.Add("DisplayText", typeof(string));
@@ -2147,11 +2163,31 @@ namespace FurnitureERP.Forms
             return cmb;
         }
 
-        private static long GetComboLongId(ComboBox cmb)
+        private static long GetComboLongId(ComboBox cmb, string valueMember = null)
         {
-            if (cmb?.SelectedValue == null) return 0;
-            long.TryParse(cmb.SelectedValue.ToString(), out long id);
-            return id;
+            if (cmb == null) return 0;
+
+            string member = valueMember;
+            if (string.IsNullOrEmpty(member) && !string.IsNullOrEmpty(cmb.ValueMember))
+                member = cmb.ValueMember;
+
+            object selected = cmb.SelectedValue;
+            if (selected != null && selected != DBNull.Value)
+            {
+                if (selected is long longVal) return longVal;
+                if (selected is int intVal) return intVal;
+                if (long.TryParse(selected.ToString(), out long parsed)) return parsed;
+            }
+
+            if (cmb.SelectedItem is DataRowView rowView && !string.IsNullOrEmpty(member)
+                && rowView.Row.Table.Columns.Contains(member))
+            {
+                object val = rowView[member];
+                if (val != null && val != DBNull.Value && long.TryParse(val.ToString(), out long id))
+                    return id;
+            }
+
+            return 0;
         }
 
         private static void SetComboLongValue(ComboBox cmb, long value)

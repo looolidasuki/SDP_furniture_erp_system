@@ -148,6 +148,7 @@
     <Compile Include="Helpers\DeliveryAddressDisplayHelper.cs" />
     <Compile Include="Helpers\FilterBlockHelper.cs" />
     <Compile Include="Helpers\PdfExportHelper.cs" />
+    <Compile Include="Helpers\ReplySlipPdfHelper.cs" />
     <Compile Include="Helpers\DetailViewHelper.cs" />
     <Compile Include="Helpers\InvoiceConstants.cs" />
     <Compile Include="Helpers\ReceiptVoucherConstants.cs" />
