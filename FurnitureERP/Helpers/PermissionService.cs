@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using Sales_user.Models;
 
 namespace FurnitureERP.Helpers
@@ -8,6 +9,18 @@ namespace FurnitureERP.Helpers
     {
         private static readonly Dictionary<string, Dictionary<string, PermissionFlags>> Matrix =
             BuildMatrix();
+
+        private static readonly (string Key, string DisplayName)[] OverviewDepartments =
+        {
+            ("sales", "Sales"),
+            ("production", "Production"),
+            ("warehouse", "Warehouse & Inventory"),
+            ("logistic", "Logistic"),
+            ("account", "Account / Finance"),
+            ("superuser", "Super User — Full Access")
+        };
+
+        public static IReadOnlyList<(string Key, string DisplayName)> GetOverviewDepartments() => OverviewDepartments;
 
         public static bool IsSuperUser(Staff user)
         {
@@ -54,6 +67,154 @@ namespace FurnitureERP.Helpers
                 return "account";
             if (value == "super user" || value == "superuser") return "superuser";
             return value;
+        }
+
+        public static string GetDepartmentDisplayName(string departmentKey)
+        {
+            if (string.IsNullOrWhiteSpace(departmentKey)) return "Unknown";
+            foreach (var item in OverviewDepartments)
+            {
+                if (string.Equals(item.Key, departmentKey, StringComparison.OrdinalIgnoreCase))
+                    return item.DisplayName;
+            }
+            return char.ToUpper(departmentKey[0]) + departmentKey.Substring(1);
+        }
+
+        public static string GetModuleDisplayName(string module)
+        {
+            if (string.IsNullOrWhiteSpace(module)) return module;
+            switch (module)
+            {
+                case PermissionModule.SalesOrder: return "Sales Order";
+                case PermissionModule.Quotation: return "Quotation";
+                case PermissionModule.Customer: return "Customer";
+                case PermissionModule.DeliveryNote: return "Delivery Note";
+                case PermissionModule.Invoice: return "Invoice";
+                case PermissionModule.ReplySlip: return "Reply Slip";
+                case PermissionModule.Warehouse: return "Warehouse";
+                case PermissionModule.Refund: return "Refund";
+                case PermissionModule.ProductionOrder: return "Production Order";
+                case PermissionModule.RawMaterialRequestNote: return "Raw Material Request";
+                case PermissionModule.Product: return "Product";
+                case PermissionModule.InternalTransferForm: return "Internal Transfer";
+                case PermissionModule.RawMaterial: return "Raw Material";
+                case PermissionModule.Supplier: return "Supplier";
+                case PermissionModule.PurchaseOrder: return "Purchase Order";
+                case PermissionModule.GoodsReceivedNote: return "Goods Received Note";
+                case PermissionModule.PaymentVoucher: return "Payment Voucher";
+                case PermissionModule.ReceiptVoucher: return "Receipt Voucher";
+                default: return module;
+            }
+        }
+
+        public static PermissionFlags GetDepartmentModulePermissions(string departmentKey, string module)
+        {
+            if (string.IsNullOrWhiteSpace(departmentKey) || string.IsNullOrWhiteSpace(module))
+                return PermissionFlags.None;
+            if (string.Equals(departmentKey, "superuser", StringComparison.OrdinalIgnoreCase))
+                return PermissionFlags.All;
+
+            string normalized = NormalizeDepartment(departmentKey);
+            if (!Matrix.TryGetValue(normalized, out var modules))
+                return PermissionFlags.None;
+            return modules.TryGetValue(module, out var flags) ? flags : PermissionFlags.None;
+        }
+
+        public static IReadOnlyList<(string Key, string DisplayName)> GetMatrixDepartments()
+        {
+            var list = new List<(string Key, string DisplayName)>();
+            foreach (var dept in OverviewDepartments)
+            {
+                if (string.Equals(dept.Key, "superuser", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                list.Add(dept);
+            }
+            return list;
+        }
+
+        public static string FormatPermissionSummary(PermissionFlags flags)
+        {
+            if (flags == PermissionFlags.None)
+                return "No access";
+
+            var parts = new List<string>();
+            if (flags.HasFlag(PermissionFlags.View)) parts.Add("View");
+            if (flags.HasFlag(PermissionFlags.Create)) parts.Add("Create");
+            if (flags.HasFlag(PermissionFlags.Edit)) parts.Add("Edit");
+            return parts.Count == 0 ? "No access" : string.Join(", ", parts);
+        }
+
+        public static DataTable BuildPermissionMatrixTable()
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Module", typeof(string));
+            foreach (var dept in GetMatrixDepartments())
+                dt.Columns.Add(dept.DisplayName, typeof(string));
+
+            var modules = new List<string>(GetAllConfiguredModules());
+            modules.Sort((a, b) => string.Compare(GetModuleDisplayName(a), GetModuleDisplayName(b), StringComparison.OrdinalIgnoreCase));
+
+            foreach (string module in modules)
+            {
+                var row = dt.NewRow();
+                row["Module"] = GetModuleDisplayName(module);
+                foreach (var dept in GetMatrixDepartments())
+                    row[dept.DisplayName] = FormatPermissionSummary(GetDepartmentModulePermissions(dept.Key, module));
+                dt.Rows.Add(row);
+            }
+            return dt;
+        }
+
+        public static DataTable BuildPermissionOverviewTable(string departmentKey)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Module", typeof(string));
+            dt.Columns.Add("Permissions", typeof(string));
+
+            if (string.Equals(departmentKey, "superuser", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (string module in GetAllConfiguredModules())
+                {
+                    dt.Rows.Add(
+                        GetModuleDisplayName(module),
+                        FormatPermissionSummary(PermissionFlags.All));
+                }
+                return dt;
+            }
+
+            string normalized = NormalizeDepartment(departmentKey);
+            if (!Matrix.TryGetValue(normalized, out var modules) || modules.Count == 0)
+                return dt;
+
+            var sorted = new List<KeyValuePair<string, PermissionFlags>>(modules);
+            sorted.Sort((a, b) => string.Compare(GetModuleDisplayName(a.Key), GetModuleDisplayName(b.Key), StringComparison.OrdinalIgnoreCase));
+
+            foreach (var entry in sorted)
+            {
+                if (entry.Value == PermissionFlags.None) continue;
+                dt.Rows.Add(
+                    GetModuleDisplayName(entry.Key),
+                    FormatPermissionSummary(entry.Value));
+            }
+            return dt;
+        }
+
+        public static string ResolveOverviewDepartmentKey(Staff user)
+        {
+            if (user == null) return string.Empty;
+            if (IsSuperUser(user)) return "superuser";
+            return NormalizeDepartment(user.Department);
+        }
+
+        private static IEnumerable<string> GetAllConfiguredModules()
+        {
+            var modules = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dept in Matrix.Values)
+            {
+                foreach (string key in dept.Keys)
+                    modules.Add(key);
+            }
+            return modules;
         }
 
         private static Dictionary<string, Dictionary<string, PermissionFlags>> BuildMatrix()

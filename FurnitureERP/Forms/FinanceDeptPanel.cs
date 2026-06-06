@@ -128,7 +128,7 @@ namespace FurnitureERP.Forms
             fields.Rows.Add("Total Income", _lblTotalIncome?.Text ?? "");
             fields.Rows.Add("Total Expenses", _lblTotalExpense?.Text ?? "");
             fields.Rows.Add("Net Cash Flow", _lblNetFlow?.Text ?? "");
-            fields.Rows.Add("Report Scope", "Dashboard summary (charts displayed in app)");
+            fields.Rows.Add("Report Scope", "Finance dashboard summary with charts");
 
             try
             {
@@ -137,12 +137,31 @@ namespace FurnitureERP.Forms
                     fields,
                     null,
                     "Finance_Dashboard_Report");
-                PdfExportHelper.ExportToPdf(data, this);
+                data.Charts = BuildDashboardChartImages();
+                if (PdfExportHelper.ExportToPdf(data, this))
+                    UITheme.ShowSuccess("PDF saved successfully.");
             }
             catch (Exception ex)
             {
                 UITheme.ShowError("Failed to export PDF: " + ex.Message);
             }
+        }
+
+        private System.Collections.Generic.List<PdfChartImage> BuildDashboardChartImages()
+        {
+            _incomeChart?.Invalidate();
+            _expenseChart?.Invalidate();
+            _incomePie?.Invalidate();
+            _expensePie?.Invalidate();
+            Update();
+
+            return new System.Collections.Generic.List<PdfChartImage>
+            {
+                new PdfChartImage { Title = "Income Trend", Image = _incomeChart?.ToBitmap(520, 240) },
+                new PdfChartImage { Title = "Income by Payment Method", Image = _incomePie?.ToBitmap(520, 240) },
+                new PdfChartImage { Title = "Expense Trend", Image = _expenseChart?.ToBitmap(520, 240) },
+                new PdfChartImage { Title = "Expense by Payment Method", Image = _expensePie?.ToBitmap(520, 240) }
+            };
         }
 
         private void BuildPVTab(TabPage page)

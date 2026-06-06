@@ -289,6 +289,58 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", deliveryNoteId) });
         }
 
+        public DataTable GetExportProductLines(long deliveryNoteId)
+        {
+            string sql = @"SELECT p.productCode AS 'Product Code',
+                                  p.styleNumber AS 'Style',
+                                  p.category AS 'Category',
+                                  p.size AS 'Size',
+                                  p.color AS 'Color',
+                                  p.unit AS 'Unit',
+                                  COALESCE(spl.price, 0) AS 'Unit Price',
+                                  dpl.shipQuantity AS 'Ship Qty',
+                                  CASE WHEN COALESCE(spl.orderQuantity, 0) > 0
+                                       THEN ROUND(spl.discountAmount * dpl.shipQuantity / spl.orderQuantity, 2)
+                                       ELSE 0 END AS 'Discount',
+                                  (COALESCE(spl.price, 0) * dpl.shipQuantity
+                                   - CASE WHEN COALESCE(spl.orderQuantity, 0) > 0
+                                          THEN spl.discountAmount * dpl.shipQuantity / spl.orderQuantity
+                                          ELSE 0 END) AS 'Amount'
+                           FROM DeliveryProductLine dpl
+                           INNER JOIN Product p ON dpl.productID = p.productID
+                           INNER JOIN DeliveryNote dn ON dpl.deliveryNoteID = dn.deliveryNoteID
+                           LEFT JOIN SalesOrderProductLine spl
+                                ON spl.salesOrderID = dn.salesOrderID AND spl.productID = dpl.productID
+                           WHERE dpl.deliveryNoteID = @id
+                           ORDER BY p.productCode";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", deliveryNoteId) });
+        }
+
+        public decimal GetTotalAmount(long deliveryNoteId)
+        {
+            object value = DatabaseConnect.ExecuteScalar(
+                @"SELECT COALESCE(SUM(
+                      COALESCE(spl.price, 0) * dpl.shipQuantity
+                      - CASE WHEN COALESCE(spl.orderQuantity, 0) > 0
+                             THEN spl.discountAmount * dpl.shipQuantity / spl.orderQuantity
+                             ELSE 0 END), 0)
+                  FROM DeliveryProductLine dpl
+                  INNER JOIN DeliveryNote dn ON dpl.deliveryNoteID = dn.deliveryNoteID
+                  LEFT JOIN SalesOrderProductLine spl
+                       ON spl.salesOrderID = dn.salesOrderID AND spl.productID = dpl.productID
+                  WHERE dpl.deliveryNoteID = @id",
+                new[] { new MySqlParameter("@id", deliveryNoteId) });
+            return value == null || value == DBNull.Value ? 0 : Convert.ToDecimal(value);
+        }
+
+        public int GetTotalShipQty(long deliveryNoteId)
+        {
+            object value = DatabaseConnect.ExecuteScalar(
+                "SELECT COALESCE(SUM(shipQuantity), 0) FROM DeliveryProductLine WHERE deliveryNoteID = @id",
+                new[] { new MySqlParameter("@id", deliveryNoteId) });
+            return value == null || value == DBNull.Value ? 0 : Convert.ToInt32(value);
+        }
+
         public DataTable GetLineEditorData(long salesOrderId, long deliveryNoteId = 0)
         {
             string sql = @"SELECT spl.productID AS 'ProductID',

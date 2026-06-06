@@ -10,48 +10,103 @@ namespace FurnitureERP.Helpers
 {
     public static class FilterBlockHelper
     {
-        public static GroupBox CreateFilterBlock(DataGridView grid, string title = "Filters")
+        private const int RowHeight = 36;
+        private const int HeaderHeight = 42;
+        private const int BlockPadding = 10;
+
+        public static Panel CreateFilterBlock(DataGridView grid, string title = "Filters")
         {
-            var box = new GroupBox
+            var box = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = HeaderHeight + RowHeight + BlockPadding * 2 + 6,
+                Padding = new Padding(BlockPadding),
+                BackColor = Color.White,
+                Margin = new Padding(0, 0, 0, 6)
+            };
+            box.Paint += (s, e) =>
+            {
+                var rect = new Rectangle(0, 0, box.Width - 1, box.Height - 1);
+                using (var pen = new Pen(UITheme.CardBorder))
+                    e.Graphics.DrawRectangle(pen, rect);
+            };
+
+            var header = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = HeaderHeight,
+                BackColor = Color.Transparent
+            };
+
+            var lblTitle = new Label
             {
                 Text = title,
-                Dock = DockStyle.Top,
-                Height = 200,
-                Padding = new Padding(8, 4, 8, 8),
-                BackColor = Color.White
+                AutoSize = false,
+                Dock = DockStyle.Left,
+                Width = 260,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                ForeColor = UITheme.TextDark,
+                Padding = new Padding(4, 0, 0, 0)
             };
 
-            var rowsPanel = new FlowLayoutPanel
+            var actions = new FlowLayoutPanel
             {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.TopDown,
+                Dock = DockStyle.Right,
+                FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
-                AutoScroll = true
+                AutoSize = true,
+                Padding = new Padding(0, 6, 0, 0)
             };
 
-            var topBar = new FlowLayoutPanel
+            var btnClear = UITheme.CreateSecondaryButton("Clear");
+            btnClear.Width = 72;
+            btnClear.Height = 28;
+            var btnApply = UITheme.CreatePrimaryButton("Apply");
+            btnApply.Width = 72;
+            btnApply.Height = 28;
+            var btnAdd = UITheme.CreateSecondaryButton("+ Condition");
+            btnAdd.Width = 108;
+            btnAdd.Height = 28;
+
+            actions.Controls.Add(btnClear);
+            actions.Controls.Add(btnApply);
+            actions.Controls.Add(btnAdd);
+
+            header.Controls.Add(actions);
+            header.Controls.Add(lblTitle);
+
+            var rowsPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 34,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                BackColor = Color.FromArgb(248, 250, 254),
+                Padding = new Padding(6, 4, 6, 6)
             };
-
-            var btnAdd = UITheme.CreateSecondaryButton("+ Condition");
-            btnAdd.Width = 120;
-            var btnApply = UITheme.CreatePrimaryButton("Apply");
-            btnApply.Width = 80;
-            var btnClear = UITheme.CreateSecondaryButton("Clear");
-            btnClear.Width = 80;
-
-            topBar.Controls.Add(btnAdd);
-            topBar.Controls.Add(btnApply);
-            topBar.Controls.Add(btnClear);
+            rowsPanel.Paint += (s, e) =>
+            {
+                var rect = new Rectangle(0, 0, rowsPanel.Width - 1, rowsPanel.Height - 1);
+                using (var pen = new Pen(Color.FromArgb(232, 236, 244)))
+                    e.Graphics.DrawRectangle(pen, rect);
+            };
 
             box.Controls.Add(rowsPanel);
-            box.Controls.Add(topBar);
+            box.Controls.Add(header);
 
-            Action addRow = () => rowsPanel.Controls.Add(CreateConditionRow(grid, rowsPanel));
+            Action resizeBlock = () =>
+            {
+                int rowsHeight = Math.Max(RowHeight, rowsPanel.Controls.Count * (RowHeight + 4) + 10);
+                box.Height = HeaderHeight + rowsHeight + BlockPadding * 2 + 6;
+            };
+
+            Action addRow = () =>
+            {
+                var row = CreateConditionRow(grid, rowsPanel, resizeBlock);
+                rowsPanel.Controls.Add(row);
+                resizeBlock();
+            };
+
             btnAdd.Click += (s, e) => addRow();
             btnApply.Click += (s, e) => ApplyFilter(grid, rowsPanel);
             btnClear.Click += (s, e) =>
@@ -66,46 +121,103 @@ namespace FurnitureERP.Helpers
             return box;
         }
 
-        private static Panel CreateConditionRow(DataGridView grid, FlowLayoutPanel rowsPanel)
+        private static Panel CreateConditionRow(DataGridView grid, Panel rowsPanel, Action resizeBlock)
         {
-            var row = new Panel { Width = 1060, Height = 38, Margin = new Padding(0, 2, 0, 2) };
+            var row = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = RowHeight,
+                ColumnCount = 4,
+                Margin = new Padding(0, 0, 0, 4),
+                BackColor = Color.Transparent
+            };
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34f));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18f));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34f));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 14f));
 
-            var cmbColumn = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, Left = 0, Top = 6 };
-            var cmbOperator = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 130, Left = 268, Top = 6 };
+            var cmbColumn = CreateFilterCombo();
+            var cmbOperator = CreateFilterCombo();
+            var valueHost = new Panel { Dock = DockStyle.Fill, Height = RowHeight - 4, Margin = new Padding(0, 2, 4, 0) };
+            var txtValue = new TextBox { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+            var numValue = new NumericUpDown
+            {
+                Dock = DockStyle.Fill,
+                DecimalPlaces = 2,
+                Maximum = 1000000000,
+                Minimum = -1000000000,
+                ThousandsSeparator = true,
+                Visible = false,
+                Font = new Font("Segoe UI", 9f)
+            };
+            var dtFrom = new DateTimePicker
+            {
+                Width = 120,
+                Format = DateTimePickerFormat.Short,
+                ShowCheckBox = true,
+                Checked = false,
+                Visible = false,
+                Font = new Font("Segoe UI", 9f)
+            };
+            var dtTo = new DateTimePicker
+            {
+                Width = 120,
+                Format = DateTimePickerFormat.Short,
+                ShowCheckBox = true,
+                Checked = false,
+                Visible = false,
+                Font = new Font("Segoe UI", 9f)
+            };
+            var dateFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Visible = false,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            dateFlow.Controls.Add(dtFrom);
+            dateFlow.Controls.Add(dtTo);
 
-            var valueHost = new Panel { Width = 420, Height = 28, Left = 406, Top = 6 };
-            var txtValue = new TextBox { Width = 410, Left = 0, Top = 1 };
-            var numValue = new NumericUpDown { Width = 190, Left = 0, Top = 0, DecimalPlaces = 2, Maximum = 1000000000, Minimum = -1000000000, ThousandsSeparator = true, Visible = false };
-            var dtFrom = new DateTimePicker { Width = 190, Left = 0, Top = 0, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false, Visible = false };
-            var dtTo = new DateTimePicker { Width = 190, Left = 200, Top = 0, Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false, Visible = false };
             valueHost.Controls.Add(txtValue);
             valueHost.Controls.Add(numValue);
-            valueHost.Controls.Add(dtFrom);
-            valueHost.Controls.Add(dtTo);
+            valueHost.Controls.Add(dateFlow);
 
             var btnRemove = UITheme.CreateSecondaryButton("Remove");
-            btnRemove.Width = 90;
-            btnRemove.Height = 26;
-            btnRemove.Left = 836;
-            btnRemove.Top = 6;
+            btnRemove.Dock = DockStyle.Fill;
+            btnRemove.Height = 28;
+            btnRemove.Margin = new Padding(0, 2, 0, 0);
             btnRemove.Click += (s, e) =>
             {
                 rowsPanel.Controls.Remove(row);
                 row.Dispose();
+                resizeBlock();
             };
 
             PopulateColumns(cmbColumn, grid);
-            cmbColumn.SelectedIndexChanged += (s, e) => ConfigureRowForColumn(grid, cmbColumn, cmbOperator, txtValue, numValue, dtFrom, dtTo);
-            cmbOperator.SelectedIndexChanged += (s, e) => ConfigureValueControlsForOperator(grid, cmbColumn, cmbOperator, txtValue, numValue, dtFrom, dtTo);
+            cmbColumn.SelectedIndexChanged += (s, e) => ConfigureRowForColumn(grid, cmbColumn, cmbOperator, txtValue, numValue, dtFrom, dtTo, dateFlow);
+            cmbOperator.SelectedIndexChanged += (s, e) => ConfigureValueControlsForOperator(grid, cmbColumn, cmbOperator, txtValue, numValue, dtFrom, dtTo, dateFlow);
 
             if (cmbColumn.Items.Count > 0)
                 cmbColumn.SelectedIndex = 0;
 
-            row.Controls.Add(cmbColumn);
-            row.Controls.Add(cmbOperator);
-            row.Controls.Add(valueHost);
-            row.Controls.Add(btnRemove);
+            row.Controls.Add(cmbColumn, 0, 0);
+            row.Controls.Add(cmbOperator, 1, 0);
+            row.Controls.Add(valueHost, 2, 0);
+            row.Controls.Add(btnRemove, 3, 0);
             return row;
+        }
+
+        private static ComboBox CreateFilterCombo()
+        {
+            return new ComboBox
+            {
+                Dock = DockStyle.Fill,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(0, 2, 4, 0)
+            };
         }
 
         private static void PopulateColumns(ComboBox cmbColumn, DataGridView grid)
@@ -136,7 +248,7 @@ namespace FurnitureERP.Helpers
             }
         }
 
-        private static void ConfigureRowForColumn(DataGridView grid, ComboBox cmbColumn, ComboBox cmbOperator, TextBox txtValue, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo)
+        private static void ConfigureRowForColumn(DataGridView grid, ComboBox cmbColumn, ComboBox cmbOperator, TextBox txtValue, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo, FlowLayoutPanel dateFlow)
         {
             if (!(grid.DataSource is DataTable table)) return;
             if (cmbColumn.SelectedItem == null) return;
@@ -156,10 +268,10 @@ namespace FurnitureERP.Helpers
                 cmbOperator.Items.AddRange(new object[] { "Contains", "Equals", "StartsWith" });
 
             cmbOperator.SelectedIndex = 0;
-            ConfigureValueControlsForOperator(grid, cmbColumn, cmbOperator, txtValue, numValue, dtFrom, dtTo);
+            ConfigureValueControlsForOperator(grid, cmbColumn, cmbOperator, txtValue, numValue, dtFrom, dtTo, dateFlow);
         }
 
-        private static void ConfigureValueControlsForOperator(DataGridView grid, ComboBox cmbColumn, ComboBox cmbOperator, TextBox txtValue, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo)
+        private static void ConfigureValueControlsForOperator(DataGridView grid, ComboBox cmbColumn, ComboBox cmbOperator, TextBox txtValue, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo, FlowLayoutPanel dateFlow)
         {
             if (!(grid.DataSource is DataTable table)) return;
             if (cmbColumn.SelectedItem == null || cmbOperator.SelectedItem == null) return;
@@ -173,6 +285,7 @@ namespace FurnitureERP.Helpers
 
             txtValue.Visible = !isDate && (!isNumber || op == "Between");
             numValue.Visible = !isDate && isNumber && op != "Between";
+            dateFlow.Visible = isDate;
             dtFrom.Visible = isDate;
             dtTo.Visible = isDate && op == "Between";
 
@@ -183,20 +296,21 @@ namespace FurnitureERP.Helpers
             }
         }
 
-        private static void ApplyFilter(DataGridView grid, FlowLayoutPanel rowsPanel)
+        private static void ApplyFilter(DataGridView grid, Panel rowsPanel)
         {
             if (!(grid.DataSource is DataTable table)) return;
             var clauses = new List<string>();
 
             foreach (Control ctrl in rowsPanel.Controls)
             {
-                if (!(ctrl is Panel row) || row.Controls.Count < 4) continue;
+                if (!(ctrl is TableLayoutPanel row) || row.Controls.Count < 4) continue;
                 var cmbColumn = row.Controls[0] as ComboBox;
                 var cmbOperator = row.Controls[1] as ComboBox;
                 var valueHost = row.Controls[2] as Panel;
                 var txtValue = valueHost?.Controls.OfType<TextBox>().FirstOrDefault();
                 var numValue = valueHost?.Controls.OfType<NumericUpDown>().FirstOrDefault();
-                var dtPickers = valueHost?.Controls.OfType<DateTimePicker>().ToList() ?? new List<DateTimePicker>();
+                var dateFlow = valueHost?.Controls.OfType<FlowLayoutPanel>().FirstOrDefault();
+                var dtPickers = dateFlow?.Controls.OfType<DateTimePicker>().ToList() ?? new List<DateTimePicker>();
                 var dtFrom = dtPickers.Count > 0 ? dtPickers[0] : null;
                 var dtTo = dtPickers.Count > 1 ? dtPickers[1] : null;
 

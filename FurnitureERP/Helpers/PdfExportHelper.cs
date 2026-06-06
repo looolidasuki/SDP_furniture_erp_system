@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -9,12 +12,19 @@ using PdfSharp.Pdf;
 
 namespace FurnitureERP.Helpers
 {
+    public class PdfChartImage
+    {
+        public string Title { get; set; }
+        public Image Image { get; set; }
+    }
+
     public class DocumentExportData
     {
         public string Title { get; set; }
         public string Subtitle { get; set; }
         public DataTable Fields { get; set; }
         public DataTable Lines { get; set; }
+        public List<PdfChartImage> Charts { get; set; }
         public string SuggestedFileName { get; set; }
     }
 
@@ -149,8 +159,71 @@ namespace FurnitureERP.Helpers
                 }
             }
 
+            if (data.Charts != null && data.Charts.Count > 0)
+            {
+                y = DrawChartSection(doc, ref page, ref gfx, y, contentWidth, data.Charts, sectionFont);
+            }
+
             gfx.Dispose();
             doc.Save(filePath);
+
+            if (data.Charts != null)
+            {
+                foreach (var chart in data.Charts)
+                    chart.Image?.Dispose();
+            }
+        }
+
+        private static double DrawChartSection(PdfDocument doc, ref PdfPage page, ref XGraphics gfx, double y,
+            double contentWidth, List<PdfChartImage> charts, XFont sectionFont)
+        {
+            var chartTitleFont = new XFont("Segoe UI", 9, XFontStyleEx.Bold);
+            const double gap = 12;
+            const double chartHeight = 190;
+            double colWidth = (contentWidth - gap) / 2;
+
+            y = EnsureSpace(doc, ref page, ref gfx, y, 30);
+            gfx.DrawString("Charts", sectionFont, XBrushes.DarkSlateGray, Margin, y);
+            y += 22;
+
+            for (int i = 0; i < charts.Count; i++)
+            {
+                int col = i % 2;
+                if (col == 0)
+                    y = EnsureSpace(doc, ref page, ref gfx, y, chartHeight + 34);
+
+                double x = Margin + col * (colWidth + gap);
+                double blockY = y;
+
+                var chart = charts[i];
+                string title = string.IsNullOrWhiteSpace(chart?.Title) ? "Chart" : chart.Title;
+                gfx.DrawString(title, chartTitleFont, XBrushes.DarkSlateGray, x, blockY);
+                blockY += 16;
+
+                var frame = new XRect(x, blockY, colWidth, chartHeight);
+                gfx.DrawRectangle(new XPen(XColors.LightGray, 0.8), frame);
+
+                if (chart?.Image != null)
+                {
+                    using (var ms = new MemoryStream())
+                    {
+                        chart.Image.Save(ms, ImageFormat.Png);
+                        ms.Position = 0;
+                        using (var xImage = XImage.FromStream(ms))
+                            gfx.DrawImage(xImage, x + 4, blockY + 4, colWidth - 8, chartHeight - 8);
+                    }
+                }
+                else
+                {
+                    gfx.DrawString("No chart data", new XFont("Segoe UI", 8, XFontStyleEx.Italic),
+                        XBrushes.Gray, x + 8, blockY + chartHeight / 2);
+                }
+
+                if (col == 1 || i == charts.Count - 1)
+                    y += chartHeight + 34;
+            }
+
+            return y;
         }
 
         private static double[] CalculateColumnWidths(DataTable table, double totalWidth, int colCount)

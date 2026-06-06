@@ -135,7 +135,18 @@ namespace FurnitureERP.Forms
                 OpenDeliveryEditDialog(Convert.ToInt64(_deliveryGrid.CurrentRow.Cells[0].Value));
             };
             PermissionGuard.ApplyEditButton(btnEditDelivery, PermissionModule.DeliveryNote);
-            _deliverySearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnEditDelivery.Right + 10, 10) };
+            var btnPrintDelivery = UITheme.CreateSecondaryButton("Print PDF");
+            btnPrintDelivery.Location = new Point(btnEditDelivery.Right + 10, 8);
+            btnPrintDelivery.Click += (s, e) =>
+            {
+                if (_deliveryGrid?.CurrentRow == null)
+                {
+                    UITheme.ShowWarning("Please select a delivery note first.");
+                    return;
+                }
+                PrintDeliveryNotePdf(Convert.ToInt64(_deliveryGrid.CurrentRow.Cells[0].Value));
+            };
+            _deliverySearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnPrintDelivery.Right + 10, 10) };
             _deliverySearchBox.TextChanged += (s, e) => LoadDeliveryNotes();
             _deliveryStatusFilter = new ComboBox
             {
@@ -151,6 +162,7 @@ namespace FurnitureERP.Forms
             deliveryToolbar.Controls.Add(btnDetailDelivery);
             deliveryToolbar.Controls.Add(btnConfirmDelivery);
             deliveryToolbar.Controls.Add(btnEditDelivery);
+            deliveryToolbar.Controls.Add(btnPrintDelivery);
             deliveryToolbar.Controls.Add(_deliverySearchBox);
             deliveryToolbar.Controls.Add(_deliveryStatusFilter);
 
@@ -318,21 +330,185 @@ namespace FurnitureERP.Forms
         private void ShowDeliveryTableDialog(DataGridViewRow row)
         {
             if (row?.Cells[0].Value == null) return;
-            long id = Convert.ToInt64(row.Cells[0].Value);
-            DataTable header = null;
-            DataTable lines = null;
-            try { header = _deliveryCtrl.GetHeaderDetail(id); } catch { }
-            try { lines = _deliveryCtrl.GetDeliveryLines(id); } catch { }
-            if (header != null && header.Rows.Count > 0 && header.Columns.Contains("Status"))
+            ShowDeliveryNoteViewDetailDialog(Convert.ToInt64(row.Cells[0].Value));
+        }
+
+        private void ShowDeliveryNoteViewDetailDialog(long deliveryNoteId)
+        {
+            var export = BuildDeliveryNoteExportData(deliveryNoteId);
+            if (export == null)
             {
-                int code = Convert.ToInt32(header.Rows[0]["Status"]);
-                header.Rows[0]["Status"] = DictionaryService.GetDisplayName(DictionaryService.Categories.Delivery, code);
+                UITheme.ShowWarning("Delivery note not found.");
+                return;
             }
-            string titleCode = header?.Rows.Count > 0 && header.Columns.Contains("Delivery Note Code")
-                ? header.Rows[0]["Delivery Note Code"]?.ToString()
-                : "DN-" + id;
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = $"Delivery Note — {export.NoteCode}";
+                dlg.Size = new Size(920, 620);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var split = new SplitContainer
+                {
+                    Dock = DockStyle.Fill,
+                    Orientation = Orientation.Horizontal,
+                    SplitterDistance = 280
+                };
+
+                var headerGrid = GridHelper.CreateStyledGrid();
+                headerGrid.DataSource = export.Fields;
+                GridHelper.StyleGrid(headerGrid);
+
+                var lineGrid = GridHelper.CreateStyledGrid();
+                lineGrid.DataSource = export.Lines;
+                GridHelper.StyleGrid(lineGrid);
+
+                split.Panel1.Controls.Add(headerGrid);
+                split.Panel2.Controls.Add(lineGrid);
+                dlg.Controls.Add(split);
+
+                var toolbar = new Panel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    Padding = new Padding(8, 8, 16, 8),
+                    BackColor = UITheme.Background
+                };
+                var btnPrint = UITheme.CreatePrimaryButton("Print PDF");
+                btnPrint.Width = 130;
+                btnPrint.Anchor = AnchorStyles.Right | AnchorStyles.Top;
+                btnPrint.Location = new Point(toolbar.Width - btnPrint.Width - 16, 8);
+                toolbar.Resize += (s, e) => btnPrint.Left = Math.Max(8, toolbar.Width - btnPrint.Width - 16);
+                btnPrint.Click += (s, e) =>
+                {
+                    try
+                    {
+                        if (!TryExportDeliveryNotePdf(deliveryNoteId, dlg))
+                            UITheme.ShowWarning("No data available to print.");
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError("Failed to export PDF: " + ex.Message);
+                    }
+                };
+                toolbar.Controls.Add(btnPrint);
+                dlg.Controls.Add(toolbar);
+                toolbar.BringToFront();
+
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private void PrintDeliveryNotePdf(long deliveryNoteId)
+        {
+            try
+            {
+                if (!TryExportDeliveryNotePdf(deliveryNoteId, this))
+                    UITheme.ShowWarning("Delivery note not found.");
+            }
+            catch (Exception ex)
+            {
+                UITheme.ShowError("Failed to export PDF: " + ex.Message);
+            }
+        }
+
+        private bool TryExportDeliveryNotePdf(long deliveryNoteId, IWin32Window owner)
+        {
+            if (!TryLoadDeliveryNoteDetail(deliveryNoteId, out DataTable header, out DataTable lines, out decimal total, out int totalShipQty))
+                return false;
+
+            var pdfData = DeliveryNotePdfHelper.FromHeaderAndLines(header, lines, total, totalShipQty, $"DeliveryNote_{deliveryNoteId}");
+            if (DeliveryNotePdfHelper.ExportToPdf(pdfData, owner))
+            {
+                UITheme.ShowSuccess("PDF saved successfully.");
+                return true;
+            }
+            return true;
+        }
+
+        private bool TryLoadDeliveryNoteDetail(long deliveryNoteId, out DataTable header, out DataTable lines, out decimal total, out int totalShipQty)
+        {
+            header = null;
+            lines = null;
+            total = 0;
+            totalShipQty = 0;
+
+            try { header = _deliveryCtrl.GetHeaderDetail(deliveryNoteId); } catch { }
+            if (header == null || header.Rows.Count == 0)
+                return false;
+
+            try { lines = _deliveryCtrl.GetExportProductLines(deliveryNoteId); } catch { }
+            try { total = _deliveryCtrl.GetTotalAmount(deliveryNoteId); } catch { }
+            try { totalShipQty = _deliveryCtrl.GetTotalShipQty(deliveryNoteId); } catch { }
+            return true;
+        }
+
+        private DeliveryNoteExportData BuildDeliveryNoteExportData(long deliveryNoteId)
+        {
+            if (!TryLoadDeliveryNoteDetail(deliveryNoteId, out DataTable header, out DataTable lines, out decimal total, out int totalShipQty))
+                return null;
+
+            AppendDeliveryNoteTotalRow(lines, total);
+
             var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
-            DetailViewHelper.ShowDetail(this, $"Delivery Note — {titleCode}", fields, lines, $"DeliveryNote_{id}");
+            DecorateDeliveryNoteStatusField(fields, header.Rows[0]);
+            try
+            {
+                fields.Rows.Add("Total Ship Qty", totalShipQty.ToString());
+                fields.Rows.Add("Total Amount", total.ToString("0.00"));
+            }
+            catch { }
+
+            string noteCode = header.Columns.Contains("Delivery Note Code")
+                ? header.Rows[0]["Delivery Note Code"]?.ToString()
+                : ("DN-" + deliveryNoteId);
+
+            return new DeliveryNoteExportData
+            {
+                NoteCode = noteCode ?? ("DN-" + deliveryNoteId),
+                Fields = fields,
+                Lines = lines
+            };
+        }
+
+        private static void DecorateDeliveryNoteStatusField(DataTable fields, DataRow headerRow)
+        {
+            if (fields == null || headerRow == null || !headerRow.Table.Columns.Contains("Status")) return;
+            if (headerRow["Status"] == DBNull.Value) return;
+
+            int statusCode = Convert.ToInt32(headerRow["Status"]);
+            string label = DictionaryService.GetDisplayName(DictionaryService.Categories.Delivery, statusCode);
+            foreach (DataRow row in fields.Rows)
+            {
+                if (string.Equals(row["Field"]?.ToString(), "Status", StringComparison.OrdinalIgnoreCase))
+                {
+                    row["Value"] = label;
+                    break;
+                }
+            }
+        }
+
+        private static void AppendDeliveryNoteTotalRow(DataTable lines, decimal total)
+        {
+            if (lines == null || !lines.Columns.Contains("Amount")) return;
+
+            var totalRow = lines.NewRow();
+            foreach (DataColumn col in lines.Columns)
+            {
+                if (col.ColumnName == "Product Code") totalRow[col] = "Total Amount";
+                else if (col.ColumnName == "Amount") totalRow[col] = total;
+                else if (col.DataType == typeof(string)) totalRow[col] = "";
+                else totalRow[col] = DBNull.Value;
+            }
+            lines.Rows.Add(totalRow);
+        }
+
+        private sealed class DeliveryNoteExportData
+        {
+            public string NoteCode { get; set; }
+            public DataTable Fields { get; set; }
+            public DataTable Lines { get; set; }
         }
 
         private void ShowCreateDialog()

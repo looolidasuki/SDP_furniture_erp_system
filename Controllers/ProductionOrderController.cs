@@ -40,6 +40,35 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql);
         }
 
+        public DataTable GetPendingSalesOrdersForQuickEntry()
+        {
+            string sql = @"SELECT so.salesOrderID AS SalesOrderID,
+                                  so.salesOrderCode AS 'Sales Order',
+                                  COALESCE(c.customerName, '') AS Customer,
+                                  so.status AS SoStatus,
+                                  COUNT(DISTINCT spl.productID) AS 'Lines',
+                                  SUM(GREATEST(spl.orderQuantity - spl.warehouseReservedQty, 0)) AS 'Need Mfg Qty'
+                           FROM SalesOrder so
+                           INNER JOIN SalesOrderProductLine spl ON so.salesOrderID = spl.salesOrderID
+                           LEFT JOIN Customer c ON so.customerID = c.customerID
+                           WHERE so.status >= 1 AND so.status < 5
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM ProductionOrder po WHERE po.salesOrderID = so.salesOrderID
+                             )
+                           GROUP BY so.salesOrderID, so.salesOrderCode, c.customerName, so.status, so.createDate
+                           HAVING SUM(GREATEST(spl.orderQuantity - spl.warehouseReservedQty, 0)) > 0
+                           ORDER BY so.createDate DESC";
+            return DatabaseConnect.ExecuteQuery(sql);
+        }
+
+        public bool SalesOrderHasProductionOrder(long salesOrderId)
+        {
+            object count = DatabaseConnect.ExecuteScalar(
+                "SELECT COUNT(*) FROM ProductionOrder WHERE salesOrderID = @id",
+                new[] { new MySqlParameter("@id", salesOrderId) });
+            return count != null && count != DBNull.Value && Convert.ToInt64(count) > 0;
+        }
+
         public DataTable GetStaffForPicker()
         {
             string sql = @"SELECT staffID AS 'Staff ID',
@@ -115,7 +144,6 @@ namespace Sales_user.Controllers
                            FROM SalesOrderProductLine spl
                            INNER JOIN Product p ON spl.productID = p.productID
                            WHERE spl.salesOrderID = @id
-                             AND GREATEST(spl.orderQuantity - spl.warehouseReservedQty, 0) > 0
                            ORDER BY p.productCode";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", salesOrderId) });
         }
@@ -150,7 +178,8 @@ namespace Sales_user.Controllers
             long staffId,
             DateTime estFinishDate,
             string remark,
-            bool advanceSalesOrderToProcessing)
+            bool advanceSalesOrderToProcessing,
+            int status = 0)
         {
             var lines = new SalesOrderController().GetProductLinesInternal(salesOrderId);
             if (lines == null || lines.Rows.Count == 0)
@@ -181,7 +210,7 @@ namespace Sales_user.Controllers
                         new MySqlParameter("@soID", salesOrderId),
                         new MySqlParameter("@staffID", staffId),
                         new MySqlParameter("@finish", estFinishDate),
-                        new MySqlParameter("@status", 0),
+                        new MySqlParameter("@status", status),
                         new MySqlParameter("@remark", remark ?? (object)DBNull.Value)
                     });
 

@@ -286,12 +286,17 @@ namespace FurnitureERP.Forms
             using (var dlg = new Form())
             {
                 dlg.Text = "Products Catalogue";
-                dlg.Size = new Size(1100, 620);
+                dlg.Size = new Size(1280, 700);
+                dlg.MinimumSize = new Size(1020, 560);
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.BackColor = UITheme.Background;
 
-                // Left: product list
-                var listPanel = new Panel { Dock = DockStyle.Left, Width = 460, BackColor = UITheme.Background };
+                var split = new SplitContainer
+                {
+                    Dock = DockStyle.Fill,
+                    BackColor = UITheme.Background
+                };
+
                 var grid = GridHelper.CreateStyledGrid();
                 grid.Dock = DockStyle.Fill;
                 grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
@@ -299,12 +304,17 @@ namespace FurnitureERP.Forms
                 var toolbar = new Panel { Dock = DockStyle.Top, Height = 68 };
                 var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
                 btnRefresh.Location = new Point(0, 9);
-                var txtSearch = new TextBox { Width = 200, Height = 28, Location = new Point(btnRefresh.Width + 10, 12) };
+                var txtSearch = new TextBox { Width = 240, Height = 28, Location = new Point(btnRefresh.Width + 10, 12) };
                 var legend = StockAlertHelper.CreateLegendLabel();
                 legend.Location = new Point(0, 38);
                 toolbar.Controls.Add(btnRefresh);
                 toolbar.Controls.Add(txtSearch);
                 toolbar.Controls.Add(legend);
+
+                var leftLayout = new Panel { Dock = DockStyle.Fill, BackColor = UITheme.Background };
+                leftLayout.Controls.Add(grid);
+                leftLayout.Controls.Add(toolbar);
+                split.Panel1.Controls.Add(leftLayout);
 
                 Action loadProducts = () =>
                 {
@@ -312,6 +322,7 @@ namespace FurnitureERP.Forms
                     {
                         grid.DataSource = productCtrl.GetAllProductsWithStock(StockAlertHelper.DefaultProductMinStock);
                         GridHelper.StyleGridWithStockAlert(grid, "Available Stock", "Min Stock Level");
+                        GridHelper.ConfigureProductCatalogueGrid(grid);
                     }
                     catch { }
                 };
@@ -323,9 +334,6 @@ namespace FurnitureERP.Forms
                     dt.DefaultView.RowFilter = string.IsNullOrEmpty(kw) ? "" :
                         $"[Product Code] LIKE '%{kw}%' OR [Category] LIKE '%{kw}%' OR [Style Number] LIKE '%{kw}%'";
                 };
-
-                listPanel.Controls.Add(grid);
-                listPanel.Controls.Add(toolbar);
 
                 // Right: detail panel
                 var detailPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(16) };
@@ -439,34 +447,68 @@ namespace FurnitureERP.Forms
                     catch { }
                 };
 
-                var btnBom = UITheme.CreateSecondaryButton("View BOM");
-                btnBom.Dock = DockStyle.Bottom;
-                btnBom.Height = 36;
-                btnBom.Click += (s, e) =>
+                var bomBar = new Panel { Dock = DockStyle.Bottom, Height = 44, BackColor = Color.White };
+                var btnViewBom = UITheme.CreateSecondaryButton("View BOM");
+                btnViewBom.Size = new Size(110, 32);
+                btnViewBom.Location = new Point(16, 6);
+                btnViewBom.Click += (s, e) =>
                 {
                     if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a product first."); return; }
                     long pid = Convert.ToInt64(grid.CurrentRow.Cells[0].Value);
-                    DataTable lines = null;
-                    try { lines = productCtrl.GetBomLinesDetailed(pid); } catch { }
-                    var fields = new DataTable();
-                    fields.Columns.Add("Field");
-                    fields.Columns.Add("Value");
-                    try
-                    {
-                        var p = productCtrl.GetById(pid);
-                        fields.Rows.Add("Product Code", p?.ProductCode ?? "");
-                        fields.Rows.Add("Style Number", p?.StyleNumber ?? "");
-                        fields.Rows.Add("Category", p?.Category ?? "");
-                    }
-                    catch { }
-                    DetailViewHelper.ShowDetail(dlg, $"Product BOM — ID: {pid}", fields, lines, $"ProductBOM_{pid}");
+                    ShowProductBomViewDialog(dlg, pid);
                 };
 
+                var btnEditBom = UITheme.CreateSecondaryButton("Edit BOM");
+                btnEditBom.Size = new Size(110, 32);
+                btnEditBom.Location = new Point(btnViewBom.Right + 10, 6);
+                btnEditBom.Click += (s, e) =>
+                {
+                    if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a product first."); return; }
+                    long pid = Convert.ToInt64(grid.CurrentRow.Cells[0].Value);
+                    string code = grid.CurrentRow.Cells["Product Code"]?.Value?.ToString();
+                    ShowBomEditorDialog(dlg, pid, code);
+                };
+                PermissionGuard.ApplyEditButton(btnEditBom, PermissionModule.Product);
+
+                var btnEditProduct = UITheme.CreateSecondaryButton("Edit");
+                btnEditProduct.Size = new Size(90, 32);
+                btnEditProduct.Location = new Point(btnEditBom.Right + 10, 6);
+                btnEditProduct.Click += (s, e) =>
+                {
+                    if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a product first."); return; }
+                    long pid = Convert.ToInt64(grid.CurrentRow.Cells[0].Value);
+                    if (ShowProductFormDialog(dlg, productCtrl, new RawMaterialController(), pid) == DialogResult.OK)
+                        loadProducts();
+                };
+                PermissionGuard.ApplyEditButton(btnEditProduct, PermissionModule.Product);
+
+                bomBar.Controls.Add(btnViewBom);
+                bomBar.Controls.Add(btnEditBom);
+                bomBar.Controls.Add(btnEditProduct);
+                detailPanel.Controls.Add(bomBar);
+                split.Panel2.Controls.Add(detailPanel);
                 loadProducts();
 
-                dlg.Controls.Add(listPanel);
-                dlg.Controls.Add(detailPanel);
-                dlg.Controls.Add(btnBom);
+                dlg.Controls.Add(split);
+                dlg.Shown += (s, e) =>
+                {
+                    try
+                    {
+                        int panel2Min = Math.Min(280, Math.Max(180, split.Width / 4));
+                        int panel1Min = Math.Min(360, Math.Max(240, split.Width / 3));
+                        int maxDistance = split.Width - panel2Min - split.SplitterWidth;
+                        int target = (int)(split.Width * 0.58);
+
+                        if (maxDistance >= panel1Min)
+                            split.SplitterDistance = Math.Max(panel1Min, Math.Min(maxDistance, target));
+
+                        split.Panel1MinSize = panel1Min;
+                        split.Panel2MinSize = panel2Min;
+
+                        GridHelper.ConfigureProductCatalogueGrid(grid);
+                    }
+                    catch { }
+                };
                 dlg.ShowDialog(owner);
             }
         }
@@ -696,19 +738,23 @@ namespace FurnitureERP.Forms
                     {
                         if (isEdit)
                             lines = _productionCtrl.GetLinesForEditor(existing.ProductionOrderID);
-                        else if (cmbSalesOrder?.SelectedValue != null)
-                            lines = _productionCtrl.GetLinesTemplateFromSalesOrder(Convert.ToInt64(cmbSalesOrder.SelectedValue));
+                        else
+                        {
+                            long soId = GetComboLongId(cmbSalesOrder, "Sales Order ID");
+                            if (soId > 0)
+                                lines = _productionCtrl.GetLinesTemplateFromSalesOrder(soId);
+                        }
                     }
                     catch { }
                     LoadProductionLinesToGrid(lineGrid, lines);
                 };
-                loadLines();
                 if (cmbSalesOrder != null)
                     cmbSalesOrder.SelectedIndexChanged += (s, e) => loadLines();
+                dlg.Shown += (s, e) => loadLines();
 
                 root.Controls.Add(form, 0, 0);
                 string lineHint = readOnly
-                    ? "Production line quantities (read-only)."
+                    ? "Select a product line and click View BOM to inspect materials."
                     : "Click Production Qty column to edit. Max recommended: Need Mfg per line.";
                 root.Controls.Add(WrapEditableGrid(lineGrid, lineHint), 0, 1);
 
@@ -742,13 +788,13 @@ namespace FurnitureERP.Forms
                             }
                             else
                             {
-                                if (cmbSalesOrder?.SelectedValue == null || cmbStaff?.SelectedValue == null)
+                                long soId = GetComboLongId(cmbSalesOrder, "Sales Order ID");
+                                long staffId = GetComboLongId(cmbStaff, "Staff ID");
+                                if (soId <= 0 || staffId <= 0)
                                 {
                                     UITheme.ShowWarning("Please select sales order and staff.");
                                     return;
                                 }
-                                long soId = Convert.ToInt64(cmbSalesOrder.SelectedValue);
-                                long staffId = Convert.ToInt64(cmbStaff.SelectedValue);
                                 var po = new ProductionOrder
                                 {
                                     ProductionOrderCode = "PO-TEMP",
@@ -776,12 +822,50 @@ namespace FurnitureERP.Forms
                     FlowDirection = FlowDirection.RightToLeft,
                     Padding = new Padding(8)
                 };
+                if (readOnly)
+                {
+                    var btnViewBom = UITheme.CreateSecondaryButton("View BOM");
+                    btnViewBom.Click += (s, e) =>
+                    {
+                        if (lineGrid.CurrentRow == null || lineGrid.CurrentRow.IsNewRow)
+                        {
+                            UITheme.ShowWarning("Please select a product line first.");
+                            return;
+                        }
+                        if (!long.TryParse(lineGrid.CurrentRow.Cells["ProductID"].Value?.ToString(), out long pid) || pid <= 0)
+                        {
+                            UITheme.ShowWarning("Invalid product on selected line.");
+                            return;
+                        }
+                        ShowProductBomViewDialog(dlg, pid);
+                    };
+                    btnPanel.Controls.Add(btnViewBom);
+                }
                 if (!readOnly) btnPanel.Controls.Add(btnSave);
                 btnPanel.Controls.Add(btnClose);
                 dlg.Controls.Add(root);
                 dlg.Controls.Add(btnPanel);
                 dlg.ShowDialog(this);
             }
+        }
+
+        public static void ShowProductBomViewDialog(Control owner, long productId)
+        {
+            var productCtrl = new ProductController();
+            DataTable lines = null;
+            try { lines = productCtrl.GetBomLinesDetailed(productId); } catch { }
+            var fields = new DataTable();
+            fields.Columns.Add("Field");
+            fields.Columns.Add("Value");
+            try
+            {
+                var p = productCtrl.GetById(productId);
+                fields.Rows.Add("Product Code", p?.ProductCode ?? "");
+                fields.Rows.Add("Style Number", p?.StyleNumber ?? "");
+                fields.Rows.Add("Category", p?.Category ?? "");
+            }
+            catch { }
+            DetailViewHelper.ShowDetail(owner.FindForm() ?? owner, $"Product BOM — ID: {productId}", fields, lines, $"ProductBOM_{productId}");
         }
 
         private static Panel WrapEditableGrid(DataGridView grid, string hint)
@@ -834,26 +918,80 @@ namespace FurnitureERP.Forms
             grid.Columns.Add(qtyCol);
             grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ProductID", HeaderText = "ProductID", Visible = false, ReadOnly = true });
             GridHelper.ApplyStyle(grid);
-            if (viewOnly)
+            if (!viewOnly)
+            {
+                grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+                grid.ReadOnly = false;
+            }
+            else
+            {
                 grid.ReadOnly = true;
+            }
             return grid;
+        }
+
+        private static long GetComboLongId(ComboBox cmb, string valueMember)
+        {
+            if (cmb == null) return 0;
+
+            object selected = cmb.SelectedValue;
+            if (selected != null && selected != DBNull.Value)
+            {
+                if (selected is long longVal) return longVal;
+                if (selected is int intVal) return intVal;
+                if (long.TryParse(selected.ToString(), out long parsed)) return parsed;
+            }
+
+            if (cmb.SelectedItem is DataRowView rowView && !string.IsNullOrEmpty(valueMember)
+                && rowView.Row.Table.Columns.Contains(valueMember))
+            {
+                object val = rowView[valueMember];
+                if (val != null && val != DBNull.Value && long.TryParse(val.ToString(), out long id))
+                    return id;
+            }
+
+            return 0;
         }
 
         private static void LoadProductionLinesToGrid(DataGridView grid, DataTable lines)
         {
             grid.Rows.Clear();
-            if (lines == null) return;
+            if (lines == null || lines.Rows.Count == 0) return;
             foreach (DataRow row in lines.Rows)
             {
-                int prodQty = row["ProductionQty"] == DBNull.Value ? 0 : Convert.ToInt32(Convert.ToDecimal(row["ProductionQty"]));
+                object prodQtyObj = GetDataRowValue(row, "ProductionQty");
+                int prodQty = prodQtyObj == null || prodQtyObj == DBNull.Value
+                    ? 0
+                    : Convert.ToInt32(Convert.ToDecimal(prodQtyObj));
                 grid.Rows.Add(
-                    row["ProductCode"]?.ToString() ?? "",
-                    row["OrderQty"] == DBNull.Value ? "" : Convert.ToDecimal(row["OrderQty"]).ToString("N0"),
-                    row["ReservedQty"] == DBNull.Value ? "" : Convert.ToDecimal(row["ReservedQty"]).ToString("N0"),
-                    row["NeedMfgQty"] == DBNull.Value ? "" : Convert.ToDecimal(row["NeedMfgQty"]).ToString("N0"),
+                    GetDataRowValue(row, "ProductCode")?.ToString() ?? "",
+                    FormatGridQty(GetDataRowValue(row, "OrderQty")),
+                    FormatGridQty(GetDataRowValue(row, "ReservedQty")),
+                    FormatGridQty(GetDataRowValue(row, "NeedMfgQty")),
                     prodQty,
-                    row["ProductID"] == DBNull.Value ? 0 : Convert.ToInt64(row["ProductID"]));
+                    GetDataRowValue(row, "ProductID") == null || GetDataRowValue(row, "ProductID") == DBNull.Value
+                        ? 0
+                        : Convert.ToInt64(GetDataRowValue(row, "ProductID")));
             }
+        }
+
+        private static object GetDataRowValue(DataRow row, string columnName)
+        {
+            if (row?.Table == null) return DBNull.Value;
+            if (row.Table.Columns.Contains(columnName))
+                return row[columnName];
+            foreach (DataColumn col in row.Table.Columns)
+            {
+                if (string.Equals(col.ColumnName, columnName, StringComparison.OrdinalIgnoreCase))
+                    return row[col];
+            }
+            return DBNull.Value;
+        }
+
+        private static string FormatGridQty(object value)
+        {
+            if (value == null || value == DBNull.Value) return "";
+            return Convert.ToDecimal(value).ToString("N0");
         }
 
         private static List<(long ProductId, int ProductionQty)> ReadProductionLinesFromGrid(DataGridView grid)
@@ -878,99 +1016,458 @@ namespace FurnitureERP.Forms
         {
             using (var dlg = new Form())
             {
-                dlg.Text = "Quick Create Production Orders";
-                dlg.Size = new Size(900, 500);
+                dlg.Text = "Quick Entry — Batch Production Orders";
+                dlg.Size = new Size(980, 580);
+                dlg.MinimumSize = new Size(820, 480);
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.BackColor = UITheme.Background;
 
-                var info = new Label { Dock = DockStyle.Top, Height = 40, Padding = new Padding(10, 10, 0, 0), Text = "Enter multiple orders below. Required: Sales Order ID, Staff ID, Est. Finish Date.", ForeColor = UITheme.TextDark };
-
-                var grid = new DataGridView { Dock = DockStyle.Fill, AllowUserToAddRows = true, AllowUserToDeleteRows = true, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill };
-                grid.Columns.Add("SalesOrderID", "Sales Order ID *");
-                grid.Columns.Add("StaffID", "Staff ID *");
-                grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "EstFinishDate", HeaderText = "Est. Finish Date * (yyyy-MM-dd)" });
-                grid.Columns.Add(new DataGridViewComboBoxColumn { Name = "Status", HeaderText = "Status", DataSource = new[] { "Pending", "In Progress", "Completed", "Cancelled" } });
-                grid.Columns.Add("Remark", "Remark");
-
-                var btnSave   = UITheme.CreatePrimaryButton("Save All");
-                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
-                btnCancel.Click += (s, e) => dlg.Close();
-                btnSave.Click += (s, e) =>
+                var root = new TableLayoutPanel
                 {
-                    int successCount = 0;
-                    for (int i = 0; i < grid.Rows.Count; i++)
-                    {
-                        var row = grid.Rows[i];
-                        if (row.IsNewRow) continue;
-                        string soText = row.Cells["SalesOrderID"]?.Value?.ToString();
-                        string staffText = row.Cells["StaffID"]?.Value?.ToString();
-                        string dateText = row.Cells["EstFinishDate"]?.Value?.ToString();
-                        string statusText = row.Cells["Status"]?.Value?.ToString();
-                        string remarkText = row.Cells["Remark"]?.Value?.ToString();
-                        if (string.IsNullOrWhiteSpace(soText) && string.IsNullOrWhiteSpace(staffText) && string.IsNullOrWhiteSpace(dateText)) continue;
-                        if (!long.TryParse(soText, out long soId) || !long.TryParse(staffText, out long staffId) || !DateTime.TryParse(dateText, out DateTime estDate))
-                        { MessageBox.Show($"Row {i + 1} has invalid required fields.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-                        int status = statusText == "In Progress" ? 1 : statusText == "Completed" ? 2 : statusText == "Cancelled" ? 3 : 0;
-                        try
-                        {
-                            var po = new ProductionOrder { ProductionOrderCode = "PO-TEMP", SalesOrderID = soId, StaffID = staffId, EstFinishDate = estDate, Status = status, Remark = string.IsNullOrWhiteSpace(remarkText) ? null : remarkText.Trim() };
-                            long id = _productionCtrl.Insert(po);
-                            _productionCtrl.UpdateCodeAfterInsert(id);
-                            successCount++;
-                        }
-                        catch (Exception ex) { MessageBox.Show($"Row {i + 1} failed: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-                    }
-                    MessageBox.Show($"{successCount} production orders created.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    dlg.DialogResult = DialogResult.OK;
-                    dlg.Close();
-                    LoadData(_searchBox.Text.Trim());
+                    Dock = DockStyle.Fill,
+                    RowCount = 3,
+                    ColumnCount = 1,
+                    Padding = new Padding(12)
+                };
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
+                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+                var info = new Label
+                {
+                    Dock = DockStyle.Fill,
+                    Text = "Select confirmed sales orders that still need manufacturing. Each created production order includes product lines (Need Mfg qty).",
+                    ForeColor = UITheme.TextDark,
+                    Padding = new Padding(0, 8, 0, 0)
                 };
 
-                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-                btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
-                dlg.Controls.Add(grid); dlg.Controls.Add(info); dlg.Controls.Add(btnPanel);
+                var defaults = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 4,
+                    RowCount = 2,
+                    Padding = new Padding(0, 4, 0, 0)
+                };
+                defaults.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+                defaults.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35f));
+                defaults.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+                defaults.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65f));
+
+                var cmbStaff = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+                try
+                {
+                    cmbStaff.DataSource = _productionCtrl.GetStaffForPicker();
+                    cmbStaff.DisplayMember = "DisplayText";
+                    cmbStaff.ValueMember = "Staff ID";
+                    long currentStaff = AppSession.CurrentUser?.StaffID ?? 1;
+                    try { cmbStaff.SelectedValue = currentStaff; } catch { }
+                }
+                catch { }
+
+                var dtpFinish = new DateTimePicker
+                {
+                    Format = DateTimePickerFormat.Short,
+                    Value = DateTime.Today.AddDays(14),
+                    Dock = DockStyle.Fill
+                };
+                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.Production, 0);
+                var txtRemark = new TextBox { Dock = DockStyle.Fill, Text = "Quick entry batch" };
+
+                defaults.Controls.Add(MakeFieldLabel("Default staff"), 0, 0);
+                defaults.Controls.Add(cmbStaff, 1, 0);
+                defaults.Controls.Add(MakeFieldLabel("Est. finish"), 2, 0);
+                defaults.Controls.Add(dtpFinish, 3, 0);
+                defaults.Controls.Add(MakeFieldLabel("Status"), 0, 1);
+                defaults.Controls.Add(cmbStatus, 1, 1);
+                defaults.Controls.Add(MakeFieldLabel("Remark"), 2, 1);
+                defaults.Controls.Add(txtRemark, 3, 1);
+
+                var gridPanel = new Panel { Dock = DockStyle.Fill };
+                var gridToolbar = new Panel { Dock = DockStyle.Top, Height = 40 };
+
+                var queueGrid = new DataGridView
+                {
+                    Dock = DockStyle.Fill,
+                    AllowUserToAddRows = false,
+                    AllowUserToDeleteRows = false,
+                    AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                    SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                    RowHeadersVisible = false,
+                    BackgroundColor = Color.White,
+                    BorderStyle = BorderStyle.FixedSingle
+                };
+
+                var btnSelectAll = UITheme.CreateSecondaryButton("Select All");
+                btnSelectAll.Location = new Point(0, 4);
+                var btnClearAll = UITheme.CreateSecondaryButton("Clear All");
+                btnClearAll.Location = new Point(btnSelectAll.Right + 8, 4);
+                var btnReload = UITheme.CreateSecondaryButton("↻ Reload Queue");
+                btnReload.Location = new Point(btnClearAll.Right + 8, 4);
+
+                var cmbAddSo = new ComboBox
+                {
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Width = 320,
+                    Location = new Point(btnReload.Right + 16, 6)
+                };
+                try
+                {
+                    cmbAddSo.DataSource = _productionCtrl.GetSalesOrdersForProductionPicker();
+                    cmbAddSo.DisplayMember = "DisplayText";
+                    cmbAddSo.ValueMember = "Sales Order ID";
+                }
+                catch { }
+
+                var btnAddSo = UITheme.CreateSecondaryButton("+ Add Sales Order");
+                btnAddSo.Location = new Point(cmbAddSo.Right + 8, 4);
+
+                gridToolbar.Controls.Add(btnSelectAll);
+                gridToolbar.Controls.Add(btnClearAll);
+                gridToolbar.Controls.Add(btnReload);
+                gridToolbar.Controls.Add(cmbAddSo);
+                gridToolbar.Controls.Add(btnAddSo);
+
+                DataTable queueTable = null;
+
+                Action configureGridColumns = () =>
+                {
+                    if (queueGrid.Columns.Contains("SalesOrderID"))
+                    {
+                        queueGrid.Columns["SalesOrderID"].Visible = false;
+                        queueGrid.Columns["SalesOrderID"].ReadOnly = true;
+                    }
+                    if (queueGrid.Columns.Contains("SoStatus"))
+                    {
+                        queueGrid.Columns["SoStatus"].Visible = false;
+                        queueGrid.Columns["SoStatus"].ReadOnly = true;
+                    }
+                    if (queueGrid.Columns.Contains("Select"))
+                    {
+                        queueGrid.Columns["Select"].HeaderText = "Select";
+                        queueGrid.Columns["Select"].FillWeight = 50;
+                        queueGrid.Columns["Select"].ReadOnly = false;
+                    }
+                    if (queueGrid.Columns.Contains("Sales Order"))
+                        queueGrid.Columns["Sales Order"].ReadOnly = true;
+                    if (queueGrid.Columns.Contains("Customer"))
+                        queueGrid.Columns["Customer"].ReadOnly = true;
+                    if (queueGrid.Columns.Contains("Lines"))
+                        queueGrid.Columns["Lines"].ReadOnly = true;
+                    if (queueGrid.Columns.Contains("Need Mfg Qty"))
+                        queueGrid.Columns["Need Mfg Qty"].ReadOnly = true;
+                };
+
+                Action loadQueue = () =>
+                {
+                    try
+                    {
+                        queueTable = _productionCtrl.GetPendingSalesOrdersForQuickEntry();
+                        if (!queueTable.Columns.Contains("Select"))
+                            queueTable.Columns.Add("Select", typeof(bool));
+                        foreach (DataRow row in queueTable.Rows)
+                            row["Select"] = true;
+
+                        queueGrid.DataSource = queueTable;
+                        GridHelper.ApplyStyle(queueGrid);
+                        configureGridColumns();
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError(ex.Message);
+                    }
+                };
+
+                btnSelectAll.Click += (s, e) =>
+                {
+                    if (queueTable == null) return;
+                    foreach (DataRow row in queueTable.Rows)
+                        row["Select"] = true;
+                    queueGrid.Refresh();
+                };
+                btnClearAll.Click += (s, e) =>
+                {
+                    if (queueTable == null) return;
+                    foreach (DataRow row in queueTable.Rows)
+                        row["Select"] = false;
+                    queueGrid.Refresh();
+                };
+                btnReload.Click += (s, e) => loadQueue();
+
+                btnAddSo.Click += (s, e) =>
+                {
+                    long soId = GetComboLongId(cmbAddSo, "Sales Order ID");
+                    if (soId <= 0)
+                    {
+                        UITheme.ShowWarning("Please select a sales order to add.");
+                        return;
+                    }
+                    if (queueTable == null)
+                    {
+                        UITheme.ShowWarning("Reload the queue first.");
+                        return;
+                    }
+                    foreach (DataRow existing in queueTable.Rows)
+                    {
+                        if (Convert.ToInt64(existing["SalesOrderID"]) == soId)
+                        {
+                            UITheme.ShowWarning("This sales order is already in the list.");
+                            return;
+                        }
+                    }
+                    if (_productionCtrl.SalesOrderHasProductionOrder(soId))
+                    {
+                        UITheme.ShowWarning("This sales order already has a production order.");
+                        return;
+                    }
+
+                    DataTable lines = null;
+                    try { lines = _productionCtrl.GetLinesTemplateFromSalesOrder(soId); } catch { }
+                    if (lines == null || lines.Rows.Count == 0)
+                    {
+                        UITheme.ShowWarning("Sales order has no lines requiring manufacturing.");
+                        return;
+                    }
+
+                    decimal needTotal = 0;
+                    foreach (DataRow line in lines.Rows)
+                        needTotal += line["NeedMfgQty"] == DBNull.Value ? 0 : Convert.ToDecimal(line["NeedMfgQty"]);
+
+                    DataTable picker = cmbAddSo.DataSource as DataTable;
+                    DataRow pickerRow = null;
+                    if (picker != null)
+                    {
+                        foreach (DataRow pr in picker.Rows)
+                        {
+                            if (Convert.ToInt64(pr["Sales Order ID"]) == soId)
+                            {
+                                pickerRow = pr;
+                                break;
+                            }
+                        }
+                    }
+
+                    var newRow = queueTable.NewRow();
+                    newRow["SalesOrderID"] = soId;
+                    newRow["Sales Order"] = pickerRow?["Order Code"]?.ToString() ?? ("SO-" + soId);
+                    newRow["Customer"] = pickerRow?["Customer"]?.ToString() ?? "";
+                    newRow["SoStatus"] = pickerRow?["Status"] ?? 1;
+                    newRow["Lines"] = lines.Rows.Count;
+                    newRow["Need Mfg Qty"] = needTotal;
+                    newRow["Select"] = true;
+                    queueTable.Rows.Add(newRow);
+                    configureGridColumns();
+                };
+
+                gridPanel.Controls.Add(queueGrid);
+                gridPanel.Controls.Add(gridToolbar);
+
+                var btnCreate = UITheme.CreatePrimaryButton("Create Selected");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => dlg.Close();
+                btnCreate.Click += (s, e) =>
+                {
+                    long staffId = GetComboLongId(cmbStaff, "Staff ID");
+                    if (staffId <= 0)
+                    {
+                        UITheme.ShowWarning("Please select staff.");
+                        return;
+                    }
+                    if (queueTable == null || queueTable.Rows.Count == 0)
+                    {
+                        UITheme.ShowWarning("No sales orders in queue. Click Reload Queue or add a sales order.");
+                        return;
+                    }
+
+                    var selected = new List<DataRow>();
+                    foreach (DataRow row in queueTable.Rows)
+                    {
+                        if (row["Select"] != DBNull.Value && Convert.ToBoolean(row["Select"]))
+                            selected.Add(row);
+                    }
+                    if (selected.Count == 0)
+                    {
+                        UITheme.ShowWarning("Please select at least one sales order.");
+                        return;
+                    }
+
+                    int status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
+                    string remark = txtRemark.Text.Trim();
+                    DateTime estFinish = dtpFinish.Value.Date;
+                    var created = new List<string>();
+                    var failed = new List<string>();
+
+                    foreach (DataRow row in selected)
+                    {
+                        long soId = Convert.ToInt64(row["SalesOrderID"]);
+                        string soLabel = row["Sales Order"]?.ToString() ?? ("SO-" + soId);
+                        if (_productionCtrl.SalesOrderHasProductionOrder(soId))
+                        {
+                            failed.Add(soLabel + ": production order already exists.");
+                            continue;
+                        }
+
+                        int soStatus = row["SoStatus"] == DBNull.Value ? 1 : Convert.ToInt32(row["SoStatus"]);
+                        try
+                        {
+                            long poId = _productionCtrl.CreateFromSalesOrder(
+                                soId,
+                                staffId,
+                                estFinish,
+                                string.IsNullOrWhiteSpace(remark) ? null : remark,
+                                advanceSalesOrderToProcessing: soStatus == 1,
+                                status: status);
+                            created.Add(soLabel + " → PO-" + poId);
+                        }
+                        catch (Exception ex)
+                        {
+                            failed.Add(soLabel + ": " + ex.Message);
+                        }
+                    }
+
+                    if (created.Count == 0 && failed.Count > 0)
+                    {
+                        UITheme.ShowError("No production orders were created.\n\n" + string.Join("\n", failed));
+                        return;
+                    }
+
+                    string summary = created.Count + " production order(s) created.";
+                    if (created.Count > 0)
+                        summary += "\n\n" + string.Join("\n", created);
+                    if (failed.Count > 0)
+                        summary += "\n\nFailed (" + failed.Count + "):\n" + string.Join("\n", failed);
+
+                    UITheme.ShowSuccess(summary);
+                    dlg.DialogResult = DialogResult.OK;
+                    dlg.Close();
+                    LoadData(_searchBox?.Text?.Trim());
+                };
+
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnCreate);
+                btnPanel.Controls.Add(btnCancel);
+
+                root.Controls.Add(info, 0, 0);
+                root.Controls.Add(defaults, 0, 1);
+                root.Controls.Add(gridPanel, 0, 2);
+
+                dlg.Controls.Add(btnPanel);
+                dlg.Controls.Add(root);
+
+                loadQueue();
                 dlg.ShowDialog(this);
             }
         }
 
+        private static Label MakeFieldLabel(string text)
+        {
+            return new Label
+            {
+                Text = text,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = UITheme.TextDark,
+                Font = new Font("Segoe UI", 9)
+            };
+        }
+
         private void ShowAddProductDialog()
         {
+            ShowProductFormDialog(this, _productCtrl, _rawMaterialCtrl, null);
+        }
+
+        public static DialogResult ShowProductFormDialog(Control owner, ProductController productCtrl, RawMaterialController rawMaterialCtrl, long? productId)
+        {
+            bool isEdit = productId.HasValue;
+            if (isEdit)
+            {
+                if (!PermissionGuard.Ensure(PermissionModule.Product, PermissionAction.Edit, owner.FindForm() ?? owner))
+                    return DialogResult.Cancel;
+            }
+            else if (!PermissionGuard.Ensure(PermissionModule.Product, PermissionAction.Create, owner.FindForm() ?? owner))
+            {
+                return DialogResult.Cancel;
+            }
+
+            Product existing = isEdit ? productCtrl.GetById(productId.Value) : null;
+            if (isEdit && existing == null)
+            {
+                UITheme.ShowWarning("Product not found.");
+                return DialogResult.Cancel;
+            }
+
             byte[] selectedImageBytes = null;
+            DialogResult result = DialogResult.Cancel;
             using (var dlg = new Form())
             {
-                dlg.Text = "New Product";
-                dlg.Size = new Size(560, 620);
+                dlg.Text = isEdit ? $"Edit Product — {existing.ProductCode}" : "New Product";
+                dlg.Size = new Size(760, 720);
                 dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-                dlg.MaximizeBox = false;
+                dlg.MinimumSize = new Size(680, 620);
                 dlg.BackColor = UITheme.Background;
 
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 10, Padding = new Padding(16) };
+                var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1, Padding = new Padding(12) };
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 308));
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 114));
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
+                root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 9, Padding = new Padding(4, 0, 4, 0) };
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                for (int i = 0; i < 9; i++)
+                    layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
 
-                var txtCode     = new TextBox { Dock = DockStyle.Fill };
+                var txtCode = new TextBox { Dock = DockStyle.Fill };
                 var txtCategory = new TextBox { Dock = DockStyle.Fill };
-                var txtStyle    = new TextBox { Dock = DockStyle.Fill };
-                var txtSize     = new TextBox { Dock = DockStyle.Fill };
-                var txtColor    = new TextBox { Dock = DockStyle.Fill };
-                var txtUnit     = new TextBox { Dock = DockStyle.Fill };
-                var txtPrice    = new TextBox { Dock = DockStyle.Fill, Text = "0" };
-                var txtStatus   = new TextBox { Dock = DockStyle.Fill, Text = "1" };
+                var txtStyle = new TextBox { Dock = DockStyle.Fill };
+                var txtSize = new TextBox { Dock = DockStyle.Fill };
+                var txtColor = new TextBox { Dock = DockStyle.Fill };
+                var txtUnit = new TextBox { Dock = DockStyle.Fill };
+                var txtPrice = new TextBox { Dock = DockStyle.Fill, Text = "0" };
+                var txtStatus = new TextBox { Dock = DockStyle.Fill, Text = "1" };
                 var txtImageUrl = new TextBox { Dock = DockStyle.Fill };
 
                 UITheme.AddFormField(layout, 0, "Product Code *", txtCode);
-                UITheme.AddFormField(layout, 1, "Category",       txtCategory);
-                UITheme.AddFormField(layout, 2, "Style Number",   txtStyle);
-                UITheme.AddFormField(layout, 3, "Size",           txtSize);
-                UITheme.AddFormField(layout, 4, "Color",          txtColor);
-                UITheme.AddFormField(layout, 5, "Unit",           txtUnit);
-                UITheme.AddFormField(layout, 6, "Base Price",     txtPrice);
-                UITheme.AddFormField(layout, 7, "Status",         txtStatus);
-                UITheme.AddFormField(layout, 8, "Image URL",      txtImageUrl);
+                UITheme.AddFormField(layout, 1, "Category", txtCategory);
+                UITheme.AddFormField(layout, 2, "Style Number", txtStyle);
+                UITheme.AddFormField(layout, 3, "Size", txtSize);
+                UITheme.AddFormField(layout, 4, "Color", txtColor);
+                UITheme.AddFormField(layout, 5, "Unit", txtUnit);
+                UITheme.AddFormField(layout, 6, "Base Price", txtPrice);
+                UITheme.AddFormField(layout, 7, "Status", txtStatus);
+                UITheme.AddFormField(layout, 8, "Image URL", txtImageUrl);
 
-                var picBox = new PictureBox { Width = 120, Height = 90, SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.WhiteSmoke };
+                if (isEdit)
+                {
+                    txtCode.Text = existing.ProductCode ?? "";
+                    txtCategory.Text = existing.Category ?? "";
+                    txtStyle.Text = existing.StyleNumber ?? "";
+                    txtSize.Text = existing.Size ?? "";
+                    txtColor.Text = existing.Color ?? "";
+                    txtUnit.Text = existing.Unit ?? "";
+                    txtPrice.Text = existing.BasePriceByCurrency.ToString("0.##");
+                    txtStatus.Text = existing.Status.ToString();
+                    try { txtImageUrl.Text = productCtrl.GetProductImageUrl(existing.ProductID) ?? ""; } catch { }
+                }
+
+                var picBox = new PictureBox
+                {
+                    Size = new Size(120, 90),
+                    SizeMode = PictureBoxSizeMode.Zoom,
+                    BorderStyle = BorderStyle.FixedSingle,
+                    BackColor = Color.WhiteSmoke,
+                    Margin = new Padding(0)
+                };
                 var btnUpload = UITheme.CreateSecondaryButton("Upload Image");
+                btnUpload.Size = new Size(120, 32);
+                btnUpload.Margin = new Padding(8, 0, 0, 0);
                 btnUpload.Click += (s, e) =>
                 {
                     using (var ofd = new OpenFileDialog { Filter = "Image Files|*.jpg;*.jpeg;*.png;*.bmp;*.gif" })
@@ -982,44 +1479,329 @@ namespace FurnitureERP.Forms
                         }
                     }
                 };
-                var imgPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
-                imgPanel.Controls.Add(picBox); imgPanel.Controls.Add(btnUpload);
-                UITheme.AddFormField(layout, 9, "Local Image", imgPanel);
 
-                var btnSave   = UITheme.CreatePrimaryButton("Save");
+                var imgRow = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    WrapContents = false,
+                    AutoSize = false,
+                    Padding = new Padding(0, 2, 0, 4),
+                    Margin = new Padding(0)
+                };
+                imgRow.Controls.Add(picBox);
+                imgRow.Controls.Add(btnUpload);
+
+                var imageSection = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 2,
+                    RowCount = 1,
+                    Padding = new Padding(4, 4, 4, 4),
+                    Margin = new Padding(0)
+                };
+                imageSection.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
+                imageSection.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                imageSection.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
+                var lblImage = new Label
+                {
+                    Text = "Local Image",
+                    Dock = DockStyle.Fill,
+                    TextAlign = ContentAlignment.TopLeft,
+                    Padding = new Padding(0, 6, 0, 0),
+                    Font = new Font("Segoe UI", 9),
+                    ForeColor = UITheme.TextDark
+                };
+                imageSection.Controls.Add(lblImage, 0, 0);
+                imageSection.Controls.Add(imgRow, 1, 0);
+
+                if (isEdit && !string.IsNullOrWhiteSpace(txtImageUrl.Text) &&
+                    (txtImageUrl.Text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                     txtImageUrl.Text.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+                {
+                    try
+                    {
+                        using (var wc = new System.Net.WebClient())
+                        using (var ms = new System.IO.MemoryStream(wc.DownloadData(txtImageUrl.Text.Trim())))
+                            picBox.Image = Image.FromStream(ms);
+                    }
+                    catch { }
+                }
+
+                var sectionGap = new Panel { Dock = DockStyle.Fill, Height = 12 };
+
+                var bomGrid = BuildEditableBomLineGrid(rawMaterialCtrl);
+                bomGrid.Dock = DockStyle.Fill;
+                if (isEdit)
+                    LoadBomLinesToGrid(bomGrid, productCtrl.GetBomLinesInternal(existing.ProductID));
+                else if (bomGrid.Rows.Count == 0)
+                    bomGrid.Rows.Add();
+
+                var bomSection = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 4, 0, 0) };
+                var lblBom = new Label
+                {
+                    Text = "Bill of Materials (optional)",
+                    Dock = DockStyle.Top,
+                    Height = 26,
+                    Padding = new Padding(4, 0, 0, 0),
+                    Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                    ForeColor = UITheme.TextDark
+                };
+                var bomToolbar = new Panel { Dock = DockStyle.Top, Height = 36 };
+                var btnAddBomLine = UITheme.CreateSecondaryButton("+ Material Line");
+                btnAddBomLine.Location = new Point(0, 4);
+                btnAddBomLine.Click += (s, e) => bomGrid.Rows.Add();
+                bomToolbar.Controls.Add(btnAddBomLine);
+
+                bomSection.Controls.Add(bomGrid);
+                bomSection.Controls.Add(bomToolbar);
+                bomSection.Controls.Add(lblBom);
+
+                root.Controls.Add(layout, 0, 0);
+                root.Controls.Add(imageSection, 0, 1);
+                root.Controls.Add(sectionGap, 0, 2);
+                root.Controls.Add(bomSection, 0, 3);
+
+                var btnSave = UITheme.CreatePrimaryButton("Save");
                 var btnCancel = UITheme.CreateSecondaryButton("Cancel");
                 btnCancel.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
-                    if (string.IsNullOrWhiteSpace(txtCode.Text)) { MessageBox.Show("Product Code is required.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                    if (string.IsNullOrWhiteSpace(txtCode.Text))
+                    {
+                        UITheme.ShowWarning("Product Code is required.");
+                        return;
+                    }
+                    if (!TryReadBomLinesFromGrid(bomGrid, out var bomLines, out string bomError))
+                    {
+                        UITheme.ShowWarning(bomError);
+                        return;
+                    }
                     try
                     {
-                        long productId = _productCtrl.Insert(new Product
+                        if (isEdit)
                         {
-                            ProductCode         = txtCode.Text.Trim(),
-                            Category            = txtCategory.Text.Trim(),
-                            StyleNumber         = txtStyle.Text.Trim(),
-                            Size                = txtSize.Text.Trim(),
-                            Color               = txtColor.Text.Trim(),
-                            Unit                = txtUnit.Text.Trim(),
-                            BasePriceByCurrency = string.IsNullOrEmpty(txtPrice.Text) ? 0 : decimal.Parse(txtPrice.Text),
-                            Status              = string.IsNullOrEmpty(txtStatus.Text) ? 1 : int.Parse(txtStatus.Text),
-                            ProductImage        = selectedImageBytes
-                        });
-                        if (!string.IsNullOrWhiteSpace(txtImageUrl.Text))
-                            _productCtrl.UpsertProductImageUrl(productId, txtImageUrl.Text.Trim());
-                        MessageBox.Show("Product added successfully.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            existing.ProductCode = txtCode.Text.Trim();
+                            existing.Category = txtCategory.Text.Trim();
+                            existing.StyleNumber = txtStyle.Text.Trim();
+                            existing.Size = txtSize.Text.Trim();
+                            existing.Color = txtColor.Text.Trim();
+                            existing.Unit = txtUnit.Text.Trim();
+                            existing.BasePriceByCurrency = string.IsNullOrEmpty(txtPrice.Text) ? 0 : decimal.Parse(txtPrice.Text);
+                            existing.Status = string.IsNullOrEmpty(txtStatus.Text) ? 1 : int.Parse(txtStatus.Text);
+                            if (!productCtrl.Update(existing))
+                            {
+                                UITheme.ShowError("Failed to update product.");
+                                return;
+                            }
+                            productCtrl.UpsertProductImageUrl(existing.ProductID, txtImageUrl.Text.Trim());
+                            if (!productCtrl.ReplaceBomLines(existing.ProductID, bomLines))
+                            {
+                                UITheme.ShowError("Product saved but BOM update failed.");
+                                return;
+                            }
+                            UITheme.ShowSuccess("Product updated successfully.");
+                        }
+                        else
+                        {
+                            productCtrl.InsertWithBom(new Product
+                            {
+                                ProductCode = txtCode.Text.Trim(),
+                                Category = txtCategory.Text.Trim(),
+                                StyleNumber = txtStyle.Text.Trim(),
+                                Size = txtSize.Text.Trim(),
+                                Color = txtColor.Text.Trim(),
+                                Unit = txtUnit.Text.Trim(),
+                                BasePriceByCurrency = string.IsNullOrEmpty(txtPrice.Text) ? 0 : decimal.Parse(txtPrice.Text),
+                                Status = string.IsNullOrEmpty(txtStatus.Text) ? 1 : int.Parse(txtStatus.Text),
+                                ProductImage = selectedImageBytes
+                            }, bomLines, txtImageUrl.Text.Trim());
+                            UITheme.ShowSuccess("Product added successfully.");
+                        }
+                        result = DialogResult.OK;
                         dlg.DialogResult = DialogResult.OK;
                         dlg.Close();
                     }
-                    catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError(ex.Message);
+                    }
                 };
 
                 var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-                btnPanel.Controls.Add(btnSave); btnPanel.Controls.Add(btnCancel);
-                dlg.Controls.Add(layout); dlg.Controls.Add(btnPanel);
-                dlg.ShowDialog(this);
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnCancel);
+                dlg.Controls.Add(root);
+                dlg.Controls.Add(btnPanel);
+                dlg.ShowDialog(owner);
             }
+            return result;
+        }
+
+        public static void ShowBomEditorDialog(Control owner, long productId, string productCode = null)
+        {
+            if (!PermissionGuard.Ensure(PermissionModule.Product, PermissionAction.Edit, owner.FindForm() ?? owner)) return;
+
+            var productCtrl = new ProductController();
+            var rawMaterialCtrl = new RawMaterialController();
+            string titleCode = productCode;
+            if (string.IsNullOrWhiteSpace(titleCode))
+            {
+                try { titleCode = productCtrl.GetById(productId)?.ProductCode; } catch { }
+            }
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = $"Edit BOM — {titleCode ?? ("ID " + productId)}";
+                dlg.Size = new Size(640, 460);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var lblHint = new Label
+                {
+                    Text = "Select raw material and enter quantity needed per finished unit.",
+                    Dock = DockStyle.Top,
+                    Height = 28,
+                    Padding = new Padding(12, 8, 12, 0),
+                    ForeColor = UITheme.TextGray
+                };
+
+                var toolbar = new Panel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(12, 6, 12, 0) };
+                var bomGrid = BuildEditableBomLineGrid(rawMaterialCtrl);
+                bomGrid.Dock = DockStyle.Fill;
+                LoadBomLinesToGrid(bomGrid, productCtrl.GetBomLinesInternal(productId));
+
+                var btnAddLine = UITheme.CreateSecondaryButton("+ Material Line");
+                btnAddLine.Click += (s, e) => bomGrid.Rows.Add();
+                toolbar.Controls.Add(btnAddLine);
+
+                var btnSave = UITheme.CreatePrimaryButton("Save BOM");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
+                {
+                    if (!TryReadBomLinesFromGrid(bomGrid, out var lines, out string error))
+                    {
+                        UITheme.ShowWarning(error);
+                        return;
+                    }
+                    try
+                    {
+                        if (!productCtrl.ReplaceBomLines(productId, lines))
+                        {
+                            UITheme.ShowError("Failed to save BOM.");
+                            return;
+                        }
+                        UITheme.ShowSuccess("BOM updated successfully.");
+                        dlg.DialogResult = DialogResult.OK;
+                        dlg.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError(ex.Message);
+                    }
+                };
+
+                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnCancel);
+
+                dlg.Controls.Add(bomGrid);
+                dlg.Controls.Add(toolbar);
+                dlg.Controls.Add(lblHint);
+                dlg.Controls.Add(btnPanel);
+                dlg.ShowDialog(owner);
+            }
+        }
+
+        private DataGridView BuildEditableBomLineGrid() => BuildEditableBomLineGrid(_rawMaterialCtrl);
+
+        private static DataGridView BuildEditableBomLineGrid(RawMaterialController rawMaterialCtrl)
+        {
+            var grid = GridHelper.CreateStyledGrid();
+            grid.AutoGenerateColumns = false;
+            grid.AllowUserToAddRows = false;
+            grid.ReadOnly = false;
+            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+
+            var rmCol = new DataGridViewComboBoxColumn
+            {
+                Name = "RawMaterial",
+                HeaderText = "Raw Material",
+                DisplayMember = "Raw Material Code",
+                ValueMember = "Raw Material ID",
+                FlatStyle = FlatStyle.Flat,
+                DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox
+            };
+            BindBomMaterialCombo(rmCol, rawMaterialCtrl);
+            grid.Columns.Add(rmCol);
+            grid.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "NeedQty",
+                HeaderText = "Need Qty",
+                FillWeight = 80
+            });
+            return grid;
+        }
+
+        private static void BindBomMaterialCombo(DataGridViewComboBoxColumn rmCol, RawMaterialController rawMaterialCtrl)
+        {
+            try { rmCol.DataSource = rawMaterialCtrl.GetAllRawMaterials(); } catch { }
+        }
+
+        private static void LoadBomLinesToGrid(DataGridView grid, DataTable lines)
+        {
+            grid.Rows.Clear();
+            if (lines == null) return;
+            foreach (DataRow row in lines.Rows)
+            {
+                if (row["rawMaterialID"] == DBNull.Value) continue;
+                long rmId = Convert.ToInt64(row["rawMaterialID"]);
+                decimal qty = row["rawMaterialNeedQty"] == DBNull.Value ? 0 : Convert.ToDecimal(row["rawMaterialNeedQty"]);
+                int idx = grid.Rows.Add();
+                grid.Rows[idx].Cells["RawMaterial"].Value = rmId;
+                grid.Rows[idx].Cells["NeedQty"].Value = qty.ToString("0.##");
+            }
+            if (grid.Rows.Count == 0)
+                grid.Rows.Add();
+        }
+
+        private static bool TryReadBomLinesFromGrid(DataGridView grid, out List<(long RawMaterialId, decimal NeedQty)> lines, out string error)
+        {
+            lines = new List<(long, decimal)>();
+            error = null;
+            var seen = new HashSet<long>();
+
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                object rmVal = row.Cells["RawMaterial"]?.Value;
+                string qtyText = row.Cells["NeedQty"]?.Value?.ToString()?.Trim();
+                if (rmVal == null || rmVal == DBNull.Value)
+                {
+                    if (string.IsNullOrWhiteSpace(qtyText)) continue;
+                    error = "Please select a raw material for each BOM line.";
+                    return false;
+                }
+                if (!long.TryParse(rmVal.ToString(), out long rmId) || rmId <= 0)
+                {
+                    error = "Invalid raw material selection.";
+                    return false;
+                }
+                if (string.IsNullOrWhiteSpace(qtyText) || !decimal.TryParse(qtyText, out decimal qty) || qty <= 0)
+                {
+                    error = "Need Qty must be greater than zero.";
+                    return false;
+                }
+                if (!seen.Add(rmId))
+                {
+                    error = "Duplicate raw material in BOM lines.";
+                    return false;
+                }
+                lines.Add((rmId, qty));
+            }
+            return true;
         }
 
         private void ShowRawMaterialRequestsPanel()

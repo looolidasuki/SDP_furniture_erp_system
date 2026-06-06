@@ -28,7 +28,7 @@ namespace Sales_user.Controllers
         {
             string sql = @"INSERT INTO ReplySlip
                 (replySlipCode, salesOrderID, customerID, staffID, currencyID, signedBy, signedDate, status, remark)
-                VALUES (@code, @soID, @customerID, @staffID, @currencyID, @signedBy, @signedDate, @status, @remark)";
+                VALUES (@code, @soID, @customerID, @staffID, @currencyID, @signedBy, @signedDate, @replySlipStatus, @remark)";
             return DatabaseConnect.ExecuteInsertReturnId(sql, new[]
             {
                 new MySqlParameter("@code", slip.ReplySlipCode),
@@ -38,7 +38,7 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@currencyID", slip.CurrencyID),
                 new MySqlParameter("@signedBy", string.IsNullOrWhiteSpace(slip.SignedBy) ? (object)System.DBNull.Value : slip.SignedBy),
                 new MySqlParameter("@signedDate", slip.SignedDate.HasValue ? (object)slip.SignedDate.Value : System.DBNull.Value),
-                new MySqlParameter("@status", slip.Status),
+                new MySqlParameter("@replySlipStatus", slip.Status),
                 new MySqlParameter("@remark", slip.Remark ?? (object)System.DBNull.Value)
             });
         }
@@ -58,7 +58,7 @@ namespace Sales_user.Controllers
         {
             string sql = @"UPDATE ReplySlip
                            SET salesOrderID = @soID, customerID = @customerID, signedBy = @signedBy,
-                               signedDate = @signedDate, status = @status, remark = @remark, lastModifyDate = NOW()
+                               signedDate = @signedDate, status = @replySlipStatus, remark = @remark, lastModifyDate = NOW()
                            WHERE replySlipID = @id";
             return DatabaseConnect.ExecuteNonQuery(sql, new[]
             {
@@ -66,7 +66,7 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@customerID", slip.CustomerID),
                 new MySqlParameter("@signedBy", string.IsNullOrWhiteSpace(slip.SignedBy) ? (object)System.DBNull.Value : slip.SignedBy),
                 new MySqlParameter("@signedDate", slip.SignedDate.HasValue ? (object)slip.SignedDate.Value : System.DBNull.Value),
-                new MySqlParameter("@status", slip.Status),
+                new MySqlParameter("@replySlipStatus", slip.Status),
                 new MySqlParameter("@remark", slip.Remark ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", slip.ReplySlipID)
             }) > 0;
@@ -111,12 +111,54 @@ namespace Sales_user.Controllers
 
         public DataTable GetProductLines(long replySlipId)
         {
-            string sql = @"SELECT p.productCode AS 'Product Code', rpl.price AS 'Price',
-                                  rpl.quantity AS 'Quantity', rpl.discountAmount AS 'Discount'
+            return GetProductLinesDetailed(replySlipId);
+        }
+
+        public DataTable GetHeaderDetail(long replySlipId)
+        {
+            string sql = @"SELECT rs.replySlipCode AS 'Reply Slip Code',
+                                  so.salesOrderCode AS 'Sales Order',
+                                  c.customerName AS 'Customer',
+                                  CONCAT(st.firstName, ' ', st.lastName) AS 'Staff',
+                                  rs.signedBy AS 'Signed By',
+                                  rs.signedDate AS 'Signed Date',
+                                  rs.createDate AS 'Create Date',
+                                  rs.status AS 'Status',
+                                  rs.remark AS 'Remark'
+                           FROM ReplySlip rs
+                           LEFT JOIN SalesOrder so ON rs.salesOrderID = so.salesOrderID
+                           LEFT JOIN Customer c ON rs.customerID = c.customerID
+                           LEFT JOIN Staff st ON rs.staffID = st.staffID
+                           WHERE rs.replySlipID = @id";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", replySlipId) });
+        }
+
+        public DataTable GetProductLinesDetailed(long replySlipId)
+        {
+            string sql = @"SELECT p.productCode AS 'Product Code',
+                                  p.styleNumber AS 'Style',
+                                  p.category AS 'Category',
+                                  p.size AS 'Size',
+                                  p.color AS 'Color',
+                                  p.unit AS 'Unit',
+                                  rpl.price AS 'Unit Price',
+                                  rpl.quantity AS 'Qty',
+                                  rpl.discountAmount AS 'Discount',
+                                  (rpl.price * rpl.quantity - rpl.discountAmount) AS 'Amount'
                            FROM ReplySlipProductLine rpl
                            INNER JOIN Product p ON rpl.productID = p.productID
-                           WHERE rpl.replySlipID = @id";
+                           WHERE rpl.replySlipID = @id
+                           ORDER BY p.productCode";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", replySlipId) });
+        }
+
+        public decimal GetTotalAmount(long replySlipId)
+        {
+            object value = DatabaseConnect.ExecuteScalar(
+                @"SELECT COALESCE(SUM(price * quantity - discountAmount), 0)
+                  FROM ReplySlipProductLine WHERE replySlipID = @id",
+                new[] { new MySqlParameter("@id", replySlipId) });
+            return value == null || value == System.DBNull.Value ? 0 : System.Convert.ToDecimal(value);
         }
 
         public DataTable GetProductLinesInternal(long replySlipId)

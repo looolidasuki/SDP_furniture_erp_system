@@ -1,6 +1,7 @@
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
+using System.Collections.Generic;
 using System.Data;
 
 namespace Sales_user.Controllers
@@ -265,6 +266,100 @@ namespace Sales_user.Controllers
                            WHERE prml.productID = @id
                            ORDER BY rm.rawMaterialCode";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", productId) });
+        }
+
+        public DataTable GetBomLinesInternal(long productId)
+        {
+            string sql = @"SELECT rawMaterialID, rawMaterialNeedQty
+                           FROM ProductRawMaterialLine
+                           WHERE productID = @id
+                           ORDER BY rawMaterialID";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", productId) });
+        }
+
+        public bool ReplaceBomLines(long productId, IEnumerable<(long RawMaterialId, decimal NeedQty)> lines)
+        {
+            try
+            {
+                DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+                {
+                    ReplaceBomLines(conn, trans, productId, lines);
+                    return 0L;
+                });
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public long InsertWithBom(Product product, IEnumerable<(long RawMaterialId, decimal NeedQty)> bomLines, string imageUrl = null)
+        {
+            return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            {
+                long validCurrencyID = product.CurrencyID <= 0 ? 1 : product.CurrencyID;
+                long validStaffID = product.StaffID <= 0 ? 1 : product.StaffID;
+
+                long productId = DatabaseConnect.ExecuteInsertReturnId(conn, trans,
+                    @"INSERT INTO Product
+                      (productCode, category, sequenceNumber, styleNumber, size, color,
+                       basePriceByCurrency, currencyID, staffID, unit, status, remark)
+                      VALUES (@code, @category, @seq, @style, @size, @color,
+                              @price, @currencyID, @staffID, @unit, @status, @remark)",
+                    new[]
+                    {
+                        new MySqlParameter("@code", product.ProductCode),
+                        new MySqlParameter("@category", product.Category),
+                        new MySqlParameter("@seq", product.SequenceNumber ?? (object)DBNull.Value),
+                        new MySqlParameter("@style", product.StyleNumber),
+                        new MySqlParameter("@size", product.Size),
+                        new MySqlParameter("@color", product.Color),
+                        new MySqlParameter("@price", product.BasePriceByCurrency),
+                        new MySqlParameter("@currencyID", validCurrencyID),
+                        new MySqlParameter("@staffID", validStaffID),
+                        new MySqlParameter("@unit", product.Unit),
+                        new MySqlParameter("@status", product.Status),
+                        new MySqlParameter("@remark", product.Remark ?? (object)DBNull.Value)
+                    });
+
+                if (!string.IsNullOrWhiteSpace(imageUrl))
+                {
+                    DatabaseConnect.ExecuteNonQuery(conn, trans,
+                        "INSERT INTO productimage (productID, productImageUrl) VALUES (@id, @url)",
+                        new[]
+                        {
+                            new MySqlParameter("@id", productId),
+                            new MySqlParameter("@url", imageUrl.Trim())
+                        });
+                }
+
+                ReplaceBomLines(conn, trans, productId, bomLines);
+                return productId;
+            });
+        }
+
+        private static void ReplaceBomLines(MySqlConnection conn, MySqlTransaction trans, long productId,
+            IEnumerable<(long RawMaterialId, decimal NeedQty)> lines)
+        {
+            DatabaseConnect.ExecuteNonQuery(conn, trans,
+                "DELETE FROM ProductRawMaterialLine WHERE productID = @id",
+                new[] { new MySqlParameter("@id", productId) });
+
+            if (lines == null) return;
+            foreach (var line in lines)
+            {
+                if (line.RawMaterialId <= 0 || line.NeedQty <= 0) continue;
+                DatabaseConnect.ExecuteNonQuery(conn, trans,
+                    @"INSERT INTO ProductRawMaterialLine (productID, rawMaterialID, rawMaterialNeedQty)
+                      VALUES (@productId, @rawMaterialId, @qty)",
+                    new[]
+                    {
+                        new MySqlParameter("@productId", productId),
+                        new MySqlParameter("@rawMaterialId", line.RawMaterialId),
+                        new MySqlParameter("@qty", line.NeedQty)
+                    });
+            }
         }
 
         public int GetCount()

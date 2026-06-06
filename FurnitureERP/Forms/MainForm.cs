@@ -45,22 +45,68 @@ namespace FurnitureERP.Forms
         {
             _sidebar.Controls.Clear();
 
-            Panel logoPanel = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = UITheme.NavDarkest };
-            Label logoLabel = new Label { Text = "PREMIUM LIVING", ForeColor = Color.White, Font = new Font("Segoe UI", 11, FontStyle.Bold), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter };
-            Label subLabel = new Label { Text = "ERP System", ForeColor = Color.FromArgb(160, 190, 230), Font = new Font("Segoe UI", 8), Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleCenter };
-            logoPanel.Controls.Add(logoLabel);
-            logoPanel.Controls.Add(subLabel);
-            _sidebar.Controls.Add(logoPanel);
+            var sidebarLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = UITheme.NavDark,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+            sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            sidebarLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
 
-            _navContainer = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = UITheme.NavDark };
-            PopulateNavButtons();
-            _sidebar.Controls.Add(_navContainer);
+            Panel logoPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UITheme.NavDarkest,
+                Padding = new Padding(12, 12, 12, 10)
+            };
+            var logoLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0)
+            };
+            logoLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 58f));
+            logoLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 42f));
+            Label logoLabel = new Label
+            {
+                Text = "PREMIUM LIVING",
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 11, FontStyle.Bold),
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.BottomCenter,
+                Margin = new Padding(0)
+            };
+            Label subLabel = new Label
+            {
+                Text = "ERP System",
+                ForeColor = Color.FromArgb(160, 190, 230),
+                Font = new Font("Segoe UI", 8.5f),
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.TopCenter,
+                Margin = new Padding(0, 2, 0, 0)
+            };
+            logoLayout.Controls.Add(logoLabel, 0, 0);
+            logoLayout.Controls.Add(subLabel, 0, 1);
+            logoPanel.Controls.Add(logoLayout);
+
+            _navContainer = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = UITheme.NavDark,
+                Padding = new Padding(0, 4, 0, 4)
+            };
 
             Button logoutBtn = new Button
             {
                 Text = "Logout",
-                Dock = DockStyle.Bottom,
-                Height = 46,
+                Dock = DockStyle.Fill,
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.FromArgb(255, 120, 120),
                 BackColor = Color.FromArgb(60, 20, 20),
@@ -74,20 +120,29 @@ namespace FurnitureERP.Forms
                 if (MessageBox.Show("Logout from the system?", "Confirm Logout", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                 { new FurnitureERP.LoginForm().Show(); Close(); }
             };
-            _sidebar.Controls.Add(logoutBtn);
+
+            sidebarLayout.Controls.Add(logoPanel, 0, 0);
+            sidebarLayout.Controls.Add(_navContainer, 0, 1);
+            sidebarLayout.Controls.Add(logoutBtn, 0, 2);
+            _sidebar.Controls.Add(sidebarLayout);
+
+            PopulateNavButtons();
         }
 
         private void PopulateNavButtons()
         {
+            if (_navContainer == null) return;
             _navContainer.Controls.Clear();
-            int yPos = 8;
+            _navContainer.SuspendLayout();
+            int yPos = 4;
+            int buttonWidth = Math.Max(180, _navContainer.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 4);
             foreach (var name in GetVisibleNavItems())
             {
                 Button btn = new Button
                 {
-                    Text = "  " + name,
+                    Text = "  " + GetNavDisplayText(name),
                     Height = 40,
-                    Width = 220,
+                    Width = buttonWidth,
                     FlatStyle = FlatStyle.Flat,
                     ForeColor = Color.FromArgb(180, 210, 255),
                     BackColor = UITheme.NavDark,
@@ -95,7 +150,8 @@ namespace FurnitureERP.Forms
                     TextAlign = ContentAlignment.MiddleLeft,
                     Cursor = Cursors.Hand,
                     Tag = name,
-                    Location = new Point(0, yPos)
+                    Location = new Point(0, yPos),
+                    Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
                 };
                 btn.FlatAppearance.BorderSize = 0;
                 btn.FlatAppearance.MouseOverBackColor = UITheme.NavHover;
@@ -103,14 +159,32 @@ namespace FurnitureERP.Forms
                 _navContainer.Controls.Add(btn);
                 yPos += 44;
             }
-            _navContainer.AutoScrollMinSize = new Size(0, yPos + 8);
+            _navContainer.AutoScrollMinSize = new Size(0, yPos + 4);
+            _navContainer.ResumeLayout(true);
+            ResetNavScrollTop();
+        }
+
+        private void ResetNavScrollTop()
+        {
+            if (_navContainer == null) return;
+            try
+            {
+                _navContainer.AutoScrollPosition = new Point(0, 0);
+                if (_navContainer.VerticalScroll.Visible)
+                    _navContainer.VerticalScroll.Value = _navContainer.VerticalScroll.Minimum;
+            }
+            catch { }
         }
 
         private static string[] GetVisibleNavItems()
         {
             var items = new System.Collections.Generic.List<string>();
-            if (AppSession.IsLoggedIn) items.Add("Dashboard");
-            if (AppSession.CanView(PermissionModule.Customer)) items.Add("Customers");
+            if (AppSession.IsLoggedIn) items.Add("Overview");
+            if (AppSession.CanView(PermissionModule.Customer)
+                || AppSession.CanView(PermissionModule.Quotation)
+                || AppSession.CanView(PermissionModule.SalesOrder)
+                || AppSession.CanView(PermissionModule.ReplySlip))
+                items.Add("Customers");
             if (AppSession.CanView(PermissionModule.Quotation)) items.Add("Quotations");
             if (AppSession.CanView(PermissionModule.SalesOrder)) items.Add("Sales Orders");
             if (AppSession.CanView(PermissionModule.ProductionOrder)
@@ -138,7 +212,7 @@ namespace FurnitureERP.Forms
 
         private void BuildHeader()
         {
-            Label moduleTitle = new Label { Name = "lblModuleTitle", Text = "Dashboard", Font = new Font("Segoe UI", 13, FontStyle.Bold), ForeColor = UITheme.Primary, AutoSize = true, Location = new Point(20, 17) };
+            Label moduleTitle = new Label { Name = "lblModuleTitle", Text = "Overview", Font = new Font("Segoe UI", 13, FontStyle.Bold), ForeColor = UITheme.Primary, AutoSize = true, Location = new Point(20, 17) };
             Label userLabel = new Label { Name = "lblUser", AutoSize = true, ForeColor = UITheme.TextDark, Font = new Font("Segoe UI", 9) };
             _headerPanel.Controls.Add(moduleTitle);
             _headerPanel.Controls.Add(userLabel);
@@ -154,7 +228,7 @@ namespace FurnitureERP.Forms
             if (_activeNavButton != null) { _activeNavButton.BackColor = UITheme.NavDark; _activeNavButton.ForeColor = Color.FromArgb(180, 210, 255); _activeNavButton.Font = new Font("Segoe UI", 9); }
             btn.BackColor = UITheme.NavActive; btn.ForeColor = Color.White; btn.Font = new Font("Segoe UI", 9, FontStyle.Bold);
             _activeNavButton = btn;
-            LoadModule(btn.Tag?.ToString() ?? "Dashboard");
+            LoadModule(btn.Tag?.ToString() ?? "Overview");
         }
 
         public void LoadModule(string module)
@@ -180,7 +254,7 @@ namespace FurnitureERP.Forms
                 Control panel = null;
                 switch (module)
                 {
-                    case "Dashboard": panel = new DashboardPanel(); break;
+                    case "Overview": panel = new DashboardPanel(); break;
                     case "Customers":
                     case "Quotations":
                     case "Sales Orders": panel = new SalesPanel(module); break;
@@ -216,8 +290,12 @@ namespace FurnitureERP.Forms
             if (!AppSession.IsLoggedIn) return false;
             switch (module)
             {
-                case "Dashboard": return true;
-                case "Customers": return AppSession.CanView(PermissionModule.Customer);
+                case "Overview": return true;
+                case "Customers":
+                    return AppSession.CanView(PermissionModule.Customer)
+                        || AppSession.CanView(PermissionModule.Quotation)
+                        || AppSession.CanView(PermissionModule.SalesOrder)
+                        || AppSession.CanView(PermissionModule.ReplySlip);
                 case "Quotations": return AppSession.CanView(PermissionModule.Quotation);
                 case "Sales Orders": return AppSession.CanView(PermissionModule.SalesOrder);
                 case "Production":
@@ -253,7 +331,36 @@ namespace FurnitureERP.Forms
                 ul.Location = new Point(_headerPanel.Width - ul.PreferredWidth - 20, (_headerPanel.Height - ul.PreferredHeight) / 2);
             }
             PopulateNavButtons();
-            LoadModule("Dashboard");
+            ActivateNavButton("Overview");
+            LoadModule("Overview");
+        }
+
+        private void ActivateNavButton(string module)
+        {
+            if (_navContainer == null) return;
+            foreach (Control control in _navContainer.Controls)
+            {
+                if (!(control is Button btn)) continue;
+                if (!string.Equals(btn.Tag?.ToString(), module, StringComparison.OrdinalIgnoreCase)) continue;
+                if (_activeNavButton != null)
+                {
+                    _activeNavButton.BackColor = UITheme.NavDark;
+                    _activeNavButton.ForeColor = Color.FromArgb(180, 210, 255);
+                    _activeNavButton.Font = new Font("Segoe UI", 9);
+                }
+                btn.BackColor = UITheme.NavActive;
+                btn.ForeColor = Color.White;
+                btn.Font = new Font("Segoe UI", 9, FontStyle.Bold);
+                _activeNavButton = btn;
+                return;
+            }
+        }
+
+        private static string GetNavDisplayText(string module)
+        {
+            if (string.Equals(module, "Overview", StringComparison.OrdinalIgnoreCase))
+                return "📊  Overview";
+            return module;
         }
     }
 }

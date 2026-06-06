@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Windows.Forms;
@@ -71,6 +72,38 @@ namespace FurnitureERP.Helpers
         {
             StyleGrid(grid);
             StockAlertHelper.WireStockLevelHighlight(grid, stockColumn, minStockColumn);
+        }
+
+        public static void ConfigureProductCatalogueGrid(DataGridView grid)
+        {
+            if (grid == null || grid.Columns.Count == 0) return;
+
+            grid.ColumnHeadersHeight = 34;
+            grid.RowTemplate.Height = 30;
+            grid.ScrollBars = ScrollBars.Both;
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+
+            var weights = new Dictionary<string, float>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                ["Product Code"] = 130f,
+                ["Category"] = 95f,
+                ["Style Number"] = 120f,
+                ["Size"] = 95f,
+                ["Color"] = 85f,
+                ["Base Price"] = 90f,
+                ["Unit"] = 55f,
+                ["Status"] = 70f,
+                ["Total Stock"] = 85f,
+                ["Available Stock"] = 105f,
+                ["Min Stock Level"] = 105f
+            };
+
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                if (!col.Visible) continue;
+                col.MinimumWidth = 52;
+                col.FillWeight = weights.TryGetValue(col.HeaderText, out float weight) ? weight : 80f;
+            }
         }
     }
 }

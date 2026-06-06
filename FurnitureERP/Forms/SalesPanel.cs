@@ -149,9 +149,205 @@ namespace FurnitureERP.Forms
                 () => DictionaryUIHelper.LoadWithStatusLabels(() => _replySlipCtrl.GetAllReplySlips(), "Status", DictionaryService.Categories.ReplySlip),
                 ShowCreateReplySlipDialog,
                 row => ShowReplySlipDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
-                row => ShowReplySlipDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
-                DictionaryService.Categories.ReplySlip));
+                row => OpenReplySlipRow(row),
+                DictionaryService.Categories.ReplySlip,
+                grid =>
+                {
+                    var btnPrint = UITheme.CreateSecondaryButton("Print PDF");
+                    btnPrint.Click += (s, e) =>
+                    {
+                        if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a reply slip first."); return; }
+                        PrintReplySlipPdf(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                    };
+                    return new Control[] { btnPrint };
+                },
+                row => ShowReplySlipViewDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
             return page;
+        }
+
+        private void OpenReplySlipRow(DataGridViewRow row)
+        {
+            ShowReplySlipViewDetailDialog(Convert.ToInt64(row.Cells[0].Value));
+        }
+
+        private void ShowReplySlipViewDetailDialog(long replySlipId)
+        {
+            var export = BuildReplySlipExportData(replySlipId);
+            if (export == null)
+            {
+                UITheme.ShowWarning("Reply slip not found.");
+                return;
+            }
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = $"Reply Slip Detail — {export.SlipCode}";
+                dlg.Size = new Size(920, 620);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var split = new SplitContainer
+                {
+                    Dock = DockStyle.Fill,
+                    Orientation = Orientation.Horizontal,
+                    SplitterDistance = 260
+                };
+
+                var headerGrid = GridHelper.CreateStyledGrid();
+                headerGrid.DataSource = export.Fields;
+                GridHelper.StyleGrid(headerGrid);
+
+                var lineGrid = GridHelper.CreateStyledGrid();
+                lineGrid.DataSource = export.Lines;
+                GridHelper.StyleGrid(lineGrid);
+
+                split.Panel1.Controls.Add(headerGrid);
+                split.Panel2.Controls.Add(lineGrid);
+                dlg.Controls.Add(split);
+
+                var toolbar = new Panel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    Padding = new Padding(8, 8, 16, 8),
+                    BackColor = UITheme.Background
+                };
+                var btnPrint = UITheme.CreatePrimaryButton("Print PDF");
+                btnPrint.Width = 130;
+                btnPrint.Anchor = AnchorStyles.Right | AnchorStyles.Top;
+                btnPrint.Location = new Point(toolbar.Width - btnPrint.Width - 16, 8);
+                toolbar.Resize += (s, e) => btnPrint.Left = Math.Max(8, toolbar.Width - btnPrint.Width - 16);
+                btnPrint.Click += (s, e) =>
+                {
+                    try
+                    {
+                        var pdfData = BuildReplySlipPdfData(replySlipId);
+                        if (pdfData == null)
+                        {
+                            UITheme.ShowWarning("No data available to print.");
+                            return;
+                        }
+                        if (ReplySlipPdfHelper.ExportToPdf(pdfData, dlg))
+                            UITheme.ShowSuccess("PDF saved successfully.");
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError("Failed to export PDF: " + ex.Message);
+                    }
+                };
+                toolbar.Controls.Add(btnPrint);
+                dlg.Controls.Add(toolbar);
+                toolbar.BringToFront();
+
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private void PrintReplySlipPdf(long replySlipId)
+        {
+            try
+            {
+                var pdfData = BuildReplySlipPdfData(replySlipId);
+                if (pdfData == null)
+                {
+                    UITheme.ShowWarning("Reply slip not found.");
+                    return;
+                }
+
+                if (ReplySlipPdfHelper.ExportToPdf(pdfData, this))
+                    UITheme.ShowSuccess("PDF saved successfully.");
+            }
+            catch (Exception ex)
+            {
+                UITheme.ShowError("Failed to export PDF: " + ex.Message);
+            }
+        }
+
+        private ReplySlipPdfData BuildReplySlipPdfData(long replySlipId)
+        {
+            DataTable header = null;
+            DataTable lines = null;
+            if (!TryLoadReplySlipDetail(replySlipId, out header, out lines, out decimal total))
+                return null;
+
+            return ReplySlipPdfHelper.FromHeaderAndLines(header, lines, total, $"ReplySlip_{replySlipId}");
+        }
+
+        private bool TryLoadReplySlipDetail(long replySlipId, out DataTable header, out DataTable lines, out decimal total)
+        {
+            header = null;
+            lines = null;
+            total = 0;
+
+            try { header = _replySlipCtrl.GetHeaderDetail(replySlipId); } catch { }
+            if (header == null || header.Rows.Count == 0)
+                return false;
+
+            try { lines = _replySlipCtrl.GetProductLinesDetailed(replySlipId); } catch { }
+            try { total = _replySlipCtrl.GetTotalAmount(replySlipId); } catch { }
+            return true;
+        }
+
+        private ReplySlipExportData BuildReplySlipExportData(long replySlipId)
+        {
+            if (!TryLoadReplySlipDetail(replySlipId, out DataTable header, out DataTable lines, out decimal total))
+                return null;
+
+            AppendReplySlipTotalRow(lines, total);
+
+            var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+            DecorateReplySlipStatusField(fields, header.Rows[0]);
+            try { fields.Rows.Add("Total Amount", total.ToString("0.00")); } catch { }
+
+            string slipCode = header.Columns.Contains("Reply Slip Code")
+                ? header.Rows[0]["Reply Slip Code"]?.ToString()
+                : ("RS-" + replySlipId);
+
+            return new ReplySlipExportData
+            {
+                SlipCode = slipCode ?? ("RS-" + replySlipId),
+                Fields = fields,
+                Lines = lines
+            };
+        }
+
+        private static void DecorateReplySlipStatusField(DataTable fields, DataRow headerRow)
+        {
+            if (fields == null || headerRow == null || !headerRow.Table.Columns.Contains("Status")) return;
+            if (headerRow["Status"] == DBNull.Value) return;
+
+            int statusCode = Convert.ToInt32(headerRow["Status"]);
+            string label = DictionaryService.GetDisplayName(DictionaryService.Categories.ReplySlip, statusCode);
+            foreach (DataRow row in fields.Rows)
+            {
+                if (string.Equals(row["Field"]?.ToString(), "Status", StringComparison.OrdinalIgnoreCase))
+                {
+                    row["Value"] = label;
+                    break;
+                }
+            }
+        }
+
+        private static void AppendReplySlipTotalRow(DataTable lines, decimal total)
+        {
+            if (lines == null || !lines.Columns.Contains("Amount")) return;
+
+            var totalRow = lines.NewRow();
+            foreach (DataColumn col in lines.Columns)
+            {
+                if (col.ColumnName == "Product Code") totalRow[col] = "Total Amount";
+                else if (col.ColumnName == "Amount") totalRow[col] = total;
+                else if (col.DataType == typeof(string)) totalRow[col] = "";
+                else totalRow[col] = DBNull.Value;
+            }
+            lines.Rows.Add(totalRow);
+        }
+
+        private sealed class ReplySlipExportData
+        {
+            public string SlipCode { get; set; }
+            public DataTable Fields { get; set; }
+            public DataTable Lines { get; set; }
         }
 
         private void OpenQuotationRow(DataGridViewRow row)
@@ -770,7 +966,7 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormRow(form, 2, "Currency", lblCurrency);
                 UITheme.AddFormRow(form, 3, "Status / Remark", BuildStatusRemarkRow(cmbStatus, txtRemark));
 
-                var lineGrid = BuildEditableProductLineGrid();
+                var lineGrid = BuildEditableQuotationLineGrid();
                 if (isEdit) LoadProductLinesToGrid(lineGrid, _quotationCtrl.GetProductLinesInternal(existing.QuotationID));
 
                 root.Controls.Add(form, 0, 0);
@@ -1355,6 +1551,55 @@ namespace FurnitureERP.Forms
             GridHelper.ApplyStyle(grid);
             grid.Columns["ProductID"].Visible = true;
             return grid;
+        }
+
+        private DataGridView BuildEditableQuotationLineGrid()
+        {
+            var grid = BuildEditableProductLineGrid();
+
+            grid.EditingControlShowing += (s, e) =>
+            {
+                if (grid.CurrentCell == null || grid.CurrentCell.OwningColumn == null) return;
+                if (!string.Equals(grid.CurrentCell.OwningColumn.Name, "ProductID", StringComparison.OrdinalIgnoreCase)) return;
+                if (!(e.Control is ComboBox cb)) return;
+
+                cb.DropDownStyle = ComboBoxStyle.DropDown;
+                cb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                cb.AutoCompleteSource = AutoCompleteSource.ListItems;
+                cb.SelectionChangeCommitted += (_, __) =>
+                {
+                    grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+                    if (grid.CurrentCell != null)
+                        ApplyQuotationLineDefaults(grid, grid.CurrentCell.RowIndex);
+                };
+            };
+
+            grid.CellValueChanged += (s, e) =>
+            {
+                if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+                if (!string.Equals(grid.Columns[e.ColumnIndex].Name, "ProductID", StringComparison.OrdinalIgnoreCase)) return;
+                ApplyQuotationLineDefaults(grid, e.RowIndex);
+            };
+            grid.CurrentCellDirtyStateChanged += (s, e) =>
+            {
+                if (grid.IsCurrentCellDirty && grid.CurrentCell is DataGridViewComboBoxCell)
+                    grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            };
+            grid.DataError += (s, e) => { e.ThrowException = false; };
+
+            return grid;
+        }
+
+        private void ApplyQuotationLineDefaults(DataGridView grid, int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= grid.Rows.Count) return;
+            var row = grid.Rows[rowIndex];
+            if (row.IsNewRow) return;
+
+            if (TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, out decimal basePrice))
+                row.Cells["Price"].Value = basePrice;
+
+            ApplySalesOrderAvailableStock(grid, rowIndex);
         }
 
         private DataGridView BuildEditableSalesOrderLineGrid()

@@ -173,7 +173,7 @@ namespace FurnitureERP
                 Staff user = _staffCtrl.Login(username, password);
                 if (user != null)
                 {
-                    var main = new MainForm();
+                    var main = new Forms.MainForm();
                     main.SetCurrentUser(user);
                     main.Show();
                     Hide();

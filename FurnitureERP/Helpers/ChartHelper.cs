@@ -33,6 +33,19 @@ namespace FurnitureERP.Helpers
             Invalidate();
         }
 
+        public Bitmap ToBitmap(int width = 0, int height = 0)
+        {
+            int w = width > 0 ? width : Math.Max(Width, 420);
+            int h = height > 0 ? height : Math.Max(Height, 240);
+            var bmp = new Bitmap(w, h);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.White);
+                OnPaint(new PaintEventArgs(g, new Rectangle(0, 0, w, h)));
+            }
+            return bmp;
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -41,9 +54,11 @@ namespace FurnitureERP.Helpers
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
+            var area = e.ClipRectangle;
             int padL = 60, padR = 20, padT = 20, padB = 40;
-            int chartW = Width - padL - padR;
-            int chartH = Height - padT - padB;
+            int chartW = area.Width - padL - padR;
+            int chartH = area.Height - padT - padB;
+            if (chartW <= 0 || chartH <= 0) return;
 
             decimal maxVal = 1;
             foreach (var v in _values) if (v > maxVal) maxVal = v;
@@ -110,6 +125,19 @@ namespace FurnitureERP.Helpers
             Invalidate();
         }
 
+        public Bitmap ToBitmap(int width = 0, int height = 0)
+        {
+            int w = width > 0 ? width : System.Math.Max(Width, 420);
+            int h = height > 0 ? height : System.Math.Max(Height, 240);
+            var bmp = new Bitmap(w, h);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.White);
+                OnPaint(new PaintEventArgs(g, new Rectangle(0, 0, w, h)));
+            }
+            return bmp;
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -126,9 +154,10 @@ namespace FurnitureERP.Helpers
             float total = 0;
             foreach (var v in _values) total += v;
 
-            int size = Math.Min(Width - 120, Height - 30);
+            var area = e.ClipRectangle;
+            int size = Math.Min(area.Width - 120, area.Height - 30);
             size = Math.Max(size, 60);
-            var rect = new Rectangle(10, (Height - size) / 2, size, size);
+            var rect = new Rectangle(10, area.Top + (area.Height - size) / 2, size, size);
 
             float startAngle = -90f;
             for (int i = 0; i < _values.Length; i++)
@@ -142,7 +171,7 @@ namespace FurnitureERP.Helpers
 
             // Legend
             int legendX = size + 20;
-            int legendY = (Height - _labels.Length * 20) / 2;
+            int legendY = area.Top + (area.Height - _labels.Length * 20) / 2;
             for (int i = 0; i < _labels.Length; i++)
             {
                 using (var brush = new SolidBrush(colors[i % colors.Length]))

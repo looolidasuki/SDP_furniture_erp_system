@@ -1,4 +1,5 @@
 using System;
+using System.Data;
 using System.Drawing;
 using System.Windows.Forms;
 using Sales_user.Controllers;
@@ -16,6 +17,12 @@ namespace FurnitureERP.Forms
         private readonly SalesOrderController _salesOrderCtrl = new SalesOrderController();
         private readonly InvoiceController _invoiceCtrl = new InvoiceController();
         private readonly ProductController _productCtrl = new ProductController();
+
+        private TextBox _txtModuleFilter;
+        private Label _lblPermissionTitle;
+        private Label _lblPermissionHint;
+        private DataGridView _permissionGrid;
+        private DataTable _matrixTable;
 
         public DashboardPanel()
         {
@@ -70,17 +77,225 @@ namespace FurnitureERP.Forms
 
             cardsRow.Controls.Add(cardTable);
 
-            // 6. 建立填充區域 (Fill)
-            Panel fillPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
+            Panel fillPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(16, 12, 16, 16) };
+            fillPanel.Controls.Add(BuildPermissionOverviewSection());
 
-            // 7. 重要：Dock 佈局規則 — Top 必須在 Fill 之前加入
-            // WinForms 按 Controls 倒序處理 Dock，Fill 必須最後加入
-            this.Controls.Add(cardsRow);   // Top — 先加
-            this.Controls.Add(fillPanel);  // Fill — 後加（最後）
+            this.Controls.Add(cardsRow);
+            this.Controls.Add(fillPanel);
 
             // 8. 強制 UI 更新計算，修復 "向上移" 或渲染異常
             this.PerformLayout();
             this.ResumeLayout(true);
+        }
+
+        private Control BuildPermissionOverviewSection()
+        {
+            var section = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White,
+                Padding = new Padding(16)
+            };
+            section.Paint += (s, e) =>
+            {
+                using (var pen = new Pen(Color.FromArgb(225, 230, 240)))
+                    e.Graphics.DrawRectangle(pen, 0, 0, section.Width - 1, section.Height - 1);
+            };
+
+            bool isSuperUser = AppSession.IsSuperUser;
+            string userDeptKey = PermissionService.ResolveOverviewDepartmentKey(AppSession.CurrentUser);
+            string userDeptLabel = PermissionService.GetDepartmentDisplayName(userDeptKey);
+            if (string.IsNullOrWhiteSpace(AppSession.CurrentUser?.Department))
+                userDeptLabel = "Unassigned";
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = Color.White
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            var header = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(0, 0, 0, 8) };
+
+            _lblPermissionTitle = new Label
+            {
+                Text = isSuperUser ? "Cross-Department Permission Matrix" : "My Department Permissions",
+                Font = new Font("Segoe UI", 11, FontStyle.Bold),
+                ForeColor = UITheme.TextDark,
+                AutoSize = true,
+                Dock = DockStyle.Top,
+                Margin = new Padding(0, 0, 0, 4)
+            };
+
+            _lblPermissionHint = new Label
+            {
+                Font = new Font("Segoe UI", 9),
+                ForeColor = UITheme.TextGray,
+                AutoSize = true,
+                Dock = DockStyle.Top,
+                MaximumSize = new Size(980, 0),
+                Text = isSuperUser
+                    ? "Each row is a module; each column is a department. Cells show allowed actions (View, Create, Edit) or No access."
+                    : "Your department: " + userDeptLabel + " — modules and allowed actions for your role."
+            };
+
+            header.Controls.Add(_lblPermissionHint);
+            header.Controls.Add(_lblPermissionTitle);
+
+            var toolbar = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
+            if (isSuperUser)
+            {
+                var lblFilter = new Label
+                {
+                    Text = "Filter module:",
+                    AutoSize = true,
+                    Location = new Point(0, 12),
+                    Font = new Font("Segoe UI", 9),
+                    ForeColor = UITheme.TextDark
+                };
+                _txtModuleFilter = new TextBox
+                {
+                    Width = 240,
+                    Location = new Point(88, 8)
+                };
+                _txtModuleFilter.TextChanged += (s, e) => ApplyModuleFilter();
+                toolbar.Controls.Add(lblFilter);
+                toolbar.Controls.Add(_txtModuleFilter);
+            }
+            else
+            {
+                var lblDept = new Label
+                {
+                    Text = "Department: " + userDeptLabel,
+                    AutoSize = true,
+                    Location = new Point(0, 12),
+                    Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                    ForeColor = UITheme.Primary
+                };
+                toolbar.Controls.Add(lblDept);
+            }
+
+            var gridHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(0, 4, 0, 0) };
+
+            _permissionGrid = GridHelper.CreateStyledGrid();
+            _permissionGrid.Dock = DockStyle.Fill;
+            _permissionGrid.AutoGenerateColumns = true;
+            _permissionGrid.RowHeadersVisible = false;
+            _permissionGrid.ColumnHeadersVisible = true;
+            _permissionGrid.DefaultCellStyle.WrapMode = DataGridViewTriState.True;
+            _permissionGrid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
+            _permissionGrid.CellFormatting += PermissionGrid_CellFormatting;
+
+            gridHost.Controls.Add(_permissionGrid);
+
+            layout.Controls.Add(header, 0, 0);
+            layout.Controls.Add(toolbar, 0, 1);
+            layout.Controls.Add(gridHost, 0, 2);
+            section.Controls.Add(layout);
+
+            if (isSuperUser)
+                LoadPermissionMatrix();
+            else
+                LoadDepartmentPermissionGrid(userDeptKey);
+            return section;
+        }
+
+        private void LoadPermissionMatrix()
+        {
+            if (_permissionGrid == null) return;
+            try
+            {
+                _matrixTable = PermissionService.BuildPermissionMatrixTable();
+                ApplyModuleFilter();
+            }
+            catch (Exception ex)
+            {
+                UITheme.ShowError(ex.Message);
+            }
+        }
+
+        private void ApplyModuleFilter()
+        {
+            if (_permissionGrid == null || _matrixTable == null) return;
+            string kw = _txtModuleFilter?.Text?.Trim().Replace("'", "''") ?? "";
+            var view = _matrixTable.Copy();
+            if (!string.IsNullOrEmpty(kw))
+                view.DefaultView.RowFilter = $"[Module] LIKE '%{kw}%'";
+
+            _permissionGrid.DataSource = view;
+            StylePermissionGrid(isMatrix: true);
+
+            if (_lblPermissionHint != null)
+            {
+                int shown = view.DefaultView.Count;
+                int total = _matrixTable.Rows.Count;
+                _lblPermissionHint.Text = shown == total
+                    ? "Each row is a module; each column is a department. Cells show allowed actions (View, Create, Edit) or No access. Showing all " + total + " modules."
+                    : "Showing " + shown + " of " + total + " modules. Clear filter to see all.";
+            }
+        }
+
+        private void LoadDepartmentPermissionGrid(string departmentKey)
+        {
+            if (_permissionGrid == null) return;
+            try
+            {
+                var table = PermissionService.BuildPermissionOverviewTable(departmentKey);
+                _permissionGrid.DataSource = table;
+                StylePermissionGrid(isMatrix: false);
+            }
+            catch (Exception ex)
+            {
+                UITheme.ShowError(ex.Message);
+            }
+        }
+
+        private void StylePermissionGrid(bool isMatrix)
+        {
+            GridHelper.StyleGrid(_permissionGrid);
+            _permissionGrid.ColumnHeadersVisible = true;
+            _permissionGrid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+            _permissionGrid.ColumnHeadersHeight = isMatrix ? 46 : 36;
+            _permissionGrid.ColumnHeadersDefaultCellStyle.WrapMode = DataGridViewTriState.True;
+            _permissionGrid.ScrollBars = ScrollBars.Both;
+            if (_permissionGrid.Rows.Count > 0)
+                _permissionGrid.FirstDisplayedScrollingRowIndex = 0;
+
+            if (_permissionGrid.Columns.Contains("Module"))
+            {
+                _permissionGrid.Columns["Module"].FillWeight = isMatrix ? 120 : 160;
+                _permissionGrid.Columns["Module"].MinimumWidth = 120;
+                _permissionGrid.Columns["Module"].Frozen = isMatrix;
+            }
+            if (!isMatrix && _permissionGrid.Columns.Contains("Permissions"))
+                _permissionGrid.Columns["Permissions"].FillWeight = 200;
+
+            if (isMatrix)
+            {
+                foreach (DataGridViewColumn col in _permissionGrid.Columns)
+                {
+                    if (!col.Visible || col.Name == "Module") continue;
+                    col.MinimumWidth = 110;
+                    col.FillWeight = 100;
+                }
+            }
+        }
+
+        private static void PermissionGrid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.Value == null || e.ColumnIndex < 0) return;
+            if (!(sender is DataGridView grid)) return;
+            if (grid.Columns[e.ColumnIndex].Name == "Module") return;
+
+            string text = e.Value.ToString();
+            if (string.Equals(text, "No access", StringComparison.OrdinalIgnoreCase))
+                e.CellStyle.ForeColor = UITheme.TextGray;
+            else
+                e.CellStyle.ForeColor = Color.FromArgb(34, 100, 34);
         }
 
 
