@@ -42,6 +42,36 @@ namespace FurnitureERP.Helpers
             return combo.SelectedIndex >= 0 ? combo.SelectedIndex : 0;
         }
 
+        public static void BindPaymentTermCombo(ComboBox combo, string selectedLabel)
+        {
+            combo.Items.Clear();
+            combo.DropDownStyle = ComboBoxStyle.DropDownList;
+            foreach (var item in DictionaryService.GetItems(DictionaryService.Categories.PaymentTerm))
+                combo.Items.Add(item.Value);
+
+            selectedLabel = selectedLabel?.Trim();
+            if (!string.IsNullOrWhiteSpace(selectedLabel) && combo.Items.IndexOf(selectedLabel) < 0)
+                combo.Items.Insert(0, selectedLabel);
+
+            if (!string.IsNullOrWhiteSpace(selectedLabel))
+            {
+                int idx = combo.Items.IndexOf(selectedLabel);
+                if (idx >= 0)
+                {
+                    combo.SelectedIndex = idx;
+                    return;
+                }
+            }
+
+            if (combo.Items.Count > 0)
+                combo.SelectedIndex = 0;
+        }
+
+        public static string GetSelectedPaymentTerm(ComboBox combo)
+        {
+            return combo.SelectedItem?.ToString()?.Trim() ?? "";
+        }
+
         public static void BindStatusFilter(ComboBox combo, string category)
         {
             combo.Items.Clear();

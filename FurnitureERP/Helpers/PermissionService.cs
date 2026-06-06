@@ -227,6 +227,7 @@ namespace FurnitureERP.Helpers
                 P(PermissionModule.ReplySlip, PermissionFlags.All),
                 P(PermissionModule.Customer, PermissionFlags.All),
                 P(PermissionModule.DeliveryNote, PermissionFlags.View),
+                P(PermissionModule.ReceiptVoucher, PermissionFlags.View),
                 P(PermissionModule.Invoice, PermissionFlags.View),
                 P(PermissionModule.Warehouse, PermissionFlags.View),
                 P(PermissionModule.Refund, PermissionFlags.All),
@@ -259,6 +260,7 @@ namespace FurnitureERP.Helpers
                 P(PermissionModule.SalesOrder, PermissionFlags.View),
                 P(PermissionModule.PurchaseOrder, PermissionFlags.View),
                 P(PermissionModule.GoodsReceivedNote, PermissionFlags.View),
+                P(PermissionModule.DeliveryNote, PermissionFlags.View),
                 P(PermissionModule.Customer, PermissionFlags.View),
                 P(PermissionModule.Supplier, PermissionFlags.View));
 

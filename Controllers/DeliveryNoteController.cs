@@ -61,6 +61,28 @@ namespace Sales_user.Controllers
             });
         }
 
+        public DataTable GetByCustomer(long customerId)
+        {
+            string sql = $@"SELECT dn.deliveryNoteID AS 'Delivery Note ID',
+                                  dn.deliveryNoteCode AS 'Delivery Note Code',
+                                  {ReplySlipCodeSelect()}
+                                  so.salesOrderCode AS 'Sales Order',
+                                  dn.shipMethod AS 'Ship Method',
+                                  dn.trackingNumber AS 'Tracking Number',
+                                  dn.createDate AS 'Create Date',
+                                  dn.status AS 'Status',
+                                  dn.remark AS 'Remark'
+                           FROM DeliveryNote dn
+                           LEFT JOIN SalesOrder so ON dn.salesOrderID = so.salesOrderID
+                           WHERE dn.customerID = @customerId AND dn.deliveryNoteCode <> @depositCode
+                           ORDER BY dn.createDate DESC";
+            return DatabaseConnect.ExecuteQuery(sql, new[]
+            {
+                new MySqlParameter("@customerId", customerId),
+                new MySqlParameter("@depositCode", DepositDeliveryNoteCode)
+            });
+        }
+
         public const string DepositDeliveryNoteCode = "DN-DEPOSIT";
         public const long DepositDeliveryNoteReservedId = 999999;
 

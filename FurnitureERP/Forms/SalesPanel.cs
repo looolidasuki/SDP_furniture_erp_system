@@ -17,6 +17,8 @@ namespace FurnitureERP.Forms
         private readonly QuotationController _quotationCtrl = new QuotationController();
         private readonly ReplySlipController _replySlipCtrl = new ReplySlipController();
         private readonly ProductController _productCtrl = new ProductController();
+        private readonly DeliveryNoteController _deliveryCtrl = new DeliveryNoteController();
+        private readonly ReceiptVoucherController _receiptCtrl = new ReceiptVoucherController();
         private readonly SalesWorkflowService _salesWorkflow = new SalesWorkflowService();
 
         private TabControl _tabs;
@@ -81,11 +83,11 @@ namespace FurnitureERP.Forms
             page.Controls.Add(BuildCrudPanel("Customer", PermissionModule.Customer,
                 () => _customerCtrl.GetAllCustomers(),
                 ShowCreateCustomerDialog,
-                row => ShowCustomerDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Customer ID")),
+                EditCustomerRow,
                 row => OpenCustomerRow(row),
                 null,
                 null,
-                row => ShowCustomerDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Customer ID")),
+                row => ShowCustomerViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Customer ID")),
                 "Customer ID"));
             return page;
         }
@@ -464,7 +466,26 @@ namespace FurnitureERP.Forms
 
         private void OpenCustomerRow(DataGridViewRow row)
         {
-            ShowCustomerDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Customer ID"));
+            long customerId = GridHelper.TryGetRowLongId(row.DataGridView, row, "Customer ID");
+            if (customerId <= 0) return;
+            if (AppSession.CanEdit(PermissionModule.Customer))
+            {
+                var customer = _customerCtrl.GetById(customerId);
+                if (customer != null) ShowCustomerFormDialog(customer);
+            }
+            else
+            {
+                ShowCustomerViewDetailDialog(customerId);
+            }
+        }
+
+        private void EditCustomerRow(DataGridViewRow row)
+        {
+            long customerId = GridHelper.TryGetRowLongId(row.DataGridView, row, "Customer ID");
+            if (customerId <= 0) return;
+            var customer = _customerCtrl.GetById(customerId);
+            if (customer == null) return;
+            ShowCustomerFormDialog(customer);
         }
 
         private void OpenSalesOrderRow(DataGridViewRow row)
@@ -663,11 +684,341 @@ namespace FurnitureERP.Forms
             DetailViewHelper.ShowKeyValueDetail(this, title, row);
         }
 
-        private void ShowCustomerDetailDialog(long id)
+        private void ShowCustomerViewDetailDialog(long customerId)
         {
-            var customer = _customerCtrl.GetById(id);
-            if (customer == null) return;
-            ShowCustomerFormDialog(customer);
+            var customer = _customerCtrl.GetById(customerId);
+            if (customer == null)
+            {
+                UITheme.ShowWarning("Customer not found.");
+                return;
+            }
+
+            string title = string.IsNullOrWhiteSpace(customer.CustomerCode)
+                ? $"Customer — {customer.CustomerName}"
+                : $"Customer — {customer.CustomerCode}";
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = title;
+                dlg.Size = new Size(960, 640);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+                tabs.TabPages.Add(BuildCustomerProfileViewTab(customer));
+                tabs.TabPages.Add(BuildCustomerContactsViewTab(customerId));
+                tabs.TabPages.Add(BuildCustomerAddressesViewTab(customerId));
+
+                if (AppSession.CanView(PermissionModule.DeliveryNote))
+                    tabs.TabPages.Add(BuildCustomerDeliveryNotesViewTab(customerId));
+
+                if (AppSession.CanView(PermissionModule.ReceiptVoucher))
+                    tabs.TabPages.Add(BuildCustomerReceiptVouchersViewTab(customerId));
+
+                var btnClose = UITheme.CreateSecondaryButton("Close");
+                btnClose.Click += (s, e) => dlg.Close();
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnClose);
+                dlg.Controls.Add(tabs);
+                dlg.Controls.Add(btnPanel);
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private TabPage BuildCustomerProfileViewTab(Customer customer)
+        {
+            var tab = new TabPage("Customer");
+            var grid = GridHelper.CreateStyledGrid();
+            grid.DataSource = BuildCustomerProfileFields(customer);
+            GridHelper.StyleGrid(grid);
+            grid.Dock = DockStyle.Fill;
+            tab.Controls.Add(grid);
+            return tab;
+        }
+
+        private static DataTable BuildCustomerProfileFields(Customer customer)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Field");
+            dt.Columns.Add("Value");
+            AddCustomerFieldRow(dt, "Customer Code", customer.CustomerCode);
+            AddCustomerFieldRow(dt, "Customer Ref Number", customer.CustomerRefNumber);
+            AddCustomerFieldRow(dt, "Customer Name", customer.CustomerName);
+            AddCustomerFieldRow(dt, "Billing Address", customer.BillingAddress);
+            AddCustomerFieldRow(dt, "Payment Term", customer.PaymentTerm);
+            return dt;
+        }
+
+        private static void AddCustomerFieldRow(DataTable dt, string field, string value)
+        {
+            dt.Rows.Add(field, value ?? "");
+        }
+
+        private TabPage BuildCustomerContactsViewTab(long customerId)
+        {
+            var tab = new TabPage("Contact Persons");
+            var grid = CreateReadOnlyGrid();
+            grid.DataSource = BuildContactsReadOnlyTable(_customerCtrl.GetContactPersons(customerId));
+            GridHelper.StyleGrid(grid);
+            grid.Dock = DockStyle.Fill;
+            tab.Controls.Add(grid);
+            return tab;
+        }
+
+        private TabPage BuildCustomerAddressesViewTab(long customerId)
+        {
+            var tab = new TabPage("Delivery Addresses");
+            var grid = CreateReadOnlyGrid();
+            grid.DataSource = BuildDeliveryAddressesReadOnlyTable(_customerCtrl.GetDeliveryAddresses(customerId));
+            GridHelper.StyleGrid(grid);
+            grid.Dock = DockStyle.Fill;
+            tab.Controls.Add(grid);
+            return tab;
+        }
+
+        private static DataTable BuildContactsReadOnlyTable(IEnumerable<ContactPerson> contacts)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Contact Person");
+            dt.Columns.Add("Title");
+            dt.Columns.Add("Phone");
+            dt.Columns.Add("Email");
+            foreach (var contact in contacts)
+                dt.Rows.Add(contact.Name, contact.Title, contact.Phone, contact.Email);
+            return dt;
+        }
+
+        private static DataTable BuildDeliveryAddressesReadOnlyTable(IEnumerable<CustomerDeliveryAddress> addresses)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Delivery Address");
+            dt.Columns.Add("Contact Person");
+            dt.Columns.Add("Phone");
+            dt.Columns.Add("Email");
+            foreach (var addr in addresses)
+                dt.Rows.Add(addr.DeliveryAddress, addr.ContactPerson, addr.Phone, addr.Email);
+            return dt;
+        }
+
+        private TabPage BuildCustomerDeliveryNotesViewTab(long customerId)
+        {
+            var tab = new TabPage("Delivery Notes");
+            var split = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterDistance = 220
+            };
+
+            var listGrid = CreateReadOnlyGrid();
+            DataTable dnList = null;
+            try
+            {
+                dnList = _deliveryCtrl.GetByCustomer(customerId);
+                dnList = DictionaryService.DecorateStatusColumn(dnList, "Status", DictionaryService.Categories.Delivery);
+            }
+            catch { }
+            listGrid.DataSource = dnList;
+            GridHelper.StyleGrid(listGrid);
+            if (listGrid.Columns.Contains("Delivery Note ID"))
+                listGrid.Columns["Delivery Note ID"].Visible = false;
+            if (listGrid.Columns.Contains("Status"))
+                listGrid.Columns["Status"].Visible = false;
+
+            var detailSplit = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterDistance = 200
+            };
+            var headerGrid = CreateReadOnlyGrid();
+            var linesGrid = CreateReadOnlyGrid();
+            detailSplit.Panel1.Controls.Add(headerGrid);
+            detailSplit.Panel2.Controls.Add(linesGrid);
+            headerGrid.Dock = DockStyle.Fill;
+            linesGrid.Dock = DockStyle.Fill;
+
+            listGrid.SelectionChanged += (s, e) =>
+            {
+                if (listGrid.CurrentRow?.Cells["Delivery Note ID"]?.Value == null)
+                {
+                    headerGrid.DataSource = null;
+                    linesGrid.DataSource = null;
+                    return;
+                }
+                long dnId = Convert.ToInt64(listGrid.CurrentRow.Cells["Delivery Note ID"].Value);
+                LoadCustomerDeliveryNoteDetail(dnId, headerGrid, linesGrid);
+            };
+
+            split.Panel1.Controls.Add(listGrid);
+            split.Panel2.Controls.Add(detailSplit);
+            tab.Controls.Add(split);
+
+            if (listGrid.Rows.Count > 0)
+            {
+                listGrid.Rows[0].Selected = true;
+                long dnId = Convert.ToInt64(listGrid.Rows[0].Cells["Delivery Note ID"].Value);
+                LoadCustomerDeliveryNoteDetail(dnId, headerGrid, linesGrid);
+            }
+
+            return tab;
+        }
+
+        private TabPage BuildCustomerReceiptVouchersViewTab(long customerId)
+        {
+            var tab = new TabPage("Receipt Vouchers");
+            var split = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterDistance = 220
+            };
+
+            var listGrid = CreateReadOnlyGrid();
+            DataTable rvList = null;
+            try { rvList = _receiptCtrl.GetByCustomer(customerId); } catch { }
+            listGrid.DataSource = rvList;
+            GridHelper.StyleGrid(listGrid);
+            if (listGrid.Columns.Contains("ID"))
+                listGrid.Columns["ID"].Visible = false;
+            if (listGrid.Columns.Contains("Status"))
+                listGrid.Columns["Status"].Visible = false;
+
+            var detailSplit = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterDistance = 200
+            };
+            var headerGrid = CreateReadOnlyGrid();
+            var linesGrid = CreateReadOnlyGrid();
+            detailSplit.Panel1.Controls.Add(headerGrid);
+            detailSplit.Panel2.Controls.Add(linesGrid);
+            headerGrid.Dock = DockStyle.Fill;
+            linesGrid.Dock = DockStyle.Fill;
+
+            listGrid.SelectionChanged += (s, e) =>
+            {
+                if (listGrid.CurrentRow?.Cells["ID"]?.Value == null)
+                {
+                    headerGrid.DataSource = null;
+                    linesGrid.DataSource = null;
+                    return;
+                }
+                long rvId = Convert.ToInt64(listGrid.CurrentRow.Cells["ID"].Value);
+                LoadCustomerReceiptVoucherDetail(rvId, headerGrid, linesGrid);
+            };
+
+            split.Panel1.Controls.Add(listGrid);
+            split.Panel2.Controls.Add(detailSplit);
+            tab.Controls.Add(split);
+
+            if (listGrid.Rows.Count > 0)
+            {
+                listGrid.Rows[0].Selected = true;
+                long rvId = Convert.ToInt64(listGrid.Rows[0].Cells["ID"].Value);
+                LoadCustomerReceiptVoucherDetail(rvId, headerGrid, linesGrid);
+            }
+
+            return tab;
+        }
+
+        private void LoadCustomerDeliveryNoteDetail(long deliveryNoteId, DataGridView headerGrid, DataGridView linesGrid)
+        {
+            try
+            {
+                DataTable header = _deliveryCtrl.GetHeaderDetail(deliveryNoteId);
+                DataTable lines = _deliveryCtrl.GetExportProductLines(deliveryNoteId);
+                decimal total = _deliveryCtrl.GetTotalAmount(deliveryNoteId);
+                int totalShipQty = _deliveryCtrl.GetTotalShipQty(deliveryNoteId);
+
+                AppendCustomerDeliveryNoteTotalRow(lines, total);
+                var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+                DecorateCustomerDeliveryNoteStatusField(fields, header?.Rows.Count > 0 ? header.Rows[0] : null);
+                if (fields != null)
+                {
+                    fields.Rows.Add("Total Ship Qty", totalShipQty.ToString());
+                    fields.Rows.Add("Total Amount", total.ToString("0.00"));
+                }
+
+                headerGrid.DataSource = fields;
+                linesGrid.DataSource = lines;
+                GridHelper.StyleGrid(headerGrid);
+                GridHelper.StyleGrid(linesGrid);
+            }
+            catch
+            {
+                headerGrid.DataSource = null;
+                linesGrid.DataSource = null;
+            }
+        }
+
+        private void LoadCustomerReceiptVoucherDetail(long receiptVoucherId, DataGridView headerGrid, DataGridView linesGrid)
+        {
+            try
+            {
+                var header = _receiptCtrl.GetHeaderDetail(receiptVoucherId);
+                var lines = _receiptCtrl.GetInvoiceAllocationsDetailed(receiptVoucherId);
+                if (lines != null && lines.Columns.Contains("Invoice ID"))
+                    lines.Columns.Remove("Invoice ID");
+
+                headerGrid.DataSource = DetailViewHelper.SingleRowToFieldValueTable(header);
+                linesGrid.DataSource = lines;
+                GridHelper.StyleGrid(headerGrid);
+                GridHelper.StyleGrid(linesGrid);
+            }
+            catch
+            {
+                headerGrid.DataSource = null;
+                linesGrid.DataSource = null;
+            }
+        }
+
+        private static void DecorateCustomerDeliveryNoteStatusField(DataTable fields, DataRow headerRow)
+        {
+            if (fields == null || headerRow == null || !headerRow.Table.Columns.Contains("Status")) return;
+            if (headerRow["Status"] == DBNull.Value) return;
+
+            int statusCode = Convert.ToInt32(headerRow["Status"]);
+            string label = DictionaryService.GetDisplayName(DictionaryService.Categories.Delivery, statusCode);
+            foreach (DataRow row in fields.Rows)
+            {
+                if (string.Equals(row["Field"]?.ToString(), "Status", StringComparison.OrdinalIgnoreCase))
+                {
+                    row["Value"] = label;
+                    break;
+                }
+            }
+        }
+
+        private static void AppendCustomerDeliveryNoteTotalRow(DataTable lines, decimal total)
+        {
+            if (lines == null || !lines.Columns.Contains("Amount")) return;
+
+            var totalRow = lines.NewRow();
+            foreach (DataColumn col in lines.Columns)
+            {
+                if (col.ColumnName == "Product Code") totalRow[col] = "Total Amount";
+                else if (col.ColumnName == "Amount") totalRow[col] = total;
+                else if (col.DataType == typeof(string)) totalRow[col] = "";
+                else totalRow[col] = DBNull.Value;
+            }
+            lines.Rows.Add(totalRow);
+        }
+
+        private static DataGridView CreateReadOnlyGrid()
+        {
+            var grid = GridHelper.CreateStyledGrid();
+            grid.ReadOnly = true;
+            grid.AllowUserToAddRows = false;
+            grid.AllowUserToDeleteRows = false;
+            return grid;
         }
 
         private void ShowCustomerFormDialog(Customer existing)
@@ -691,26 +1042,44 @@ namespace FurnitureERP.Forms
 
                 var tabs = new TabControl { Dock = DockStyle.Fill };
 
-                var generalPage = new TabPage("General");
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5, Padding = new Padding(16) };
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
+                var generalPage = new TabPage("General") { AutoScroll = true };
+                var layout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Top,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    ColumnCount = 2,
+                    RowCount = 5,
+                    Padding = new Padding(16),
+                    Width = 700
+                };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
 
                 var txtName = new TextBox { Text = existing?.CustomerName ?? "" };
                 var txtCode = new TextBox { Text = existing?.CustomerCode ?? "", ReadOnly = existing != null };
                 var txtRef = new TextBox { Text = existing?.CustomerRefNumber ?? "" };
-                var txtAddr = new TextBox { Text = existing?.BillingAddress ?? "" };
-                var txtTerm = new TextBox { Text = existing?.PaymentTerm ?? "" };
+                var txtAddr = new TextBox
+                {
+                    Text = existing?.BillingAddress ?? "",
+                    Multiline = true,
+                    ScrollBars = ScrollBars.Vertical
+                };
+                var cmbTerm = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+                DictionaryUIHelper.BindPaymentTermCombo(cmbTerm, existing?.PaymentTerm);
+
+                var toolTip = new ToolTip();
                 UITheme.AddFormRow(layout, 0, "Customer Code", txtCode);
-                UITheme.AddFormRow(layout, 1, "Customer Ref Number (PO-PL-#########)", txtRef);
+                UITheme.AddFormRow(layout, 1, "Customer Ref No.", txtRef);
+                toolTip.SetToolTip(txtRef, "Format: PO-PL-#########");
                 UITheme.AddFormRow(layout, 2, "Customer Name *", txtName);
                 UITheme.AddFormRow(layout, 3, "Billing Address", txtAddr);
-                UITheme.AddFormRow(layout, 4, "Payment Term", txtTerm);
+                UITheme.AddFormRow(layout, 4, "Payment Term", cmbTerm);
                 generalPage.Controls.Add(layout);
 
                 var contactGrid = CreateCustomerChildGrid(
@@ -756,7 +1125,7 @@ namespace FurnitureERP.Forms
                             existing.CustomerRefNumber = txtRef.Text.Trim();
                             existing.CustomerName = txtName.Text.Trim();
                             existing.BillingAddress = txtAddr.Text.Trim();
-                            existing.PaymentTerm = txtTerm.Text.Trim();
+                            existing.PaymentTerm = DictionaryUIHelper.GetSelectedPaymentTerm(cmbTerm);
                             if (!_customerCtrl.Update(existing))
                             {
                                 UITheme.ShowWarning("Failed to update customer.");
@@ -772,7 +1141,7 @@ namespace FurnitureERP.Forms
                                 CustomerRefNumber = txtRef.Text.Trim(),
                                 CustomerName = txtName.Text.Trim(),
                                 BillingAddress = txtAddr.Text.Trim(),
-                                PaymentTerm = txtTerm.Text.Trim()
+                                PaymentTerm = DictionaryUIHelper.GetSelectedPaymentTerm(cmbTerm)
                             });
                             if (string.IsNullOrWhiteSpace(txtCode.Text))
                                 _customerCtrl.UpdateCodeAfterInsert(customerId);

@@ -2325,7 +2325,8 @@ namespace FurnitureERP.Forms
                 var txtPhone = new TextBox { Text = existing?.Phone ?? "" };
                 var txtEmail = new TextBox { Text = existing?.Email ?? "" };
                 var txtAddress = new TextBox { Text = existing?.BillingAddress ?? "" };
-                var txtTerm = new TextBox { Text = existing?.PaymentTerm ?? "" };
+                var cmbTerm = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+                DictionaryUIHelper.BindPaymentTermCombo(cmbTerm, existing?.PaymentTerm);
                 var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
                 cmbStatus.Items.AddRange(new object[] { "0 - Inactive", "1 - Active" });
                 cmbStatus.SelectedIndex = existing != null ? existing.Status : 1;
@@ -2335,7 +2336,7 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormField(layout, 2, "Phone", txtPhone);
                 UITheme.AddFormField(layout, 3, "Email", txtEmail);
                 UITheme.AddFormField(layout, 4, "Billing Address", txtAddress);
-                UITheme.AddFormField(layout, 5, "Payment Term", txtTerm);
+                UITheme.AddFormField(layout, 5, "Payment Term", cmbTerm);
                 UITheme.AddFormField(layout, 6, "Status", cmbStatus);
 
                 var btnSave = UITheme.CreatePrimaryButton("Save");
@@ -2353,7 +2354,7 @@ namespace FurnitureERP.Forms
                             Phone = txtPhone.Text.Trim(),
                             Email = txtEmail.Text.Trim(),
                             BillingAddress = txtAddress.Text.Trim(),
-                            PaymentTerm = txtTerm.Text.Trim(),
+                            PaymentTerm = DictionaryUIHelper.GetSelectedPaymentTerm(cmbTerm),
                             Status = cmbStatus.SelectedIndex
                         };
                         if (isEdit) { sup.SupplierID = existing.SupplierID; _supplierCtrl.Update(sup); }

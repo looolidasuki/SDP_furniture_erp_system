@@ -28,6 +28,7 @@ namespace FurnitureERP.Helpers
             public const string RefundMethod = "REFUND_METHOD";
             public const string RefundReason = "REFUND_REASON";
             public const string RefundStatus = "REFUND_STATUS";
+            public const string PaymentTerm = "PAYMENT_TERM";
         }
 
         private static readonly Dictionary<string, Dictionary<int, string>> _cache =
@@ -178,6 +179,13 @@ namespace FurnitureERP.Helpers
             [3] = "Rejected",
             [4] = "Cancelled"
         };
+        private static readonly Dictionary<int, string> _paymentTermFallback = new Dictionary<int, string>
+        {
+            [1] = "Cash",
+            [2] = "30 Days",
+            [3] = "60 Days",
+            [4] = "90 Days"
+        };
 
         public static void ClearCache() => _cache.Clear();
 
@@ -207,6 +215,9 @@ namespace FurnitureERP.Helpers
             if (string.Equals(category, Categories.RefundStatus, StringComparison.OrdinalIgnoreCase)
                 && _refundStatusFallback.TryGetValue(codeValue, out var refundStatusName))
                 return refundStatusName;
+            if (string.Equals(category, Categories.PaymentTerm, StringComparison.OrdinalIgnoreCase)
+                && _paymentTermFallback.TryGetValue(codeValue, out var paymentTermName))
+                return paymentTermName;
             return codeValue.ToString();
         }
 
@@ -260,6 +271,8 @@ namespace FurnitureERP.Helpers
                 return _refundReasonFallback.Select(x => new KeyValuePair<int, string>(x.Key, x.Value)).ToList();
             if (string.Equals(category, Categories.RefundStatus, StringComparison.OrdinalIgnoreCase))
                 return _refundStatusFallback.Select(x => new KeyValuePair<int, string>(x.Key, x.Value)).ToList();
+            if (string.Equals(category, Categories.PaymentTerm, StringComparison.OrdinalIgnoreCase))
+                return _paymentTermFallback.Select(x => new KeyValuePair<int, string>(x.Key, x.Value)).ToList();
 
             return new List<KeyValuePair<int, string>>();
         }

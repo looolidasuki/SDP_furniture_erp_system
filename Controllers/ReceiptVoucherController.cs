@@ -82,6 +82,34 @@ namespace Sales_user.Controllers
 
         }
 
+        public DataTable GetByCustomer(long customerId)
+        {
+            string sql = @"SELECT rv.receiptVoucherID AS 'ID',
+                                  rv.receiptVoucherCode AS 'Voucher Code',
+                                  CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
+                                  rv.paymentAmount AS 'Amount',
+                                  rv.paymentMethod AS 'Method',
+                                  rv.paymentMethodRef AS 'Reference',
+                                  rv.paymentReceivedDate AS 'Received Date',
+                                  rv.status AS 'Status',
+                                  rv.createDate AS 'Date'
+                           FROM receiptvoucher rv
+                           LEFT JOIN Staff st ON rv.staffID = st.staffID
+                           WHERE rv.cusomerID = @customerId
+                           ORDER BY rv.createDate DESC";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@customerId", customerId) });
+            if (dt != null && !dt.Columns.Contains("Status Label"))
+            {
+                dt.Columns.Add("Status Label", typeof(string));
+                foreach (DataRow row in dt.Rows)
+                {
+                    int status = Convert.ToInt32(row["Status"]);
+                    row["Status Label"] = status >= 0 && status < StatusLabels.Length ? StatusLabels[status] : status.ToString();
+                }
+            }
+            return dt;
+        }
+
 
 
         public long Insert(ReceiptVoucher rv)
