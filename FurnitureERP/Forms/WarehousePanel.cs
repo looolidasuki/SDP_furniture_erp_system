@@ -135,7 +135,7 @@ namespace FurnitureERP.Forms
                 OpenDeliveryEditDialog(Convert.ToInt64(_deliveryGrid.CurrentRow.Cells[0].Value));
             };
             PermissionGuard.ApplyEditButton(btnEditDelivery, PermissionModule.DeliveryNote);
-            var btnPrintDelivery = UITheme.CreateSecondaryButton("Print PDF");
+            var btnPrintDelivery = UITheme.CreateSecondaryButton("Print DN PDF");
             btnPrintDelivery.Location = new Point(btnEditDelivery.Right + 10, 8);
             btnPrintDelivery.Click += (s, e) =>
             {
@@ -146,7 +146,18 @@ namespace FurnitureERP.Forms
                 }
                 PrintDeliveryNotePdf(Convert.ToInt64(_deliveryGrid.CurrentRow.Cells[0].Value));
             };
-            _deliverySearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnPrintDelivery.Right + 10, 10) };
+            var btnPrintReplySlip = UITheme.CreateSecondaryButton("Print Reply Slip");
+            btnPrintReplySlip.Location = new Point(btnPrintDelivery.Right + 10, 8);
+            btnPrintReplySlip.Click += (s, e) =>
+            {
+                if (_deliveryGrid?.CurrentRow == null)
+                {
+                    UITheme.ShowWarning("Please select a delivery note first.");
+                    return;
+                }
+                PrintReplySlipPdf(Convert.ToInt64(_deliveryGrid.CurrentRow.Cells[0].Value));
+            };
+            _deliverySearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnPrintReplySlip.Right + 10, 10) };
             _deliverySearchBox.TextChanged += (s, e) => LoadDeliveryNotes();
             _deliveryStatusFilter = new ComboBox
             {
@@ -163,6 +174,7 @@ namespace FurnitureERP.Forms
             deliveryToolbar.Controls.Add(btnConfirmDelivery);
             deliveryToolbar.Controls.Add(btnEditDelivery);
             deliveryToolbar.Controls.Add(btnPrintDelivery);
+            deliveryToolbar.Controls.Add(btnPrintReplySlip);
             deliveryToolbar.Controls.Add(_deliverySearchBox);
             deliveryToolbar.Controls.Add(_deliveryStatusFilter);
 
@@ -258,7 +270,10 @@ namespace FurnitureERP.Forms
                 GridHelper.StyleGrid(_deliveryGrid);
                 HideDeliveryGridIdColumns();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                UITheme.ShowError("Failed to load delivery notes: " + ex.Message);
+            }
         }
 
         private void HideDeliveryGridIdColumns()
@@ -375,11 +390,33 @@ namespace FurnitureERP.Forms
                     Padding = new Padding(8, 8, 16, 8),
                     BackColor = UITheme.Background
                 };
-                var btnPrint = UITheme.CreatePrimaryButton("Print PDF");
+                var btnPrintReply = UITheme.CreatePrimaryButton("Print Reply Slip");
+                btnPrintReply.Width = 150;
+                btnPrintReply.Anchor = AnchorStyles.Right | AnchorStyles.Top;
+                btnPrintReply.Location = new Point(toolbar.Width - btnPrintReply.Width - 16, 8);
+                toolbar.Resize += (s, e) => btnPrintReply.Left = Math.Max(8, toolbar.Width - btnPrintReply.Width - 16);
+                btnPrintReply.Click += (s, e) =>
+                {
+                    try
+                    {
+                        if (!TryExportReplySlipPdf(deliveryNoteId, dlg))
+                            UITheme.ShowWarning("No data available to print.");
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError("Failed to export reply slip PDF: " + ex.Message);
+                    }
+                };
+
+                var btnPrint = UITheme.CreateSecondaryButton("Print DN PDF");
                 btnPrint.Width = 130;
                 btnPrint.Anchor = AnchorStyles.Right | AnchorStyles.Top;
-                btnPrint.Location = new Point(toolbar.Width - btnPrint.Width - 16, 8);
-                toolbar.Resize += (s, e) => btnPrint.Left = Math.Max(8, toolbar.Width - btnPrint.Width - 16);
+                btnPrint.Location = new Point(btnPrintReply.Left - btnPrint.Width - 8, 8);
+                toolbar.Resize += (s, e) =>
+                {
+                    btnPrintReply.Left = Math.Max(8, toolbar.Width - btnPrintReply.Width - 16);
+                    btnPrint.Left = Math.Max(8, btnPrintReply.Left - btnPrint.Width - 8);
+                };
                 btnPrint.Click += (s, e) =>
                 {
                     try
@@ -393,6 +430,7 @@ namespace FurnitureERP.Forms
                     }
                 };
                 toolbar.Controls.Add(btnPrint);
+                toolbar.Controls.Add(btnPrintReply);
                 dlg.Controls.Add(toolbar);
                 toolbar.BringToFront();
 
@@ -422,6 +460,39 @@ namespace FurnitureERP.Forms
             if (DeliveryNotePdfHelper.ExportToPdf(pdfData, owner))
             {
                 UITheme.ShowSuccess("PDF saved successfully.");
+                return true;
+            }
+            return true;
+        }
+
+        private void PrintReplySlipPdf(long deliveryNoteId)
+        {
+            try
+            {
+                if (!TryExportReplySlipPdf(deliveryNoteId, this))
+                    UITheme.ShowWarning("Delivery note not found.");
+            }
+            catch (Exception ex)
+            {
+                UITheme.ShowError("Failed to export reply slip PDF: " + ex.Message);
+            }
+        }
+
+        private bool TryExportReplySlipPdf(long deliveryNoteId, IWin32Window owner)
+        {
+            if (!TryLoadDeliveryNoteDetail(deliveryNoteId, out DataTable header, out DataTable lines, out decimal total, out _))
+                return false;
+
+            string slipCode = header.Rows[0].Table.Columns.Contains("Reply Slip Code")
+                ? header.Rows[0]["Reply Slip Code"]?.ToString()
+                : null;
+            if (string.IsNullOrWhiteSpace(slipCode))
+                slipCode = "ReplySlip_" + deliveryNoteId;
+
+            var pdfData = ReplySlipPdfHelper.FromDeliveryNoteHeaderAndLines(header, lines, total, slipCode);
+            if (ReplySlipPdfHelper.ExportToPdf(pdfData, owner))
+            {
+                UITheme.ShowSuccess("Reply slip PDF saved successfully.");
                 return true;
             }
             return true;
@@ -666,7 +737,7 @@ namespace FurnitureERP.Forms
             using (var dlg = new Form())
             {
                 dlg.Text = isNew ? "New Delivery Note" : $"Edit Delivery Note — {dn.DeliveryNoteCode}";
-                dlg.Size = new Size(920, 640);
+                dlg.Size = new Size(920, 700);
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.MinimumSize = new Size(800, 520);
                 dlg.BackColor = UITheme.Background;
@@ -675,14 +746,14 @@ namespace FurnitureERP.Forms
                 {
                     Dock = DockStyle.Fill,
                     Orientation = Orientation.Horizontal,
-                    SplitterDistance = 260
+                    SplitterDistance = 300
                 };
 
                 var formLayout = new TableLayoutPanel
                 {
                     Dock = DockStyle.Fill,
                     ColumnCount = 2,
-                    RowCount = 9,
+                    RowCount = 12,
                     Padding = new Padding(12)
                 };
                 formLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
@@ -694,8 +765,17 @@ namespace FurnitureERP.Forms
                     AutoSize = true,
                     ForeColor = UITheme.TextDark
                 };
+                var lblReplySlipCode = new Label
+                {
+                    Text = isNew ? "(assigned on save)" : (string.IsNullOrWhiteSpace(dn.ReplySlipCode)
+                        ? DeliveryNoteController.FormatReplySlipCodeFromDeliveryNoteCode(dn.DeliveryNoteCode) ?? "(assigned on save)"
+                        : dn.ReplySlipCode),
+                    AutoSize = true,
+                    ForeColor = UITheme.TextDark
+                };
                 var cmbCustomer = BuildCustomerCombo(dn?.CustomerID ?? 0);
-                var cmbSalesOrder = BuildSalesOrderCombo(dn?.CustomerID ?? 0, dn?.SalesOrderID ?? 0);
+                long initialCustomerId = dn?.CustomerID ?? GetComboLongId(cmbCustomer);
+                var cmbSalesOrder = BuildSalesOrderCombo(initialCustomerId, dn?.SalesOrderID ?? 0);
                 var cmbWarehouse = BuildWarehouseCombo(dn?.WarehouseID ?? 0);
                 var cmbShipMethod = BuildShipMethodCombo(dn?.ShipMethod);
                 var txtTracking = new TextBox { Text = dn?.TrackingNumber ?? "" };
@@ -707,6 +787,14 @@ namespace FurnitureERP.Forms
                     DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.Delivery, 0);
                 }
                 var txtRemark = new TextBox { Text = dn?.Remark ?? "", Multiline = true, Height = 48, ScrollBars = ScrollBars.Vertical };
+                var txtSignedBy = new TextBox { Text = dn?.SignedBy ?? "" };
+                var dtpSignedDate = new DateTimePicker
+                {
+                    Format = DateTimePickerFormat.Short,
+                    ShowCheckBox = true,
+                    Checked = dn?.SignedDate.HasValue == true,
+                    Value = dn?.SignedDate ?? DateTime.Today
+                };
                 string staffLabel = AppSession.CurrentUser != null
                     ? (string.IsNullOrWhiteSpace(AppSession.CurrentUser.FullName)
                         ? AppSession.CurrentUser.Username
@@ -716,6 +804,7 @@ namespace FurnitureERP.Forms
 
                 int row = 0;
                 if (!isNew) UITheme.AddFormRow(formLayout, row++, "Delivery Note Code", lblCode);
+                if (!isNew) UITheme.AddFormRow(formLayout, row++, "Reply Slip Code", lblReplySlipCode);
                 UITheme.AddFormRow(formLayout, row++, "Customer *", cmbCustomer);
                 UITheme.AddFormRow(formLayout, row++, "Sales Order *", cmbSalesOrder);
                 UITheme.AddFormRow(formLayout, row++, "Warehouse *", cmbWarehouse);
@@ -723,6 +812,8 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormRow(formLayout, row++, "Tracking Number", txtTracking);
                 UITheme.AddFormRow(formLayout, row++, "Staff", lblStaff);
                 UITheme.AddFormRow(formLayout, row++, "Status", cmbStatus);
+                UITheme.AddFormRow(formLayout, row++, "Signed By", txtSignedBy);
+                UITheme.AddFormRow(formLayout, row++, "Signed Date", dtpSignedDate);
                 UITheme.AddFormRow(formLayout, row, "Remark", txtRemark);
 
                 var lineGrid = CreateDeliveryLineGrid();
@@ -840,14 +931,18 @@ namespace FurnitureERP.Forms
                             ShipMethod = shipMethod,
                             TrackingNumber = txtTracking.Text.Trim(),
                             Status = isNew ? 0 : DictionaryUIHelper.GetSelectedStatusCode(cmbStatus),
-                            Remark = txtRemark.Text.Trim()
+                            Remark = txtRemark.Text.Trim(),
+                            SignedBy = txtSignedBy.Text.Trim(),
+                            SignedDate = dtpSignedDate.Checked ? dtpSignedDate.Value.Date : (DateTime?)null
                         };
 
                         if (isNew)
                         {
                             long newId = _deliveryCtrl.CreateWithLines(note, lines ?? Enumerable.Empty<(long, int)>());
+                            string dnCode = DeliveryNoteController.FormatDeliveryNoteCode(newId);
+                            string rsCode = DeliveryNoteController.FormatReplySlipCode(newId);
                             UITheme.ShowSuccess(
-                                $"Delivery note DN-{newId} created.\r\nNext: select it in the list and click Confirm Delivery (then Finance → Invoice from Delivery).");
+                                $"Delivery note {dnCode} / reply slip {rsCode} created.\r\nPrint DN and Reply Slip for the driver. After customer sign-off, click Confirm Delivery.");
                         }
                         else if (!_deliveryCtrl.UpdateWithLines(note, lines))
                         {
@@ -902,6 +997,7 @@ namespace FurnitureERP.Forms
             cmb.DisplayMember = "DisplayText";
             cmb.ValueMember = "Customer ID";
             if (selectedCustomerId > 0) SetComboLongValue(cmb, selectedCustomerId);
+            else if (cmb.Items.Count > 0) cmb.SelectedIndex = 0;
             return cmb;
         }
 
@@ -914,31 +1010,38 @@ namespace FurnitureERP.Forms
 
         private void BindSalesOrderCombo(ComboBox cmb, long customerId, long selectedSalesOrderId)
         {
-            DataTable dt;
-            if (customerId > 0)
-                dt = _salesOrderCtrl.GetSalesOrdersPickerByCustomer(customerId);
-            else
+            try
             {
-                dt = new DataTable();
-                dt.Columns.Add("Order ID", typeof(long));
-                dt.Columns.Add("DisplayText", typeof(string));
-            }
-            if (dt != null && !dt.Columns.Contains("DisplayText"))
-                dt.Columns.Add("DisplayText", typeof(string));
-            if (dt != null)
-            {
-                foreach (DataRow row in dt.Rows)
+                DataTable dt;
+                if (customerId > 0)
+                    dt = _salesOrderCtrl.GetSalesOrdersPickerByCustomer(customerId);
+                else
                 {
-                    string code = row.Table.Columns.Contains("Order Code") ? row["Order Code"]?.ToString() : "";
-                    string cref = row.Table.Columns.Contains("Customer Ref") ? row["Customer Ref"]?.ToString() : "";
-                    row["DisplayText"] = string.IsNullOrWhiteSpace(cref) ? code : $"{code} ({cref})";
+                    dt = new DataTable();
+                    dt.Columns.Add("Order ID", typeof(long));
+                    dt.Columns.Add("DisplayText", typeof(string));
                 }
+                if (dt != null && !dt.Columns.Contains("DisplayText"))
+                    dt.Columns.Add("DisplayText", typeof(string));
+                if (dt != null)
+                {
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        string code = row.Table.Columns.Contains("Order Code") ? row["Order Code"]?.ToString() : "";
+                        string cref = row.Table.Columns.Contains("Customer Ref") ? row["Customer Ref"]?.ToString() : "";
+                        row["DisplayText"] = string.IsNullOrWhiteSpace(cref) ? code : $"{code} ({cref})";
+                    }
+                }
+                cmb.DataSource = dt;
+                cmb.DisplayMember = "DisplayText";
+                cmb.ValueMember = "Order ID";
+                if (selectedSalesOrderId > 0) SetComboLongValue(cmb, selectedSalesOrderId);
+                else if (cmb.Items.Count > 0) cmb.SelectedIndex = 0;
             }
-            cmb.DataSource = dt;
-            cmb.DisplayMember = "DisplayText";
-            cmb.ValueMember = "Order ID";
-            if (selectedSalesOrderId > 0) SetComboLongValue(cmb, selectedSalesOrderId);
-            else if (cmb.Items.Count > 0) cmb.SelectedIndex = 0;
+            catch (Exception ex)
+            {
+                UITheme.ShowError("Failed to load sales orders: " + ex.Message);
+            }
         }
 
         private ComboBox BuildWarehouseCombo(long selectedWarehouseId = 0)
@@ -1001,7 +1104,18 @@ namespace FurnitureERP.Forms
 
         private void LoadDeliveryLineGrid(DataGridView grid, long salesOrderId, long deliveryNoteId, bool readOnly)
         {
-            var dt = _deliveryCtrl.GetLineEditorData(salesOrderId, deliveryNoteId);
+            DataTable dt;
+            try
+            {
+                dt = _deliveryCtrl.GetLineEditorData(salesOrderId, deliveryNoteId);
+            }
+            catch (Exception ex)
+            {
+                grid.DataSource = null;
+                UITheme.ShowError("Failed to load delivery lines: " + ex.Message);
+                return;
+            }
+
             if (dt != null && dt.Columns.Contains("Ship Qty"))
                 dt.Columns["Ship Qty"].ReadOnly = false;
 
@@ -1093,15 +1207,119 @@ namespace FurnitureERP.Forms
             if (!PermissionGuard.Ensure(PermissionModule.DeliveryNote, PermissionAction.Edit, this)) return;
 
             long id = Convert.ToInt64(_deliveryGrid.CurrentRow.Cells[0].Value);
+            var dn = _deliveryCtrl.GetById(id);
+            if (dn == null)
+            {
+                UITheme.ShowWarning("Delivery note not found.");
+                return;
+            }
+            if (DeliveryNoteController.IsDeliveryConfirmed(dn.Status))
+            {
+                UITheme.ShowWarning("This delivery note is already confirmed.");
+                return;
+            }
+
+            if (!TryPromptDeliverySignOff(dn, out string signedBy, out DateTime? signedDate))
+                return;
+
+            _deliveryCtrl.UpdateSignOff(id, signedBy, signedDate);
+
             var result = _inventoryWorkflow.ConfirmDelivery(id);
             if (result.Success)
             {
-                UITheme.ShowSuccess(result.Message);
+                UITheme.ShowSuccess(result.Message + "\r\nStatus set to Delivered.");
                 LoadDeliveryNotes();
             }
             else
             {
                 UITheme.ShowWarning(result.Message);
+            }
+        }
+
+        private bool TryPromptDeliverySignOff(DeliveryNote dn, out string signedBy, out DateTime? signedDate)
+        {
+            string capturedSignedBy = dn.SignedBy;
+            DateTime? capturedSignedDate = dn.SignedDate;
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Customer Sign-off";
+                dlg.Size = new Size(420, 220);
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.MaximizeBox = false;
+                dlg.MinimizeBox = false;
+                dlg.BackColor = UITheme.Background;
+
+                var layout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 2,
+                    RowCount = 3,
+                    Padding = new Padding(16)
+                };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var txtSignedBy = new TextBox { Text = dn.SignedBy ?? "", Dock = DockStyle.Fill };
+                var dtpSigned = new DateTimePicker
+                {
+                    Format = DateTimePickerFormat.Short,
+                    ShowCheckBox = true,
+                    Checked = dn.SignedDate.HasValue,
+                    Value = dn.SignedDate ?? DateTime.Today,
+                    Dock = DockStyle.Fill
+                };
+
+                UITheme.AddFormRow(layout, 0, "Signed By *", txtSignedBy);
+                UITheme.AddFormRow(layout, 1, "Signed Date", dtpSigned);
+                layout.Controls.Add(new Label
+                {
+                    Text = "Record customer sign-off from the returned reply slip, then confirm delivery.",
+                    Dock = DockStyle.Fill,
+                    ForeColor = UITheme.TextGray,
+                    Font = new Font("Segoe UI", 8.5f)
+                }, 0, 2);
+                layout.SetColumnSpan(layout.GetControlFromPosition(0, 2), 2);
+
+                var btnOk = UITheme.CreatePrimaryButton("Confirm");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => dlg.Close();
+                btnOk.Click += (s, e) =>
+                {
+                    if (string.IsNullOrWhiteSpace(txtSignedBy.Text))
+                    {
+                        UITheme.ShowWarning("Signed By is required.");
+                        return;
+                    }
+                    capturedSignedBy = txtSignedBy.Text.Trim();
+                    capturedSignedDate = dtpSigned.Checked ? dtpSigned.Value.Date : (DateTime?)null;
+                    dlg.DialogResult = DialogResult.OK;
+                    dlg.Close();
+                };
+
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnOk);
+                btnPanel.Controls.Add(btnCancel);
+
+                dlg.Controls.Add(layout);
+                dlg.Controls.Add(btnPanel);
+                if (dlg.ShowDialog(this) != DialogResult.OK)
+                {
+                    signedBy = dn.SignedBy;
+                    signedDate = dn.SignedDate;
+                    return false;
+                }
+
+                signedBy = capturedSignedBy;
+                signedDate = capturedSignedDate;
+                return true;
             }
         }
     }

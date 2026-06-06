@@ -187,7 +187,12 @@ namespace FurnitureERP.Forms
             btnView.Location = new Point(btnNew.Right + 10, 10);
             btnView.Click += (s, e) => ShowSelectedPaymentVoucherDetail();
 
-            var lblSearch = new Label { Text = "Search Code:", Location = new Point(btnView.Right + 16, 16), AutoSize = true };
+            var btnUpdateStatus = UITheme.CreateSecondaryButton("Update Status");
+            btnUpdateStatus.Location = new Point(btnView.Right + 10, 10);
+            btnUpdateStatus.Click += (s, e) => ShowUpdatePaymentVoucherStatusDialog();
+            PermissionGuard.ApplyEditButton(btnUpdateStatus, PermissionModule.PaymentVoucher);
+
+            var lblSearch = new Label { Text = "Search Code:", Location = new Point(btnUpdateStatus.Right + 16, 16), AutoSize = true };
             _pvSearch = new TextBox { Location = new Point(lblSearch.Right + 8, 13), Width = 150 };
             _pvSearch.TextChanged += (s, e) => FilterPV();
 
@@ -200,6 +205,7 @@ namespace FurnitureERP.Forms
 
             toolbar.Controls.Add(btnNew);
             toolbar.Controls.Add(btnView);
+            toolbar.Controls.Add(btnUpdateStatus);
             toolbar.Controls.Add(lblSearch);
             toolbar.Controls.Add(_pvSearch);
             toolbar.Controls.Add(lblFilter);
@@ -249,16 +255,16 @@ namespace FurnitureERP.Forms
             };
             PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.ReceiptVoucher);
 
-            var btnVerify = UITheme.CreateSecondaryButton("Verify & Allocate");
-            btnVerify.Location = new Point(btnNew.Right + 10, 10);
-            btnVerify.Click += (s, e) => VerifySelectedReceipt();
-            PermissionGuard.ApplyEditButton(btnVerify, PermissionModule.ReceiptVoucher);
-
             var btnDetail = UITheme.CreateSecondaryButton("View Detail");
-            btnDetail.Location = new Point(btnVerify.Right + 10, 10);
+            btnDetail.Location = new Point(btnNew.Right + 10, 10);
             btnDetail.Click += (s, e) => ShowSelectedReceiptVoucherDetail();
 
-            var lblSearch = new Label { Text = "Search Code:", Location = new Point(btnDetail.Right + 16, 16), AutoSize = true };
+            var btnUpdateRvStatus = UITheme.CreateSecondaryButton("Update Status");
+            btnUpdateRvStatus.Location = new Point(btnDetail.Right + 10, 10);
+            btnUpdateRvStatus.Click += (s, e) => ShowUpdateReceiptVoucherStatusDialog();
+            PermissionGuard.ApplyEditButton(btnUpdateRvStatus, PermissionModule.ReceiptVoucher);
+
+            var lblSearch = new Label { Text = "Search Code:", Location = new Point(btnUpdateRvStatus.Right + 16, 16), AutoSize = true };
             _rvSearch = new TextBox { Location = new Point(lblSearch.Right + 8, 13), Width = 150 };
             _rvSearch.TextChanged += (s, e) => FilterRV();
 
@@ -270,8 +276,8 @@ namespace FurnitureERP.Forms
             _rvStatusFilter.SelectedIndexChanged += (s, e) => FilterRV();
 
             toolbar.Controls.Add(btnNew);
-            toolbar.Controls.Add(btnVerify);
             toolbar.Controls.Add(btnDetail);
+            toolbar.Controls.Add(btnUpdateRvStatus);
             toolbar.Controls.Add(lblSearch);
             toolbar.Controls.Add(_rvSearch);
             toolbar.Controls.Add(lblFilter);
@@ -640,15 +646,6 @@ namespace FurnitureERP.Forms
             UITheme.AddFormField(layout, 7, "Status", cmbStatus);
             UITheme.AddFormField(layout, 8, "Remark", txtRemark);
 
-            var lblHint = new Label
-            {
-                Text = "Invoice allocations (receiptvoucherinvoice) are managed via Verify & Allocate.",
-                Dock = DockStyle.Top,
-                Height = 30,
-                Padding = new Padding(4, 4, 4, 0),
-                ForeColor = UITheme.TextGray
-            };
-
             var btnSave = UITheme.CreatePrimaryButton("Save");
             if (isNew) PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.ReceiptVoucher);
             else PermissionGuard.ApplyEditButton(btnSave, PermissionModule.ReceiptVoucher);
@@ -703,11 +700,7 @@ namespace FurnitureERP.Forms
             btnPanel.Controls.Add(btnSave);
             btnPanel.Controls.Add(btnCancel);
 
-            var bottomFooter = new Panel { Dock = DockStyle.Bottom, Height = 84 };
-            bottomFooter.Controls.Add(btnPanel);
-            bottomFooter.Controls.Add(lblHint);
-
-            dlg.Controls.Add(bottomFooter);
+            dlg.Controls.Add(btnPanel);
             dlg.Controls.Add(layout);
             return dlg;
         }
@@ -1334,12 +1327,17 @@ namespace FurnitureERP.Forms
         {
             try
             {
+                var pv = _pvCtrl.GetById(paymentVoucherId);
                 var header = _pvCtrl.GetHeaderDetail(paymentVoucherId);
                 var lines = _pvCtrl.GetPurchaseOrderSettlementsDetailed(paymentVoucherId);
                 string code = header?.Rows.Count > 0 ? header.Rows[0]["Voucher Code"]?.ToString() : paymentVoucherId.ToString();
-                var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
-                DetailViewHelper.ShowDetail(this, $"Payment Voucher — {code}", fields, lines,
-                    $"PaymentVoucher_{code}", null, null, "PO Settlements", "PO Settlements");
+                ShowVoucherDetailDialog(
+                    $"Payment Voucher — {code}",
+                    DetailViewHelper.SingleRowToFieldValueTable(header),
+                    lines,
+                    "PO Settlements",
+                    pv?.SupplierID ?? 0,
+                    isPaymentVoucher: true);
             }
             catch (Exception ex) { UITheme.ShowError(ex.Message); }
         }
@@ -1358,16 +1356,353 @@ namespace FurnitureERP.Forms
         {
             try
             {
+                var rv = _rvCtrl.GetById(receiptVoucherId);
                 var header = _rvCtrl.GetHeaderDetail(receiptVoucherId);
                 var lines = _rvCtrl.GetInvoiceAllocationsDetailed(receiptVoucherId);
                 if (lines != null && lines.Columns.Contains("Invoice ID"))
                     lines.Columns.Remove("Invoice ID");
                 string code = header?.Rows.Count > 0 ? header.Rows[0]["Voucher Code"]?.ToString() : receiptVoucherId.ToString();
-                var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
-                DetailViewHelper.ShowDetail(this, $"Receipt Voucher — {code}", fields, lines,
-                    $"ReceiptVoucher_{code}", null, null, "Invoice Allocations", "Invoice Allocations");
+                ShowVoucherDetailDialog(
+                    $"Receipt Voucher — {code}",
+                    DetailViewHelper.SingleRowToFieldValueTable(header),
+                    lines,
+                    "Invoice Allocations",
+                    rv?.CusomerID ?? 0,
+                    isPaymentVoucher: false);
             }
             catch (Exception ex) { UITheme.ShowError(ex.Message); }
+        }
+
+        private void ShowVoucherDetailDialog(string title, DataTable voucherFields, DataTable lines, string linesTabTitle, long partyId, bool isPaymentVoucher)
+        {
+            using (var dlg = new Form())
+            {
+                dlg.Text = title;
+                dlg.Size = new Size(920, 620);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+
+                var tabVoucher = new TabPage("Voucher");
+                var voucherGrid = GridHelper.CreateStyledGrid();
+                voucherGrid.DataSource = voucherFields;
+                GridHelper.StyleGrid(voucherGrid);
+                voucherGrid.Dock = DockStyle.Fill;
+                tabVoucher.Controls.Add(voucherGrid);
+                tabs.TabPages.Add(tabVoucher);
+
+                if (partyId > 0)
+                {
+                    if (isPaymentVoucher && AppSession.CanView(PermissionModule.Supplier))
+                        tabs.TabPages.Add(BuildSupplierProfileTab(partyId));
+                    else if (!isPaymentVoucher && AppSession.CanView(PermissionModule.Customer))
+                        tabs.TabPages.Add(BuildCustomerProfileTab(partyId));
+                }
+
+                if (lines != null)
+                {
+                    var tabLines = new TabPage(linesTabTitle);
+                    var lineGrid = GridHelper.CreateStyledGrid();
+                    lineGrid.DataSource = lines;
+                    GridHelper.StyleGrid(lineGrid);
+                    lineGrid.Dock = DockStyle.Fill;
+                    tabLines.Controls.Add(lineGrid);
+                    tabs.TabPages.Add(tabLines);
+                }
+
+                var btnClose = UITheme.CreateSecondaryButton("Close");
+                btnClose.Click += (s, e) => dlg.Close();
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnClose);
+                dlg.Controls.Add(tabs);
+                dlg.Controls.Add(btnPanel);
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private TabPage BuildSupplierProfileTab(long supplierId)
+        {
+            var tab = new TabPage("Supplier");
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 200 };
+
+            var profileGrid = GridHelper.CreateStyledGrid();
+            profileGrid.DataSource = BuildSupplierProfileFields(supplierId);
+            GridHelper.StyleGrid(profileGrid);
+            profileGrid.Dock = DockStyle.Fill;
+
+            var quoteGrid = GridHelper.CreateStyledGrid();
+            try
+            {
+                quoteGrid.DataSource = _supplierCtrl.GetRawMaterialQuotesBySupplier(supplierId);
+                GridHelper.StyleGrid(quoteGrid);
+            }
+            catch { }
+            quoteGrid.Dock = DockStyle.Fill;
+
+            split.Panel1.Controls.Add(profileGrid);
+            split.Panel2.Controls.Add(quoteGrid);
+            tab.Controls.Add(split);
+            return tab;
+        }
+
+        private TabPage BuildCustomerProfileTab(long customerId)
+        {
+            var tab = new TabPage("Customer");
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 180 };
+
+            var profileGrid = GridHelper.CreateStyledGrid();
+            profileGrid.DataSource = BuildCustomerProfileFields(customerId);
+            GridHelper.StyleGrid(profileGrid);
+            profileGrid.Dock = DockStyle.Fill;
+
+            var bottomTabs = new TabControl { Dock = DockStyle.Fill };
+            var contactGrid = GridHelper.CreateStyledGrid();
+            contactGrid.DataSource = BuildCustomerContactsTable(customerId);
+            GridHelper.StyleGrid(contactGrid);
+            contactGrid.Dock = DockStyle.Fill;
+            var contactTab = new TabPage("Contact Persons");
+            contactTab.Controls.Add(contactGrid);
+
+            var addressGrid = GridHelper.CreateStyledGrid();
+            addressGrid.DataSource = BuildCustomerDeliveryAddressesTable(customerId);
+            GridHelper.StyleGrid(addressGrid);
+            addressGrid.Dock = DockStyle.Fill;
+            var addressTab = new TabPage("Delivery Addresses");
+            addressTab.Controls.Add(addressGrid);
+
+            bottomTabs.TabPages.Add(contactTab);
+            bottomTabs.TabPages.Add(addressTab);
+
+            split.Panel1.Controls.Add(profileGrid);
+            split.Panel2.Controls.Add(bottomTabs);
+            tab.Controls.Add(split);
+            return tab;
+        }
+
+        private DataTable BuildSupplierProfileFields(long supplierId)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Field");
+            dt.Columns.Add("Value");
+            var supplier = _supplierCtrl.GetById(supplierId);
+            if (supplier == null) return dt;
+
+            AddFieldRow(dt, "Supplier Name", supplier.SupplierName);
+            AddFieldRow(dt, "Contact Person", supplier.ContactPerson);
+            AddFieldRow(dt, "Phone", supplier.Phone);
+            AddFieldRow(dt, "Email", supplier.Email);
+            AddFieldRow(dt, "Billing Address", supplier.BillingAddress);
+            AddFieldRow(dt, "Payment Term", supplier.PaymentTerm);
+            AddFieldRow(dt, "Bank Account", supplier.BankAccount);
+            AddFieldRow(dt, "Status", supplier.Status.ToString());
+            return dt;
+        }
+
+        private DataTable BuildCustomerProfileFields(long customerId)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Field");
+            dt.Columns.Add("Value");
+            var customer = _customerCtrl.GetById(customerId);
+            if (customer == null) return dt;
+
+            AddFieldRow(dt, "Customer Code", customer.CustomerCode);
+            AddFieldRow(dt, "Customer Ref Number", customer.CustomerRefNumber);
+            AddFieldRow(dt, "Customer Name", customer.CustomerName);
+            AddFieldRow(dt, "Billing Address", customer.BillingAddress);
+            AddFieldRow(dt, "Payment Term", customer.PaymentTerm);
+            return dt;
+        }
+
+        private DataTable BuildCustomerContactsTable(long customerId)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Contact Person");
+            dt.Columns.Add("Title");
+            dt.Columns.Add("Phone");
+            dt.Columns.Add("Email");
+            foreach (var contact in _customerCtrl.GetContactPersons(customerId))
+            {
+                dt.Rows.Add(contact.Name, contact.Title, contact.Phone, contact.Email);
+            }
+            return dt;
+        }
+
+        private DataTable BuildCustomerDeliveryAddressesTable(long customerId)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Delivery Address");
+            dt.Columns.Add("Contact Person");
+            dt.Columns.Add("Phone");
+            dt.Columns.Add("Email");
+            foreach (var addr in _customerCtrl.GetDeliveryAddresses(customerId))
+            {
+                dt.Rows.Add(addr.DeliveryAddress, addr.ContactPerson, addr.Phone, addr.Email);
+            }
+            return dt;
+        }
+
+        private static void AddFieldRow(DataTable dt, string field, string value)
+        {
+            dt.Rows.Add(field, value ?? "");
+        }
+
+        private void ShowUpdatePaymentVoucherStatusDialog()
+        {
+            if (_pvGrid?.CurrentRow?.Cells["ID"]?.Value == null)
+            {
+                UITheme.ShowWarning("Please select a payment voucher first.");
+                return;
+            }
+            if (!PermissionGuard.Ensure(PermissionModule.PaymentVoucher, PermissionAction.Edit, this)) return;
+
+            long id = Convert.ToInt64(_pvGrid.CurrentRow.Cells["ID"].Value);
+            var pv = _pvCtrl.GetById(id);
+            if (pv == null) return;
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Update Payment Voucher Status";
+                dlg.Size = new Size(420, 220);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.BackColor = UITheme.Background;
+
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Padding = new Padding(16) };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var lblCurrent = new Label
+                {
+                    Text = pv.Status >= 0 && pv.Status < PVStatusNames.Length ? PVStatusNames[pv.Status] : pv.Status.ToString(),
+                    AutoSize = true,
+                    ForeColor = UITheme.TextDark
+                };
+                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+                cmbStatus.Items.AddRange(PVStatusNames);
+                cmbStatus.SelectedIndex = Math.Max(0, Math.Min(pv.Status, PVStatusNames.Length - 1));
+
+                UITheme.AddFormRow(layout, 0, "Current", lblCurrent);
+                UITheme.AddFormRow(layout, 1, "New Status", cmbStatus);
+
+                var btnSave = UITheme.CreatePrimaryButton("Save");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
+                {
+                    if (!PermissionGuard.Ensure(PermissionModule.PaymentVoucher, PermissionAction.Edit, dlg)) return;
+                    if (!_pvCtrl.UpdateStatus(id, cmbStatus.SelectedIndex))
+                    {
+                        UITheme.ShowWarning("Failed to update status.");
+                        return;
+                    }
+                    UITheme.ShowSuccess("Status updated.");
+                    dlg.DialogResult = DialogResult.OK;
+                    dlg.Close();
+                };
+
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnCancel);
+                dlg.Controls.Add(layout);
+                dlg.Controls.Add(btnPanel);
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    LoadAll();
+            }
+        }
+
+        private void ShowUpdateReceiptVoucherStatusDialog()
+        {
+            if (_rvGrid?.CurrentRow?.Cells["ID"]?.Value == null)
+            {
+                UITheme.ShowWarning("Please select a receipt voucher first.");
+                return;
+            }
+            if (!PermissionGuard.Ensure(PermissionModule.ReceiptVoucher, PermissionAction.Edit, this)) return;
+
+            long id = Convert.ToInt64(_rvGrid.CurrentRow.Cells["ID"].Value);
+            var rv = _rvCtrl.GetById(id);
+            if (rv == null) return;
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Update Receipt Voucher Status";
+                dlg.Size = new Size(440, 240);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.BackColor = UITheme.Background;
+
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(16) };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var lblCurrent = new Label
+                {
+                    Text = rv.Status >= 0 && rv.Status < RVStatusNames.Length ? RVStatusNames[rv.Status] : rv.Status.ToString(),
+                    AutoSize = true,
+                    ForeColor = UITheme.TextDark
+                };
+                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+                cmbStatus.Items.AddRange(RVStatusNames);
+                cmbStatus.SelectedIndex = Math.Max(0, Math.Min(rv.Status, RVStatusNames.Length - 1));
+                var lblHint = new Label
+                {
+                    Text = "Confirmed vouchers cannot revert to Draft.",
+                    AutoSize = false,
+                    MaximumSize = new Size(280, 0),
+                    ForeColor = UITheme.TextGray,
+                    Font = new Font("Segoe UI", 8.5f)
+                };
+
+                UITheme.AddFormRow(layout, 0, "Current", lblCurrent);
+                UITheme.AddFormRow(layout, 1, "New Status", cmbStatus);
+                UITheme.AddFormRow(layout, 2, "", lblHint);
+
+                var btnSave = UITheme.CreatePrimaryButton("Save");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
+                {
+                    if (!PermissionGuard.Ensure(PermissionModule.ReceiptVoucher, PermissionAction.Edit, dlg)) return;
+                    if (!_rvCtrl.TryUpdateStatus(id, cmbStatus.SelectedIndex, out string error))
+                    {
+                        UITheme.ShowWarning(string.IsNullOrWhiteSpace(error) ? "Failed to update status." : error);
+                        return;
+                    }
+                    UITheme.ShowSuccess("Status updated.");
+                    dlg.DialogResult = DialogResult.OK;
+                    dlg.Close();
+                };
+
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnCancel);
+                dlg.Controls.Add(layout);
+                dlg.Controls.Add(btnPanel);
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    LoadAll();
+            }
         }
 
         private ComboBox BuildSupplierCombo(long selectedSupplierId = 0)

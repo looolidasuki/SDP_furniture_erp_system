@@ -8,10 +8,41 @@ namespace Sales_user.Controllers
 {
     public class DeliveryNoteController
     {
+        private static bool? _hasReplySlipColumns;
+
+        private static bool HasReplySlipColumns()
+        {
+            if (_hasReplySlipColumns.HasValue) return _hasReplySlipColumns.Value;
+            try
+            {
+                object count = DatabaseConnect.ExecuteScalar(
+                    @"SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                      WHERE TABLE_SCHEMA = DATABASE()
+                        AND TABLE_NAME = 'deliverynote'
+                        AND COLUMN_NAME = 'replySlipCode'");
+                _hasReplySlipColumns = count != null && count != DBNull.Value && Convert.ToInt64(count) > 0;
+            }
+            catch
+            {
+                _hasReplySlipColumns = false;
+            }
+            return _hasReplySlipColumns.Value;
+        }
+
+        private static string ReplySlipCodeSelect(string alias = "dn") =>
+            HasReplySlipColumns() ? $"{alias}.replySlipCode AS 'Reply Slip Code'," : "NULL AS 'Reply Slip Code',";
+
+        private static string SignedBySelect(string alias = "dn") =>
+            HasReplySlipColumns() ? $"{alias}.signedBy AS 'Signed By'," : "NULL AS 'Signed By',";
+
+        private static string SignedDateSelect(string alias = "dn") =>
+            HasReplySlipColumns() ? $"{alias}.signedDate AS 'Signed Date'" : "NULL AS 'Signed Date'";
+
         public DataTable GetAllDeliveryNotes()
         {
-            string sql = @"SELECT dn.deliveryNoteID AS 'Delivery Note ID',
+            string sql = $@"SELECT dn.deliveryNoteID AS 'Delivery Note ID',
                                   dn.deliveryNoteCode AS 'Delivery Note Code',
+                                  {ReplySlipCodeSelect()}
                                   c.customerName AS 'Customer',
                                   so.salesOrderCode AS 'Sales Order',
                                   dn.shipMethod AS 'Ship Method',
@@ -32,6 +63,36 @@ namespace Sales_user.Controllers
 
         public const string DepositDeliveryNoteCode = "DN-DEPOSIT";
         public const long DepositDeliveryNoteReservedId = 999999;
+
+        public static string FormatCodeSuffix(long deliveryNoteId, DateTime createDate)
+        {
+            return createDate.ToString("yyyyMMdd") + deliveryNoteId.ToString("D2");
+        }
+
+        public static string FormatDeliveryNoteCode(long deliveryNoteId, DateTime? createDate = null)
+        {
+            return "DN-" + FormatCodeSuffix(deliveryNoteId, createDate ?? DateTime.Now);
+        }
+
+        public static string FormatReplySlipCode(long deliveryNoteId, DateTime? createDate = null)
+        {
+            return "RS-" + FormatCodeSuffix(deliveryNoteId, createDate ?? DateTime.Now);
+        }
+
+        public static string FormatReplySlipCodeFromDeliveryNoteCode(string deliveryNoteCode)
+        {
+            if (string.IsNullOrWhiteSpace(deliveryNoteCode)) return null;
+            const string prefix = "DN-";
+            if (!deliveryNoteCode.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+            return "RS-" + deliveryNoteCode.Substring(prefix.Length);
+        }
+
+        private static (string DnCode, string RsCode) BuildPairedCodes(long deliveryNoteId, DateTime? createDate = null)
+        {
+            DateTime date = createDate ?? DateTime.Now;
+            string suffix = FormatCodeSuffix(deliveryNoteId, date);
+            return ("DN-" + suffix, "RS-" + suffix);
+        }
 
         /// <summary>
         /// Ensures a virtual delivery note exists for deposit invoice lines and deposit offsets on invoiceline.
@@ -123,10 +184,27 @@ namespace Sales_user.Controllers
 
         public void UpdateCodeAfterInsert(long id)
         {
+            var codes = BuildPairedCodes(id);
+            if (HasReplySlipColumns())
+            {
+                DatabaseConnect.ExecuteNonQuery(
+                    @"UPDATE DeliveryNote
+                      SET deliveryNoteCode = @dnCode, replySlipCode = @rsCode
+                      WHERE deliveryNoteID = @id",
+                    new[]
+                    {
+                        new MySqlParameter("@dnCode", codes.DnCode),
+                        new MySqlParameter("@rsCode", codes.RsCode),
+                        new MySqlParameter("@id", id)
+                    });
+                return;
+            }
+
             DatabaseConnect.ExecuteNonQuery(
-                "UPDATE DeliveryNote SET deliveryNoteCode = @code WHERE deliveryNoteID = @id",
-                new[] {
-                    new MySqlParameter("@code", "DN-" + id),
+                @"UPDATE DeliveryNote SET deliveryNoteCode = @dnCode WHERE deliveryNoteID = @id",
+                new[]
+                {
+                    new MySqlParameter("@dnCode", codes.DnCode),
                     new MySqlParameter("@id", id)
                 });
         }
@@ -154,13 +232,30 @@ namespace Sales_user.Controllers
                         new MySqlParameter("@remark", note.Remark ?? (object)DBNull.Value)
                     });
 
-                DatabaseConnect.ExecuteNonQuery(conn, trans,
-                    "UPDATE DeliveryNote SET deliveryNoteCode = @code WHERE deliveryNoteID = @id",
-                    new[]
-                    {
-                        new MySqlParameter("@code", "DN-" + newId),
-                        new MySqlParameter("@id", newId)
-                    });
+                var codes = BuildPairedCodes(newId);
+                if (HasReplySlipColumns())
+                {
+                    DatabaseConnect.ExecuteNonQuery(conn, trans,
+                        @"UPDATE DeliveryNote
+                          SET deliveryNoteCode = @dnCode, replySlipCode = @rsCode
+                          WHERE deliveryNoteID = @id",
+                        new[]
+                        {
+                            new MySqlParameter("@dnCode", codes.DnCode),
+                            new MySqlParameter("@rsCode", codes.RsCode),
+                            new MySqlParameter("@id", newId)
+                        });
+                }
+                else
+                {
+                    DatabaseConnect.ExecuteNonQuery(conn, trans,
+                        @"UPDATE DeliveryNote SET deliveryNoteCode = @dnCode WHERE deliveryNoteID = @id",
+                        new[]
+                        {
+                            new MySqlParameter("@dnCode", codes.DnCode),
+                            new MySqlParameter("@id", newId)
+                        });
+                }
 
                 ReplaceLines(conn, trans, newId, lines);
                 return newId;
@@ -173,24 +268,36 @@ namespace Sales_user.Controllers
             {
                 DatabaseConnect.ExecuteInTransaction((conn, trans) =>
                 {
+                    string signOffSet = HasReplySlipColumns()
+                        ? ", signedBy=@signedBy, signedDate=@signedDate"
+                        : "";
+                    var updateParams = new List<MySqlParameter>
+                    {
+                        new MySqlParameter("@customerID", note.CustomerID),
+                        new MySqlParameter("@soID", note.SalesOrderID),
+                        new MySqlParameter("@staffID", note.StaffID),
+                        new MySqlParameter("@whID", note.WarehouseID),
+                        new MySqlParameter("@shipMethod", note.ShipMethod ?? ""),
+                        new MySqlParameter("@tracking", note.TrackingNumber ?? ""),
+                        new MySqlParameter("@status", note.Status),
+                        new MySqlParameter("@remark", note.Remark ?? (object)DBNull.Value),
+                        new MySqlParameter("@id", note.DeliveryNoteID)
+                    };
+                    if (HasReplySlipColumns())
+                    {
+                        updateParams.Insert(updateParams.Count - 1,
+                            new MySqlParameter("@signedBy", string.IsNullOrWhiteSpace(note.SignedBy) ? (object)DBNull.Value : note.SignedBy));
+                        updateParams.Insert(updateParams.Count - 1,
+                            new MySqlParameter("@signedDate", note.SignedDate.HasValue ? (object)note.SignedDate.Value.Date : DBNull.Value));
+                    }
+
                     DatabaseConnect.ExecuteNonQuery(conn, trans,
-                        @"UPDATE DeliveryNote
+                        $@"UPDATE DeliveryNote
                           SET customerID=@customerID, salesOrderID=@soID, staffID=@staffID, warehouseID=@whID,
-                              shipMethod=@shipMethod, trackingNumber=@tracking, status=@status, remark=@remark,
+                              shipMethod=@shipMethod, trackingNumber=@tracking, status=@status, remark=@remark{signOffSet},
                               lastModifyDate=NOW()
                           WHERE deliveryNoteID=@id",
-                        new[]
-                        {
-                            new MySqlParameter("@customerID", note.CustomerID),
-                            new MySqlParameter("@soID", note.SalesOrderID),
-                            new MySqlParameter("@staffID", note.StaffID),
-                            new MySqlParameter("@whID", note.WarehouseID),
-                            new MySqlParameter("@shipMethod", note.ShipMethod ?? ""),
-                            new MySqlParameter("@tracking", note.TrackingNumber ?? ""),
-                            new MySqlParameter("@status", note.Status),
-                            new MySqlParameter("@remark", note.Remark ?? (object)DBNull.Value),
-                            new MySqlParameter("@id", note.DeliveryNoteID)
-                        });
+                        updateParams.ToArray());
 
                     if (lines != null && !IsDeliveryConfirmed(note.Status))
                         ReplaceLines(conn, trans, note.DeliveryNoteID, lines);
@@ -365,7 +472,9 @@ namespace Sales_user.Controllers
 
         public DataTable GetHeaderDetail(long deliveryNoteId)
         {
-            string sql = @"SELECT dn.deliveryNoteCode AS 'Delivery Note Code',
+            string sql = $@"SELECT dn.deliveryNoteID AS 'Delivery Note ID',
+                                  dn.deliveryNoteCode AS 'Delivery Note Code',
+                                  {ReplySlipCodeSelect()}
                                   c.customerName AS 'Customer',
                                   so.salesOrderCode AS 'Sales Order',
                                   so.customerRefNumber AS 'Customer Ref Number',
@@ -375,7 +484,9 @@ namespace Sales_user.Controllers
                                   CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
                                   dn.createDate AS 'Create Date',
                                   dn.status AS 'Status',
-                                  dn.remark AS 'Remark'
+                                  dn.remark AS 'Remark',
+                                  {SignedBySelect()}
+                                  {SignedDateSelect()}
                            FROM DeliveryNote dn
                            LEFT JOIN SalesOrder so ON dn.salesOrderID = so.salesOrderID
                            LEFT JOIN Customer c ON dn.customerID = c.customerID
@@ -387,8 +498,9 @@ namespace Sales_user.Controllers
 
         public DeliveryNote GetById(long id)
         {
-            string sql = @"SELECT deliveryNoteID, deliveryNoteCode, customerID, salesOrderID, staffID, warehouseID,
-                                  shipMethod, trackingNumber, status, remark
+            string extraCols = HasReplySlipColumns() ? ", replySlipCode, signedBy, signedDate" : "";
+            string sql = $@"SELECT deliveryNoteID, deliveryNoteCode, customerID, salesOrderID, staffID, warehouseID,
+                                  shipMethod, trackingNumber, status, remark{extraCols}
                            FROM DeliveryNote WHERE deliveryNoteID=@id";
             DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", id) });
             if (dt == null || dt.Rows.Count == 0) return null;
@@ -397,6 +509,8 @@ namespace Sales_user.Controllers
             {
                 DeliveryNoteID = Convert.ToInt64(row["deliveryNoteID"]),
                 DeliveryNoteCode = row["deliveryNoteCode"]?.ToString(),
+                ReplySlipCode = row.Table.Columns.Contains("replySlipCode") && row["replySlipCode"] != DBNull.Value
+                    ? row["replySlipCode"]?.ToString() : null,
                 CustomerID = Convert.ToInt64(row["customerID"]),
                 SalesOrderID = Convert.ToInt64(row["salesOrderID"]),
                 StaffID = Convert.ToInt64(row["staffID"]),
@@ -404,17 +518,21 @@ namespace Sales_user.Controllers
                 ShipMethod = row["shipMethod"] == DBNull.Value ? null : row["shipMethod"].ToString(),
                 TrackingNumber = row["trackingNumber"] == DBNull.Value ? null : row["trackingNumber"].ToString(),
                 Status = Convert.ToInt32(row["status"]),
-                Remark = row["remark"] == DBNull.Value ? null : row["remark"].ToString()
+                Remark = row["remark"] == DBNull.Value ? null : row["remark"].ToString(),
+                SignedBy = row.Table.Columns.Contains("signedBy") && row["signedBy"] != DBNull.Value
+                    ? row["signedBy"]?.ToString() : null,
+                SignedDate = row.Table.Columns.Contains("signedDate") && row["signedDate"] != DBNull.Value
+                    ? Convert.ToDateTime(row["signedDate"]) : (DateTime?)null
             };
         }
 
         public bool Update(DeliveryNote note)
         {
-            string sql = @"UPDATE DeliveryNote
-                           SET customerID=@customerID, salesOrderID=@soID, staffID=@staffID, warehouseID=@whID,
-                               shipMethod=@shipMethod, trackingNumber=@tracking, status=@status, remark=@remark, lastModifyDate=NOW()
-                           WHERE deliveryNoteID=@id";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+            string signOffSet = HasReplySlipColumns()
+                ? ", signedBy=@signedBy, signedDate=@signedDate"
+                : "";
+            var parameters = new List<MySqlParameter>
+            {
                 new MySqlParameter("@customerID", note.CustomerID),
                 new MySqlParameter("@soID", note.SalesOrderID),
                 new MySqlParameter("@staffID", note.StaffID),
@@ -424,7 +542,37 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@status", note.Status),
                 new MySqlParameter("@remark", note.Remark ?? (object)DBNull.Value),
                 new MySqlParameter("@id", note.DeliveryNoteID)
-            }) > 0;
+            };
+            if (HasReplySlipColumns())
+            {
+                parameters.Insert(parameters.Count - 1,
+                    new MySqlParameter("@signedBy", string.IsNullOrWhiteSpace(note.SignedBy) ? (object)DBNull.Value : note.SignedBy));
+                parameters.Insert(parameters.Count - 1,
+                    new MySqlParameter("@signedDate", note.SignedDate.HasValue ? (object)note.SignedDate.Value.Date : DBNull.Value));
+            }
+
+            string sql = $@"UPDATE DeliveryNote
+                           SET customerID=@customerID, salesOrderID=@soID, staffID=@staffID, warehouseID=@whID,
+                               shipMethod=@shipMethod, trackingNumber=@tracking, status=@status, remark=@remark{signOffSet},
+                               lastModifyDate=NOW()
+                           WHERE deliveryNoteID=@id";
+            return DatabaseConnect.ExecuteNonQuery(sql, parameters.ToArray()) > 0;
+        }
+
+        public bool UpdateSignOff(long deliveryNoteId, string signedBy, DateTime? signedDate)
+        {
+            if (!HasReplySlipColumns()) return false;
+
+            return DatabaseConnect.ExecuteNonQuery(
+                @"UPDATE DeliveryNote
+                  SET signedBy = @signedBy, signedDate = @signedDate, lastModifyDate = NOW()
+                  WHERE deliveryNoteID = @id",
+                new[]
+                {
+                    new MySqlParameter("@signedBy", string.IsNullOrWhiteSpace(signedBy) ? (object)DBNull.Value : signedBy),
+                    new MySqlParameter("@signedDate", signedDate.HasValue ? (object)signedDate.Value.Date : DBNull.Value),
+                    new MySqlParameter("@id", deliveryNoteId)
+                }) > 0;
         }
 
         public bool InsertProductLine(long deliveryNoteId, long productId, int shipQuantity)

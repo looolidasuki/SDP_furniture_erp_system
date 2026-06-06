@@ -6,6 +6,7 @@ namespace Sales_user.Models
     {
         public long DeliveryNoteID { get; set; }
         public string DeliveryNoteCode { get; set; }
+        public string ReplySlipCode { get; set; }
         public long CustomerID { get; set; }
         public long SalesOrderID { get; set; }
         public long StaffID { get; set; }
@@ -15,6 +16,8 @@ namespace Sales_user.Models
         public string ShipMethod { get; set; }
         public string TrackingNumber { get; set; }
         public string Remark { get; set; }
+        public string SignedBy { get; set; }
+        public DateTime? SignedDate { get; set; }
         public int Status { get; set; }
     }
 }

@@ -11,14 +11,14 @@ namespace Sales_user.Controllers
 
         public DataTable GetAllCustomers()
         {
-            string sql = @"SELECT customerID AS 'Customer ID',
-                                  customerCode AS 'Customer Code',
+            string sql = @"SELECT customerCode AS 'Customer Code',
                                   customerRefNumber AS 'Customer Ref Number',
                                   customerName AS 'Customer Name',
                                   billingAddress AS 'Billing Address',
                                   paymentTerm AS 'Payment Term',
                                   createDate AS 'Create Date',
-                                  lastModifyDate AS 'Last Modify Date'
+                                  lastModifyDate AS 'Last Modify Date',
+                                  customerID AS 'Customer ID'
                            FROM Customer
                            ORDER BY createDate DESC";
             return DatabaseConnect.ExecuteQuery(sql);
@@ -119,14 +119,14 @@ namespace Sales_user.Controllers
 
         public DataTable Search(SearchFilterCriteria filter)
         {
-            string sql = @"SELECT customerID AS 'Customer ID',
-                                  customerCode AS 'Customer Code',
+            string sql = @"SELECT customerCode AS 'Customer Code',
                                   customerRefNumber AS 'Customer Ref Number',
                                   customerName AS 'Customer Name',
                                   billingAddress AS 'Billing Address',
                                   paymentTerm AS 'Payment Term',
                                   createDate AS 'Create Date',
-                                  lastModifyDate AS 'Last Modify Date'
+                                  lastModifyDate AS 'Last Modify Date',
+                                  customerID AS 'Customer ID'
                            FROM Customer WHERE 1=1";
             var conditions = new List<string>();
             var parameters = new List<MySqlParameter>();

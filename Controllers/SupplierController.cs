@@ -9,13 +9,13 @@ namespace Sales_user.Controllers
     {
         public DataTable GetAllSuppliers()
         {
-            string sql = @"SELECT supplierID AS 'Supplier ID',
-                                  supplierName AS 'Supplier Name',
+            string sql = @"SELECT supplierName AS 'Supplier Name',
                                   contactPerson AS 'Contact Person',
                                   phone AS 'Phone',
                                   email AS 'Email',
                                   billingAddress AS 'Billing Address',
-                                  status AS 'Status'
+                                  status AS 'Status',
+                                  supplierID AS 'Supplier ID'
                            FROM Supplier
                            ORDER BY supplierName";
             return DatabaseConnect.ExecuteQuery(sql);

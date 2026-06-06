@@ -40,8 +40,7 @@ namespace FurnitureERP.Forms
                 _tabs.TabPages.Add(BuildQuotationTab());
             if (AppSession.CanView(PermissionModule.SalesOrder))
                 _tabs.TabPages.Add(BuildSalesOrderTab());
-            if (AppSession.CanView(PermissionModule.ReplySlip))
-                _tabs.TabPages.Add(BuildReplySlipTab());
+            // Reply slip is printed from Delivery Note (paired RS-* code); standalone Sales tab retired.
 
             Controls.Add(_tabs);
 
@@ -82,11 +81,12 @@ namespace FurnitureERP.Forms
             page.Controls.Add(BuildCrudPanel("Customer", PermissionModule.Customer,
                 () => _customerCtrl.GetAllCustomers(),
                 ShowCreateCustomerDialog,
-                row => ShowCustomerDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
+                row => ShowCustomerDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Customer ID")),
                 row => OpenCustomerRow(row),
                 null,
                 null,
-                row => ShowCustomerDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
+                row => ShowCustomerDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Customer ID")),
+                "Customer ID"));
             return page;
         }
 
@@ -96,7 +96,7 @@ namespace FurnitureERP.Forms
             page.Controls.Add(BuildCrudPanel("Quotation", PermissionModule.Quotation,
                 () => DictionaryUIHelper.LoadWithStatusLabels(() => _quotationCtrl.GetAllQuotations(), "Status", DictionaryService.Categories.Quotation),
                 ShowCreateQuotationDialog,
-                row => ShowQuotationDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
+                row => ShowQuotationDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Quotation ID")),
                 row => OpenQuotationRow(row),
                 DictionaryService.Categories.Quotation,
                 grid =>
@@ -105,11 +105,12 @@ namespace FurnitureERP.Forms
                     btnConvert.Click += (s, e) =>
                     {
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a quotation first."); return; }
-                        ConvertQuotationToSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                        ConvertQuotationToSalesOrder(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Quotation ID"));
                     };
                     return new Control[] { btnConvert };
                 },
-                row => ShowQuotationViewDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
+                row => ShowQuotationViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Quotation ID")),
+                "Quotation ID"));
             return page;
         }
 
@@ -119,7 +120,7 @@ namespace FurnitureERP.Forms
             page.Controls.Add(BuildCrudPanel("Sales Order", PermissionModule.SalesOrder,
                 () => DictionaryUIHelper.LoadWithStatusLabels(() => _salesOrderCtrl.GetAllSalesOrders(), "Status", DictionaryService.Categories.SalesOrder),
                 ShowCreateSalesOrderDialog,
-                row => ShowSalesOrderDetailDialog(Convert.ToInt64(row.Cells[0].Value)),
+                row => ShowSalesOrderDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Order ID")),
                 row => OpenSalesOrderRow(row),
                 DictionaryService.Categories.SalesOrder,
                 grid =>
@@ -128,17 +129,18 @@ namespace FurnitureERP.Forms
                     btnConfirm.Click += (s, e) =>
                     {
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a sales order first."); return; }
-                        ConfirmSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                        ConfirmSalesOrder(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Order ID"));
                     };
                     var btnProduction = UITheme.CreateSecondaryButton("Create Production");
                     btnProduction.Click += (s, e) =>
                     {
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a sales order first."); return; }
-                        CreateProductionFromSalesOrder(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                        CreateProductionFromSalesOrder(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Order ID"));
                     };
                     return new Control[] { btnConfirm, btnProduction };
                 },
-                row => ShowSalesOrderViewDetailDialog(Convert.ToInt64(row.Cells[0].Value))));
+                row => ShowSalesOrderViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Order ID")),
+                "Order ID"));
             return page;
         }
 
@@ -167,7 +169,7 @@ namespace FurnitureERP.Forms
 
         private void OpenReplySlipRow(DataGridViewRow row)
         {
-            ShowReplySlipViewDetailDialog(Convert.ToInt64(row.Cells[0].Value));
+            ShowReplySlipViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Reply Slip ID"));
         }
 
         private void ShowReplySlipViewDetailDialog(long replySlipId)
@@ -352,7 +354,7 @@ namespace FurnitureERP.Forms
 
         private void OpenQuotationRow(DataGridViewRow row)
         {
-            ShowQuotationViewDetailDialog(Convert.ToInt64(row.Cells[0].Value));
+            ShowQuotationViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Quotation ID"));
         }
 
         private void ShowQuotationDetailDialog(long id)
@@ -462,15 +464,15 @@ namespace FurnitureERP.Forms
 
         private void OpenCustomerRow(DataGridViewRow row)
         {
-            ShowCustomerDetailDialog(Convert.ToInt64(row.Cells[0].Value));
+            ShowCustomerDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Customer ID"));
         }
 
         private void OpenSalesOrderRow(DataGridViewRow row)
         {
-            ShowSalesOrderViewDetailDialog(Convert.ToInt64(row.Cells[0].Value));
+            ShowSalesOrderViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Order ID"));
         }
 
-        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onEdit, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Control[]> extraControlsFactory = null, Action<DataGridViewRow> onViewDetail = null)
+        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onEdit, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Control[]> extraControlsFactory = null, Action<DataGridViewRow> onViewDetail = null, string idColumnName = null)
         {
             Panel panel = new Panel { Dock = DockStyle.Fill };
 

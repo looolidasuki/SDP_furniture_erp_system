@@ -331,6 +331,16 @@ namespace Sales_user.Controllers
 
                                   c.customerName AS 'Customer',
 
+                                  (SELECT cp.contactPerson FROM contactperson cp
+                                    WHERE cp.customerID = c.customerID
+                                    ORDER BY cp.contactPersonID LIMIT 1) AS 'Contact Person',
+
+                                  (SELECT cp.phone FROM contactperson cp
+                                    WHERE cp.customerID = c.customerID
+                                    ORDER BY cp.contactPersonID LIMIT 1) AS 'Phone Number',
+
+                                  c.billingAddress AS 'Address',
+
                                   CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
 
                                   rv.paymentAmount AS 'Amount',
@@ -449,6 +459,60 @@ namespace Sales_user.Controllers
                            WHERE rvi.receiptVoucherID = @id
                            ORDER BY rvi.lineNo";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", receiptVoucherId) });
+        }
+
+        public bool HasInvoiceAllocations(long receiptVoucherId)
+        {
+            object count = DatabaseConnect.ExecuteScalar(
+                @"SELECT COUNT(*) FROM ReceiptVoucherInvoice WHERE receiptVoucherID = @id",
+                new[] { new MySqlParameter("@id", receiptVoucherId) });
+            return count != null && count != DBNull.Value && Convert.ToInt64(count) > 0;
+        }
+
+        public bool TryUpdateStatus(long receiptVoucherId, int newStatus, out string error)
+        {
+            error = null;
+            if (newStatus < 0 || newStatus > 2)
+            {
+                error = "Invalid status.";
+                return false;
+            }
+
+            var rv = GetById(receiptVoucherId);
+            if (rv == null)
+            {
+                error = "Receipt voucher not found.";
+                return false;
+            }
+
+            if (rv.Status == 1 && newStatus == 0)
+            {
+                error = "Confirmed vouchers cannot revert to Draft.";
+                return false;
+            }
+
+            if (newStatus == 0 && HasInvoiceAllocations(receiptVoucherId))
+            {
+                error = "Cannot set Draft while invoice allocations exist.";
+                return false;
+            }
+
+            bool updated = DatabaseConnect.ExecuteNonQuery(
+                @"UPDATE receiptvoucher
+                  SET status = @status, lastModifyDate = NOW()
+                  WHERE receiptVoucherID = @id",
+                new[]
+                {
+                    new MySqlParameter("@status", newStatus),
+                    new MySqlParameter("@id", receiptVoucherId)
+                }) > 0;
+            if (!updated)
+            {
+                error = "Update failed.";
+                return false;
+            }
+
+            return true;
         }
     }
 }

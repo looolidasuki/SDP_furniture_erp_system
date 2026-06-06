@@ -11,14 +11,14 @@ namespace Sales_user.Controllers
     {
         public DataTable GetAllSalesOrders()
         {
-            string sql = @"SELECT so.salesOrderID AS 'Order ID',
-                                  so.salesOrderCode AS 'Order Code',
+            string sql = @"SELECT so.salesOrderCode AS 'Order Code',
                                   so.customerRefNumber AS 'Customer Ref Number',
-                                  so.customerID AS 'Customer ID',
                                   c.customerName AS 'Customer',
                                   so.deliveryAddress AS 'Delivery Address',
                                   so.createDate AS 'Create Date',
-                                  so.status AS 'Status'
+                                  so.status AS 'Status',
+                                  so.salesOrderID AS 'Order ID',
+                                  so.customerID AS 'Customer ID'
                            FROM SalesOrder so
                            LEFT JOIN Customer c ON so.customerID = c.customerID
                            ORDER BY so.createDate DESC";
@@ -369,13 +369,13 @@ namespace Sales_user.Controllers
 
         public DataTable Search(SearchFilterCriteria filter)
         {
-            string sql = @"SELECT so.salesOrderID AS 'Order ID',
-                                  so.salesOrderCode AS 'Order Code',
+            string sql = @"SELECT so.salesOrderCode AS 'Order Code',
                                   so.customerRefNumber AS 'Customer Ref Number',
                                   c.customerName AS 'Customer',
                                   so.deliveryAddress AS 'Delivery Address',
                                   so.createDate AS 'Create Date',
-                                  so.status AS 'Status'
+                                  so.status AS 'Status',
+                                  so.salesOrderID AS 'Order ID'
                            FROM SalesOrder so
                            LEFT JOIN Customer c ON so.customerID = c.customerID
                            WHERE 1=1";

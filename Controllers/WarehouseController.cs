@@ -71,5 +71,37 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@minStock", defaultMinStock)
             });
         }
+
+        public DataTable GetTransferableRawMaterials(long warehouseId)
+        {
+            string sql = @"SELECT rw.rawMaterialID AS 'Item ID',
+                                  rm.rawMaterialCode AS 'Item Code',
+                                  rm.category AS 'Category',
+                                  rw.physicalQuantity AS 'Physical Qty',
+                                  rw.reservedQuantity AS 'Reserved',
+                                  GREATEST(rw.physicalQuantity - rw.reservedQuantity, 0) AS 'Available Qty'
+                           FROM RawMaterialWarehouse rw
+                           INNER JOIN RawMaterial rm ON rw.rawMaterialID = rm.rawMaterialID
+                           WHERE rw.warehouseID = @id
+                             AND GREATEST(rw.physicalQuantity - rw.reservedQuantity, 0) > 0
+                           ORDER BY rm.rawMaterialCode";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", warehouseId) });
+        }
+
+        public DataTable GetTransferableProducts(long warehouseId)
+        {
+            string sql = @"SELECT wp.productID AS 'Item ID',
+                                  p.productCode AS 'Item Code',
+                                  p.category AS 'Category',
+                                  wp.physicalQuantity AS 'Physical Qty',
+                                  wp.reservedQuantity AS 'Reserved',
+                                  GREATEST(wp.physicalQuantity - wp.reservedQuantity, 0) AS 'Available Qty'
+                           FROM WarehouseProduct wp
+                           INNER JOIN Product p ON wp.productID = p.productID
+                           WHERE wp.warehouseID = @id
+                             AND GREATEST(wp.physicalQuantity - wp.reservedQuantity, 0) > 0
+                           ORDER BY p.productCode";
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", warehouseId) });
+        }
     }
 }

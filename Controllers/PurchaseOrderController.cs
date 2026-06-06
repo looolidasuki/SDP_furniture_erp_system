@@ -9,12 +9,12 @@ namespace Sales_user.Controllers
     {
         public DataTable GetAllPurchaseOrders()
         {
-            string sql = @"SELECT po.purchaseOrderID AS 'Purchase Order ID',
-                                  po.purchaseOrderCode AS 'Purchase Order Code',
+            string sql = @"SELECT po.purchaseOrderCode AS 'Purchase Order Code',
                                   s.supplierName AS 'Supplier',
                                   po.createDate AS 'Create Date',
                                   po.requestDeliveryDate AS 'Request Delivery Date',
-                                  po.status AS 'Status'
+                                  po.status AS 'Status',
+                                  po.purchaseOrderID AS 'Purchase Order ID'
                            FROM PurchaseOrder po
                            LEFT JOIN Supplier s ON po.supplierID = s.supplierID
                            ORDER BY po.createDate DESC";

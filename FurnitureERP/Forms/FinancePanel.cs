@@ -117,8 +117,12 @@ namespace FurnitureERP.Forms
                 if (_refundGrid?.CurrentRow == null) { UITheme.ShowWarning("Please select a refund request first."); return; }
                 ShowRefundTableDetailFromRow(_refundGrid.CurrentRow);
             };
+            Button btnUpdateRefundStatus = UITheme.CreateSecondaryButton("Update Status");
+            btnUpdateRefundStatus.Location = new Point(btnDetailRefund.Right + 10, 8);
+            btnUpdateRefundStatus.Click += (s, e) => ShowUpdateRefundStatusDialog();
+            PermissionGuard.ApplyEditButton(btnUpdateRefundStatus, PermissionModule.Refund);
             Button btnEditRefund = UITheme.CreateSecondaryButton("Edit");
-            btnEditRefund.Location = new Point(btnDetailRefund.Right + 10, 8);
+            btnEditRefund.Location = new Point(btnUpdateRefundStatus.Right + 10, 8);
             btnEditRefund.Click += (s, e) => EditSelectedRefund();
             PermissionGuard.ApplyEditButton(btnEditRefund, PermissionModule.Refund);
             Button btnPrintRefund = UITheme.CreateSecondaryButton("Print PDF");
@@ -136,6 +140,7 @@ namespace FurnitureERP.Forms
             refundToolbar.Controls.Add(btnNewRefund);
             refundToolbar.Controls.Add(btnRefreshRefund);
             refundToolbar.Controls.Add(btnDetailRefund);
+            refundToolbar.Controls.Add(btnUpdateRefundStatus);
             refundToolbar.Controls.Add(btnEditRefund);
             refundToolbar.Controls.Add(btnPrintRefund);
             refundToolbar.Controls.Add(_refundSearchBox);
@@ -556,28 +561,7 @@ namespace FurnitureERP.Forms
 
             var fields = BuildInvoiceViewFields(header, invoiceId);
             string linesTabTitle = GetInvoiceLinesTabTitle(header);
-            if (receipts != null)
-            {
-                try
-                {
-                    foreach (DataRow r in receipts.Rows)
-                    {
-                        string entryType = receipts.Columns.Contains("Entry Type")
-                            ? r["Entry Type"]?.ToString()
-                            : "Receipt";
-                        if (string.Equals(entryType, "Refund", StringComparison.OrdinalIgnoreCase))
-                        {
-                            if (receipts.Columns.Contains("Allocation Type"))
-                                r["Allocation Type"] = "Refund (Paid)";
-                            continue;
-                        }
-                        if (receipts.Columns.Contains("Allocation Type") && int.TryParse(r["Allocation Type"]?.ToString(), out int t) && t > 0)
-                            r["Allocation Type"] = DictionaryService.GetDisplayName(DictionaryService.Categories.PoPaymentType, t);
-                    }
-                    receipts.AcceptChanges();
-                }
-                catch { }
-            }
+            DecorateInvoiceReceiptSettlements(receipts);
 
             string code = listRow?.Cells["Invoice Code"]?.Value?.ToString();
             if (string.IsNullOrWhiteSpace(code) && header != null && header.Rows.Count > 0)
@@ -647,17 +631,358 @@ namespace FurnitureERP.Forms
             fields.AcceptChanges();
         }
 
+        private static void DecorateInvoiceReceiptSettlements(DataTable receipts)
+        {
+            if (receipts == null) return;
+            try
+            {
+                foreach (DataRow r in receipts.Rows)
+                {
+                    string entryType = receipts.Columns.Contains("Entry Type")
+                        ? r["Entry Type"]?.ToString()
+                        : "Receipt";
+                    if (string.Equals(entryType, "Refund", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (receipts.Columns.Contains("Allocation Type"))
+                            r["Allocation Type"] = "Refund (Paid)";
+                        continue;
+                    }
+                    if (receipts.Columns.Contains("Allocation Type") && int.TryParse(r["Allocation Type"]?.ToString(), out int t) && t > 0)
+                        r["Allocation Type"] = DictionaryService.GetDisplayName(DictionaryService.Categories.PoPaymentType, t);
+                }
+                receipts.AcceptChanges();
+            }
+            catch { }
+        }
+
         private void ShowRefundTableDetailFromRow(DataGridViewRow row)
         {
             string requestCode = row?.Cells["Request Code"]?.Value?.ToString();
+            if (string.IsNullOrWhiteSpace(requestCode))
+            {
+                UITheme.ShowWarning("Please select a refund request first.");
+                return;
+            }
+            ShowRefundDetail(requestCode);
+        }
+
+        private void ShowRefundDetail(string requestCode)
+        {
+            try
+            {
+                var header = _refundCtrl.GetHeaderDetail(requestCode);
+                if (header == null || header.Rows.Count == 0)
+                {
+                    UITheme.ShowWarning("Refund request not found.");
+                    return;
+                }
+
+                var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
+                var refund = _refundCtrl.GetByCode(requestCode);
+                long customerId = _refundCtrl.ResolveCustomerId(requestCode);
+                string title = $"Refund Request — {requestCode}";
+
+                using (var dlg = new Form())
+                {
+                    dlg.Text = title;
+                    dlg.Size = new Size(920, 620);
+                    dlg.StartPosition = FormStartPosition.CenterParent;
+                    dlg.BackColor = UITheme.Background;
+
+                    var tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+
+                    var tabRequest = new TabPage("Request");
+                    var requestGrid = GridHelper.CreateStyledGrid();
+                    requestGrid.DataSource = fields;
+                    GridHelper.StyleGrid(requestGrid);
+                    requestGrid.Dock = DockStyle.Fill;
+                    tabRequest.Controls.Add(requestGrid);
+                    tabs.TabPages.Add(tabRequest);
+
+                    if (customerId > 0 && AppSession.CanView(PermissionModule.Customer))
+                        tabs.TabPages.Add(BuildRefundCustomerTab(customerId));
+
+                    if (refund?.InvoiceID is long invoiceId && invoiceId > 0 && AppSession.CanView(PermissionModule.Invoice))
+                        tabs.TabPages.Add(BuildRefundInvoiceTab(invoiceId));
+
+                    if (refund?.ReceiptVoucherID is long receiptVoucherId && receiptVoucherId > 0
+                        && AppSession.CanView(PermissionModule.ReceiptVoucher))
+                        tabs.TabPages.Add(BuildRefundReceiptVoucherTab(receiptVoucherId));
+
+                    var btnClose = UITheme.CreateSecondaryButton("Close");
+                    btnClose.Click += (s, e) => dlg.Close();
+                    var btnPrint = UITheme.CreatePrimaryButton("Print PDF");
+                    btnPrint.Click += (s, e) =>
+                    {
+                        try
+                        {
+                            var data = DetailViewHelper.FromFieldValueTable(title, fields, null, $"Refund_{requestCode}");
+                            if (PdfExportHelper.ExportToPdf(data, dlg))
+                                UITheme.ShowSuccess("PDF saved successfully.");
+                        }
+                        catch (Exception ex)
+                        {
+                            UITheme.ShowError("Failed to export PDF: " + ex.Message);
+                        }
+                    };
+
+                    var btnPanel = new FlowLayoutPanel
+                    {
+                        Dock = DockStyle.Bottom,
+                        Height = 50,
+                        FlowDirection = FlowDirection.RightToLeft,
+                        Padding = new Padding(8)
+                    };
+                    btnPanel.Controls.Add(btnPrint);
+                    btnPanel.Controls.Add(btnClose);
+                    dlg.Controls.Add(tabs);
+                    dlg.Controls.Add(btnPanel);
+                    dlg.ShowDialog(this);
+                }
+            }
+            catch (Exception ex)
+            {
+                UITheme.ShowError(ex.Message);
+            }
+        }
+
+        private TabPage BuildRefundInvoiceTab(long invoiceId)
+        {
+            var tab = new TabPage("Invoice");
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
+
+            DataTable invoiceHeader = null;
+            DataTable lines = null;
+            DataTable receipts = null;
+            try { invoiceHeader = _invoiceCtrl.GetHeaderDetail(invoiceId); } catch { }
+            try { lines = _invoiceCtrl.GetInvoiceLinesForView(invoiceId); } catch { }
+            try { receipts = _invoiceCtrl.GetReceiptSettlementsByInvoice(invoiceId); } catch { }
+            DecorateInvoiceReceiptSettlements(receipts);
+
+            var headerGrid = GridHelper.CreateStyledGrid();
+            headerGrid.DataSource = BuildInvoiceViewFields(invoiceHeader, invoiceId);
+            GridHelper.StyleGrid(headerGrid);
+            headerGrid.Dock = DockStyle.Fill;
+
+            var bottomTabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+            string linesTabTitle = GetInvoiceLinesTabTitle(invoiceHeader);
+
+            var linesGrid = GridHelper.CreateStyledGrid();
+            linesGrid.DataSource = lines;
+            GridHelper.StyleGrid(linesGrid);
+            linesGrid.Dock = DockStyle.Fill;
+            var linesTab = new TabPage(linesTabTitle);
+            linesTab.Controls.Add(linesGrid);
+
+            var receiptsGrid = GridHelper.CreateStyledGrid();
+            receiptsGrid.DataSource = receipts;
+            GridHelper.StyleGrid(receiptsGrid);
+            receiptsGrid.Dock = DockStyle.Fill;
+            var receiptsTab = new TabPage("Receipts & Refunds");
+            receiptsTab.Controls.Add(receiptsGrid);
+
+            bottomTabs.TabPages.Add(linesTab);
+            bottomTabs.TabPages.Add(receiptsTab);
+            split.Panel1.Controls.Add(headerGrid);
+            split.Panel2.Controls.Add(bottomTabs);
+            tab.Controls.Add(split);
+            return tab;
+        }
+
+        private TabPage BuildRefundReceiptVoucherTab(long receiptVoucherId)
+        {
+            var tab = new TabPage("Receipt Voucher");
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 220 };
+
+            DataTable rvHeader = null;
+            DataTable allocations = null;
+            try { rvHeader = _receiptCtrl.GetHeaderDetail(receiptVoucherId); } catch { }
+            try
+            {
+                allocations = _receiptCtrl.GetInvoiceAllocationsDetailed(receiptVoucherId);
+                if (allocations != null && allocations.Columns.Contains("Invoice ID"))
+                    allocations.Columns.Remove("Invoice ID");
+            }
+            catch { }
+
+            var headerGrid = GridHelper.CreateStyledGrid();
+            headerGrid.DataSource = DetailViewHelper.SingleRowToFieldValueTable(rvHeader);
+            GridHelper.StyleGrid(headerGrid);
+            headerGrid.Dock = DockStyle.Fill;
+
+            var allocGrid = GridHelper.CreateStyledGrid();
+            allocGrid.DataSource = allocations;
+            GridHelper.StyleGrid(allocGrid);
+            allocGrid.Dock = DockStyle.Fill;
+
+            split.Panel1.Controls.Add(headerGrid);
+            split.Panel2.Controls.Add(allocGrid);
+            tab.Controls.Add(split);
+            return tab;
+        }
+
+        private TabPage BuildRefundCustomerTab(long customerId)
+        {
+            var tab = new TabPage("Customer");
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 180 };
+
+            var profileGrid = GridHelper.CreateStyledGrid();
+            profileGrid.DataSource = BuildRefundCustomerProfileFields(customerId);
+            GridHelper.StyleGrid(profileGrid);
+            profileGrid.Dock = DockStyle.Fill;
+
+            var bottomTabs = new TabControl { Dock = DockStyle.Fill };
+            var contactGrid = GridHelper.CreateStyledGrid();
+            contactGrid.DataSource = BuildRefundCustomerContactsTable(customerId);
+            GridHelper.StyleGrid(contactGrid);
+            contactGrid.Dock = DockStyle.Fill;
+            var contactTab = new TabPage("Contact Persons");
+            contactTab.Controls.Add(contactGrid);
+
+            var addressGrid = GridHelper.CreateStyledGrid();
+            addressGrid.DataSource = BuildRefundCustomerDeliveryAddressesTable(customerId);
+            GridHelper.StyleGrid(addressGrid);
+            addressGrid.Dock = DockStyle.Fill;
+            var addressTab = new TabPage("Delivery Addresses");
+            addressTab.Controls.Add(addressGrid);
+
+            bottomTabs.TabPages.Add(contactTab);
+            bottomTabs.TabPages.Add(addressTab);
+            split.Panel1.Controls.Add(profileGrid);
+            split.Panel2.Controls.Add(bottomTabs);
+            tab.Controls.Add(split);
+            return tab;
+        }
+
+        private DataTable BuildRefundCustomerProfileFields(long customerId)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Field");
+            dt.Columns.Add("Value");
+            var customer = _customerCtrl.GetById(customerId);
+            if (customer == null) return dt;
+
+            AddRefundFieldRow(dt, "Customer Code", customer.CustomerCode);
+            AddRefundFieldRow(dt, "Customer Ref Number", customer.CustomerRefNumber);
+            AddRefundFieldRow(dt, "Customer Name", customer.CustomerName);
+            AddRefundFieldRow(dt, "Billing Address", customer.BillingAddress);
+            AddRefundFieldRow(dt, "Payment Term", customer.PaymentTerm);
+            return dt;
+        }
+
+        private DataTable BuildRefundCustomerContactsTable(long customerId)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Contact Person");
+            dt.Columns.Add("Title");
+            dt.Columns.Add("Phone");
+            dt.Columns.Add("Email");
+            foreach (var contact in _customerCtrl.GetContactPersons(customerId))
+                dt.Rows.Add(contact.Name, contact.Title, contact.Phone, contact.Email);
+            return dt;
+        }
+
+        private DataTable BuildRefundCustomerDeliveryAddressesTable(long customerId)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Delivery Address");
+            dt.Columns.Add("Contact Person");
+            dt.Columns.Add("Phone");
+            dt.Columns.Add("Email");
+            foreach (var addr in _customerCtrl.GetDeliveryAddresses(customerId))
+                dt.Rows.Add(addr.DeliveryAddress, addr.ContactPerson, addr.Phone, addr.Email);
+            return dt;
+        }
+
+        private static void AddRefundFieldRow(DataTable dt, string field, string value)
+        {
+            dt.Rows.Add(field, value ?? "");
+        }
+
+        private void ShowUpdateRefundStatusDialog()
+        {
+            if (_refundGrid?.CurrentRow == null)
+            {
+                UITheme.ShowWarning("Please select a refund request first.");
+                return;
+            }
+            if (!PermissionGuard.Ensure(PermissionModule.Refund, PermissionAction.Edit, this)) return;
+
+            string requestCode = _refundGrid.CurrentRow.Cells["Request Code"]?.Value?.ToString();
             if (string.IsNullOrWhiteSpace(requestCode)) return;
-            DataTable header = null;
-            try { header = _refundCtrl.GetHeaderDetail(requestCode); } catch { }
-            var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
-            string title = string.IsNullOrWhiteSpace(requestCode)
-                ? "Refund Request Detail"
-                : $"Refund Request — {requestCode}";
-            DetailViewHelper.ShowDetail(this, title, fields, null, $"Refund_{requestCode}");
+
+            var refund = _refundCtrl.GetByCode(requestCode);
+            if (refund == null)
+            {
+                UITheme.ShowWarning("Refund request not found.");
+                return;
+            }
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Update Refund Request Status";
+                dlg.Size = new Size(440, 220);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.BackColor = UITheme.Background;
+
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Padding = new Padding(16) };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var lblCurrent = new Label
+                {
+                    Text = DictionaryService.GetDisplayName(DictionaryService.Categories.RefundStatus, refund.Status),
+                    AutoSize = true,
+                    ForeColor = UITheme.TextDark
+                };
+                var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+                DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.RefundStatus, refund.Status);
+
+                UITheme.AddFormRow(layout, 0, "Current", lblCurrent);
+                UITheme.AddFormRow(layout, 1, "New Status", cmbStatus);
+
+                var btnSave = UITheme.CreatePrimaryButton("Save");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
+                {
+                    if (!PermissionGuard.Ensure(PermissionModule.Refund, PermissionAction.Edit, dlg)) return;
+
+                    int newStatus = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
+                    if (!DictionaryService.CanTransition(DictionaryService.Categories.RefundStatus, refund.Status, newStatus))
+                    {
+                        UITheme.ShowWarning("This status transition is not allowed.");
+                        return;
+                    }
+
+                    long staffId = AppSession.CurrentUser?.StaffID ?? refund.StaffID;
+                    if (!_refundCtrl.UpdateStatus(requestCode, newStatus, staffId))
+                    {
+                        UITheme.ShowWarning("Failed to update status.");
+                        return;
+                    }
+
+                    UITheme.ShowSuccess("Status updated.");
+                    dlg.DialogResult = DialogResult.OK;
+                    dlg.Close();
+                };
+
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnCancel);
+                dlg.Controls.Add(layout);
+                dlg.Controls.Add(btnPanel);
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    LoadRefunds();
+            }
         }
 
         private void PrintSelectedInvoice()

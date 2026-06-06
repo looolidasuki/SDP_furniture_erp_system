@@ -1,10 +1,23 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 
 namespace Sales_user.Controllers
 {
+    public enum StockTransferItemType
+    {
+        RawMaterial = 1,
+        Product = 2
+    }
+
+    public class StockTransferLine
+    {
+        public long ItemId { get; set; }
+        public decimal Quantity { get; set; }
+    }
+
     public class InventoryWorkflowService
     {
         public WorkflowResult ConfirmGoodsReceived(long grnId, long warehouseId)
@@ -203,6 +216,138 @@ namespace Sales_user.Controllers
             catch (Exception ex)
             {
                 return WorkflowResult.Fail("Delivery confirmation failed: " + ex.Message);
+            }
+        }
+
+        public WorkflowResult TransferBetweenWarehouses(
+            long fromWarehouseId,
+            long toWarehouseId,
+            StockTransferItemType itemType,
+            IList<StockTransferLine> lines)
+        {
+            if (fromWarehouseId <= 0 || toWarehouseId <= 0)
+                return WorkflowResult.Fail("Source and destination warehouses are required.");
+
+            if (fromWarehouseId == toWarehouseId)
+                return WorkflowResult.Fail("Source and destination warehouses must be different.");
+
+            if (lines == null || lines.Count == 0)
+                return WorkflowResult.Fail("Add at least one line with a transfer quantity greater than zero.");
+
+            try
+            {
+                DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+                {
+                    foreach (var line in lines)
+                    {
+                        if (line.ItemId <= 0 || line.Quantity <= 0)
+                            throw new InvalidOperationException("Each transfer line needs a positive quantity.");
+
+                        if (itemType == StockTransferItemType.RawMaterial)
+                            TransferRawMaterialLine(conn, trans, fromWarehouseId, toWarehouseId, line.ItemId, line.Quantity);
+                        else
+                            TransferProductLine(conn, trans, fromWarehouseId, toWarehouseId, line.ItemId, line.Quantity);
+                    }
+
+                    return 0L;
+                });
+
+                return WorkflowResult.Ok(0, "Stock transferred successfully.");
+            }
+            catch (Exception ex)
+            {
+                return WorkflowResult.Fail("Transfer failed: " + ex.Message);
+            }
+        }
+
+        private static void TransferRawMaterialLine(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long fromWarehouseId,
+            long toWarehouseId,
+            long rawMaterialId,
+            decimal qty)
+        {
+            int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
+                @"UPDATE RawMaterialWarehouse
+                  SET physicalQuantity = physicalQuantity - @qty
+                  WHERE rawMaterialID = @itemId AND warehouseID = @fromWhId
+                    AND physicalQuantity >= @qty
+                    AND (physicalQuantity - reservedQuantity) >= @qty",
+                new[]
+                {
+                    new MySqlParameter("@qty", qty),
+                    new MySqlParameter("@itemId", rawMaterialId),
+                    new MySqlParameter("@fromWhId", fromWarehouseId)
+                });
+
+            if (affected == 0)
+                throw new InvalidOperationException("Insufficient available raw material stock for item ID " + rawMaterialId + ".");
+
+            UpsertRawMaterialStock(conn, trans, rawMaterialId, toWarehouseId, qty);
+        }
+
+        private static void TransferProductLine(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long fromWarehouseId,
+            long toWarehouseId,
+            long productId,
+            decimal qty)
+        {
+            int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
+                @"UPDATE WarehouseProduct
+                  SET physicalQuantity = physicalQuantity - @qty
+                  WHERE warehouseID = @fromWhId AND productID = @itemId
+                    AND physicalQuantity >= @qty
+                    AND (physicalQuantity - reservedQuantity) >= @qty",
+                new[]
+                {
+                    new MySqlParameter("@qty", qty),
+                    new MySqlParameter("@fromWhId", fromWarehouseId),
+                    new MySqlParameter("@itemId", productId)
+                });
+
+            if (affected == 0)
+                throw new InvalidOperationException("Insufficient available product stock for item ID " + productId + ".");
+
+            UpsertProductStock(conn, trans, productId, toWarehouseId, qty);
+        }
+
+        private static void UpsertProductStock(MySqlConnection conn, MySqlTransaction trans, long productId, long warehouseId, decimal qty)
+        {
+            object exists = DatabaseConnect.ExecuteScalar(conn, trans,
+                "SELECT COUNT(*) FROM WarehouseProduct WHERE productID = @itemId AND warehouseID = @whId",
+                new[]
+                {
+                    new MySqlParameter("@itemId", productId),
+                    new MySqlParameter("@whId", warehouseId)
+                });
+
+            if (Convert.ToInt64(exists) > 0)
+            {
+                DatabaseConnect.ExecuteNonQuery(conn, trans,
+                    @"UPDATE WarehouseProduct
+                      SET physicalQuantity = physicalQuantity + @qty
+                      WHERE productID = @itemId AND warehouseID = @whId",
+                    new[]
+                    {
+                        new MySqlParameter("@qty", qty),
+                        new MySqlParameter("@itemId", productId),
+                        new MySqlParameter("@whId", warehouseId)
+                    });
+            }
+            else
+            {
+                DatabaseConnect.ExecuteNonQuery(conn, trans,
+                    @"INSERT INTO WarehouseProduct (warehouseID, productID, physicalQuantity, reservedQuantity, purchasedQuantity)
+                      VALUES (@whId, @itemId, @qty, 0, 0)",
+                    new[]
+                    {
+                        new MySqlParameter("@whId", warehouseId),
+                        new MySqlParameter("@itemId", productId),
+                        new MySqlParameter("@qty", qty)
+                    });
             }
         }
 

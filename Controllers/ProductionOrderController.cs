@@ -11,13 +11,13 @@ namespace Sales_user.Controllers
     {
         public DataTable GetAllProductionOrders()
         {
-            string sql = @"SELECT po.productionOrderID AS 'ID',
-                                  po.productionOrderCode AS 'Production Order Code',
+            string sql = @"SELECT po.productionOrderCode AS 'Production Order Code',
                                   so.salesOrderCode AS 'Sales Order',
                                   CONCAT(st.firstName, ' ', st.lastName) AS 'Staff',
                                   po.createDate AS 'Create Date',
                                   po.estFinishDate AS 'Est. Finish Date',
-                                  po.status AS 'Status'
+                                  po.status AS 'Status',
+                                  po.productionOrderID AS 'Production Order ID'
                            FROM ProductionOrder po
                            LEFT JOIN SalesOrder so ON po.salesOrderID = so.salesOrderID
                            LEFT JOIN Staff st ON po.staffID = st.staffID
@@ -360,12 +360,12 @@ namespace Sales_user.Controllers
 
         public DataTable Search(SearchFilterCriteria criteria)
         {
-            string sql = @"SELECT po.productionOrderID AS 'ID',
-                                  po.productionOrderCode AS 'Production Order Code',
+            string sql = @"SELECT po.productionOrderCode AS 'Production Order Code',
                                   so.salesOrderCode AS 'Sales Order',
                                   po.createDate AS 'Create Date',
                                   po.estFinishDate AS 'Est. Finish Date',
-                                  po.status AS 'Status'
+                                  po.status AS 'Status',
+                                  po.productionOrderID AS 'Production Order ID'
                            FROM ProductionOrder po
                            LEFT JOIN SalesOrder so ON po.salesOrderID = so.salesOrderID
                            WHERE po.productionOrderCode LIKE @kw

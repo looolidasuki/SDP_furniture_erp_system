@@ -174,8 +174,8 @@ namespace FurnitureERP.Forms
             btnEdit.Location = new Point(btnRefresh.Right + 10, 9);
             btnEdit.Click += (s, e) =>
             {
-                if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a raw material first."); return; }
-                var rm = _rawMaterialCtrl.GetById(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Raw Material ID") <= 0) { UITheme.ShowWarning("Please select a raw material first."); return; }
+                var rm = _rawMaterialCtrl.GetById(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Raw Material ID"));
                 if (rm != null) { ShowRawMaterialDialog(rm); try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock(); GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock"); } catch { } }
             };
 
@@ -186,9 +186,9 @@ namespace FurnitureERP.Forms
             grid.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
-                var idObj = grid.Rows[e.RowIndex].Cells[0].Value;
-                if (idObj == null) return;
-                var rm = _rawMaterialCtrl.GetById(Convert.ToInt64(idObj));
+                long rawMaterialId = GridHelper.TryGetRowLongId(grid, grid.Rows[e.RowIndex], "Raw Material ID");
+                if (rawMaterialId <= 0) return;
+                var rm = _rawMaterialCtrl.GetById(rawMaterialId);
                 if (rm != null) ShowRawMaterialDialog(rm);
             };
 
@@ -625,11 +625,8 @@ namespace FurnitureERP.Forms
         private static long? GetProductionOrderIdFromRow(DataGridViewRow row)
         {
             if (row == null) return null;
-            if (row.DataGridView?.Columns.Contains("ID") == true && row.Cells["ID"].Value != null && row.Cells["ID"].Value != DBNull.Value)
-                return Convert.ToInt64(row.Cells["ID"].Value);
-            if (row.Cells.Count > 0 && row.Cells[0].Value != null && row.Cells[0].Value != DBNull.Value)
-                return Convert.ToInt64(row.Cells[0].Value);
-            return null;
+            long id = GridHelper.TryGetRowLongId(row.DataGridView, row, "Production Order ID", "ID");
+            return id > 0 ? id : (long?)null;
         }
 
         private void ShowProductionOrderForm(long? productionOrderId, bool readOnly)

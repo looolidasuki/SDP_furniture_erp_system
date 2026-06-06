@@ -8,13 +8,13 @@ namespace Sales_user.Controllers
     {
         public DataTable GetAllRawMaterials()
         {
-            string sql = @"SELECT rawMaterialID AS 'Raw Material ID',
-                                  rawMaterialCode AS 'Raw Material Code',
+            string sql = @"SELECT rawMaterialCode AS 'Raw Material Code',
                                   category AS 'Category',
                                   size AS 'Size',
                                   color AS 'Color',
                                   minimumStockLevel AS 'Min Stock',
-                                  status AS 'Status'
+                                  status AS 'Status',
+                                  rawMaterialID AS 'Raw Material ID'
                            FROM RawMaterial
                            ORDER BY rawMaterialCode";
             return DatabaseConnect.ExecuteQuery(sql);
@@ -22,14 +22,14 @@ namespace Sales_user.Controllers
 
         public DataTable GetAllRawMaterialsWithStock()
         {
-            string sql = @"SELECT rm.rawMaterialID AS 'Raw Material ID',
-                                  rm.rawMaterialCode AS 'Raw Material Code',
+            string sql = @"SELECT rm.rawMaterialCode AS 'Raw Material Code',
                                   rm.category AS 'Category',
                                   rm.size AS 'Size',
                                   rm.color AS 'Color',
                                   COALESCE(st.totalPhysical, 0) AS 'Current Stock',
                                   rm.minimumStockLevel AS 'Min Stock',
-                                  rm.status AS 'Status'
+                                  rm.status AS 'Status',
+                                  rm.rawMaterialID AS 'Raw Material ID'
                            FROM RawMaterial rm
                            LEFT JOIN (
                                SELECT rawMaterialID, SUM(physicalQuantity) AS totalPhysical

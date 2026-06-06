@@ -177,6 +177,9 @@ namespace Sales_user.Controllers
         {
             string sql = @"SELECT pv.paymentVoucherCode AS 'Voucher Code',
                                   s.supplierName AS 'Supplier',
+                                  s.contactPerson AS 'Contact Person',
+                                  s.phone AS 'Phone Number',
+                                  s.billingAddress AS 'Address',
                                   CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
                                   pv.totalAmount AS 'Amount',
                                   pv.paymentMethod AS 'Payment Method',
@@ -346,6 +349,20 @@ namespace Sales_user.Controllers
                    WHERE status != 3
                    GROUP BY paymentMethod";
             return DatabaseConnect.ExecuteQuery(sql);
+        }
+
+        public bool UpdateStatus(long paymentVoucherId, int status)
+        {
+            if (status < 0 || status > 3) return false;
+            return DatabaseConnect.ExecuteNonQuery(
+                @"UPDATE paymentvoucher
+                  SET status = @status, lastModifyDate = NOW()
+                  WHERE paymentVoucherID = @id",
+                new[]
+                {
+                    new MySqlParameter("@status", status),
+                    new MySqlParameter("@id", paymentVoucherId)
+                }) > 0;
         }
 
         private static void WritePurchaseOrderSettlements(MySqlConnection conn, MySqlTransaction trans, long pvId, PaymentVoucher pv)

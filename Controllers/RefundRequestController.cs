@@ -2,6 +2,7 @@
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
+using System.Collections.Generic;
 using System.Data;
 
 namespace Sales_user.Controllers
@@ -59,6 +60,15 @@ namespace Sales_user.Controllers
         public DataTable GetHeaderDetail(string requestCode)
         {
             string sql = @"SELECT rr.refundRequestCode AS 'Request Code',
+                                  c.customerCode AS 'Customer Code',
+                                  c.customerName AS 'Customer',
+                                  (SELECT cp.contactPerson FROM contactperson cp
+                                    WHERE cp.customerID = c.customerID
+                                    ORDER BY cp.contactPersonID LIMIT 1) AS 'Contact Person',
+                                  (SELECT cp.phone FROM contactperson cp
+                                    WHERE cp.customerID = c.customerID
+                                    ORDER BY cp.contactPersonID LIMIT 1) AS 'Phone Number',
+                                  c.billingAddress AS 'Address',
                                   rv.receiptVoucherCode AS 'Receipt Voucher',
                                   i.invoiceCode AS 'Invoice',
                                   CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
@@ -73,24 +83,34 @@ namespace Sales_user.Controllers
                            FROM RefundRequest rr
                            LEFT JOIN Invoice i ON rr.InvoiceID = i.invoiceID
                            LEFT JOIN receiptvoucher rv ON rr.ReceiptVoucherID = rv.receiptVoucherID
+                           LEFT JOIN Customer c ON c.customerID = COALESCE(i.customerID, rv.cusomerID)
                            LEFT JOIN Staff st ON rr.staffID = st.staffID
                            WHERE rr.refundRequestCode = @code";
             var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@code", requestCode) });
             if (dt == null || dt.Rows.Count == 0) return dt;
 
-            var row = dt.Rows[0];
-            if (row["Refund Method"] != DBNull.Value)
+            foreach (DataRow row in dt.Rows)
             {
-                int method = Convert.ToInt32(row["Refund Method"]);
-                row["Refund Method"] = DictionaryService.GetDisplayName(DictionaryService.Categories.RefundMethod, method);
+                if (dt.Columns.Contains("Refund Reason"))
+                    row["Refund Reason"] = DictionaryService.GetRefundReasonDisplay(row["Refund Reason"]?.ToString());
             }
-            row["Refund Reason"] = DictionaryService.GetRefundReasonDisplay(row["Refund Reason"]?.ToString());
-            if (row["Status"] != DBNull.Value)
+
+            return DetailViewHelper.MapIntColumnsToString(dt, new Dictionary<string, Func<int, string>>
             {
-                int status = Convert.ToInt32(row["Status"]);
-                row["Status"] = DictionaryService.GetDisplayName(DictionaryService.Categories.RefundStatus, status);
-            }
-            return dt;
+                ["Refund Method"] = v => DictionaryService.GetDisplayName(DictionaryService.Categories.RefundMethod, v),
+                ["Status"] = v => DictionaryService.GetDisplayName(DictionaryService.Categories.RefundStatus, v)
+            });
+        }
+
+        public long ResolveCustomerId(string requestCode)
+        {
+            string sql = @"SELECT COALESCE(i.customerID, rv.cusomerID) AS customerID
+                           FROM RefundRequest rr
+                           LEFT JOIN Invoice i ON rr.InvoiceID = i.invoiceID
+                           LEFT JOIN receiptvoucher rv ON rr.ReceiptVoucherID = rv.receiptVoucherID
+                           WHERE rr.refundRequestCode = @code";
+            object value = DatabaseConnect.ExecuteScalar(sql, new[] { new MySqlParameter("@code", requestCode) });
+            return value == null || value == DBNull.Value ? 0 : Convert.ToInt64(value);
         }
 
         public long CreateRefundRequest(RefundRequest refund)

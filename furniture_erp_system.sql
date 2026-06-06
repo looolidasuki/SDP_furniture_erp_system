@@ -126,6 +126,7 @@ INSERT INTO `customerdeliveryaddress` (`addressID`, `customerID`, `deliveryAddre
 CREATE TABLE `deliverynote` (
   `deliveryNoteID` bigint(20) NOT NULL,
   `deliveryNoteCode` varchar(30) NOT NULL,
+  `replySlipCode` varchar(30) DEFAULT NULL COMMENT 'Paired customer reply slip RS-+ID',
   `customerID` bigint(20) NOT NULL,
   `SalesOrderID` bigint(20) NOT NULL,
   `staffID` bigint(20) NOT NULL,
@@ -135,6 +136,8 @@ CREATE TABLE `deliverynote` (
   `shipMethod` varchar(30) NOT NULL COMMENT '发货运输方式',
   `trackingNumber` varchar(30) NOT NULL COMMENT '快递/物流追踪单号',
   `remark` varchar(255) DEFAULT NULL,
+  `signedBy` varchar(100) DEFAULT NULL COMMENT '客户签收人',
+  `signedDate` date DEFAULT NULL COMMENT '客户签收日期',
   `status` int(10) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='销售发货/出库流水单';
 
@@ -1027,12 +1030,12 @@ INSERT INTO `goodsreceivednoterawmaterialline` (`goodsReceivedNoteID`, `rawMater
 (4, 5, 0.00),
 (5, 4, 0.00);
 
-INSERT INTO `deliverynote` (`deliveryNoteID`, `deliveryNoteCode`, `customerID`, `SalesOrderID`, `staffID`, `createDate`, `lastModifyDate`, `WarehouseID`, `shipMethod`, `trackingNumber`, `remark`, `status`) VALUES
-(1, 'DN-2026052601', 2, 2, 4, '2026-05-26 14:00:00', '2026-05-26 14:00:00', 1, 'Truck', 'TRK-HK-001', 'Partial chair shipment', 2),
-(2, 'DN-2026052602', 4, 4, 4, '2026-05-26 15:00:00', '2026-05-26 15:00:00', 1, 'Courier', 'SF-99887766', 'Full chair delivery', 3),
-(3, 'DN-2026052603', 1, 1, 4, '2026-05-26 16:00:00', NULL, 4, 'Truck', 'TRK-HK-002', 'Desk scheduled', 0),
-(4, 'DN-2026052604', 3, 3, 4, '2026-05-26 17:00:00', NULL, 4, 'Van', 'VAN-554433', 'Sofa prep', 1),
-(5, 'DN-2026052605', 5, 5, 4, '2026-05-26 18:00:00', NULL, 1, 'Courier', 'DHL-112233', 'Draft DN', 0);
+INSERT INTO `deliverynote` (`deliveryNoteID`, `deliveryNoteCode`, `replySlipCode`, `customerID`, `SalesOrderID`, `staffID`, `createDate`, `lastModifyDate`, `WarehouseID`, `shipMethod`, `trackingNumber`, `remark`, `signedBy`, `signedDate`, `status`) VALUES
+(1, 'DN-2026052601', 'RS-2026052601', 2, 2, 4, '2026-05-26 14:00:00', '2026-05-26 14:00:00', 1, 'Truck', 'TRK-HK-001', 'Partial chair shipment', NULL, NULL, 2),
+(2, 'DN-2026052602', 'RS-2026052602', 4, 4, 4, '2026-05-26 15:00:00', '2026-05-26 15:00:00', 1, 'Courier', 'SF-99887766', 'Full chair delivery', 'Ms. Lee', '2026-05-26', 3),
+(3, 'DN-2026052603', 'RS-2026052603', 1, 1, 4, '2026-05-26 16:00:00', NULL, 4, 'Truck', 'TRK-HK-002', 'Desk scheduled', NULL, NULL, 0),
+(4, 'DN-2026052604', 'RS-2026052604', 3, 3, 4, '2026-05-26 17:00:00', NULL, 4, 'Van', 'VAN-554433', 'Sofa prep', NULL, NULL, 1),
+(5, 'DN-2026052605', 'RS-2026052605', 5, 5, 4, '2026-05-26 18:00:00', NULL, 1, 'Courier', 'DHL-112233', 'Draft DN', NULL, NULL, 0);
 
 INSERT INTO `deliveryproductline` (`deliveryNoteID`, `productID`, `shipQuantity`) VALUES
 (1, 2, 3),
@@ -1120,6 +1123,7 @@ ALTER TABLE `customerdeliveryaddress`
 ALTER TABLE `deliverynote`
   ADD PRIMARY KEY (`deliveryNoteID`),
   ADD UNIQUE KEY `deliveryNoteCode` (`deliveryNoteCode`),
+  ADD UNIQUE KEY `uk_deliverynote_replyslipcode` (`replySlipCode`),
   ADD KEY `fk_dn_customer` (`customerID`),
   ADD KEY `fk_dn_so` (`SalesOrderID`),
   ADD KEY `fk_dn_staff` (`staffID`),

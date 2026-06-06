@@ -21,13 +21,13 @@ namespace Sales_user.Controllers
 
         public DataTable GetAllGoodsReceivedNotes()
         {
-            string sql = @"SELECT grn.goodsReceivedNoteID AS 'GRN ID',
-                                  grn.goodsReceivedNoteCode AS 'GRN Code',
+            string sql = @"SELECT grn.goodsReceivedNoteCode AS 'GRN Code',
                                   po.purchaseOrderCode AS 'Purchase Order',
                                   s.supplierName AS 'Supplier',
                                   grn.createDate AS 'Create Date',
                                   grn.status AS 'Status',
-                                  grn.remark AS 'Remark'
+                                  grn.remark AS 'Remark',
+                                  grn.goodsReceivedNoteID AS 'GRN ID'
                            FROM GoodsReceivedNote grn
                            LEFT JOIN Supplier s ON grn.supplierID = s.supplierID
                            LEFT JOIN PurchaseOrder po ON grn.PurchaseOrderID = po.purchaseOrderID

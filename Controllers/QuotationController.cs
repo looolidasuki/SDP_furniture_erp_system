@@ -9,11 +9,11 @@ namespace Sales_user.Controllers
     {
         public DataTable GetAllQuotations()
         {
-            string sql = @"SELECT q.quotationID AS 'Quotation ID',
-                                  q.quotationCode AS 'Quotation Code',
+            string sql = @"SELECT q.quotationCode AS 'Quotation Code',
                                   c.customerName AS 'Customer',
                                   q.createDate AS 'Create Date',
-                                  q.status AS 'Status'
+                                  q.status AS 'Status',
+                                  q.quotationID AS 'Quotation ID'
                            FROM Quotation q
                            LEFT JOIN Customer c ON q.customerID = c.customerID
                            ORDER BY q.createDate DESC";

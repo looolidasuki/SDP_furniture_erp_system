@@ -257,7 +257,10 @@ namespace FurnitureERP.Helpers
                 P(PermissionModule.PaymentVoucher, PermissionFlags.All),
                 P(PermissionModule.ReceiptVoucher, PermissionFlags.All),
                 P(PermissionModule.SalesOrder, PermissionFlags.View),
-                P(PermissionModule.PurchaseOrder, PermissionFlags.View));
+                P(PermissionModule.PurchaseOrder, PermissionFlags.View),
+                P(PermissionModule.GoodsReceivedNote, PermissionFlags.View),
+                P(PermissionModule.Customer, PermissionFlags.View),
+                P(PermissionModule.Supplier, PermissionFlags.View));
 
             return matrix;
         }

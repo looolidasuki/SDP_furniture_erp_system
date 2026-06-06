@@ -74,16 +74,16 @@ namespace FurnitureERP.Forms
                 catch { }
             }, () =>
             {
-                if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a raw material first."); return; }
+                if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Raw Material ID") <= 0) { UITheme.ShowWarning("Please select a raw material first."); return; }
                 ShowRowDetail(grid.CurrentRow, "Raw Material Details");
             });
             AttachSearchAndFilter(toolbar, grid);
             grid.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
-                var idObj = grid.Rows[e.RowIndex].Cells[0].Value;
-                if (idObj == null) return;
-                var entity = _rawMaterialCtrl.GetById(Convert.ToInt64(idObj));
+                long rawMaterialId = GridHelper.TryGetRowLongId(grid, grid.Rows[e.RowIndex], "Raw Material ID");
+                if (rawMaterialId <= 0) return;
+                var entity = _rawMaterialCtrl.GetById(rawMaterialId);
                 if (entity != null && AppSession.CanEdit(PermissionModule.RawMaterial)) ShowRawMaterialDialog(entity);
                 else ShowRowDetail(grid.Rows[e.RowIndex], "Raw Material Details");
             };
@@ -110,23 +110,23 @@ namespace FurnitureERP.Forms
                 try { grid.DataSource = _purchaseOrderCtrl.GetAllPurchaseOrders(); GridHelper.ApplyStyle(grid); } catch { }
             }, () =>
             {
-                if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a purchase order first."); return; }
-                ShowPurchaseOrderTableDialog(Convert.ToInt64(grid.CurrentRow.Cells[0].Value), grid.CurrentRow);
+                if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Purchase Order ID") <= 0) { UITheme.ShowWarning("Please select a purchase order first."); return; }
+                ShowPurchaseOrderTableDialog(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Purchase Order ID"), grid.CurrentRow);
             }, () =>
             {
-                if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a purchase order first."); return; }
-                ShowPurchaseOrderDetailDialog(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Purchase Order ID") <= 0) { UITheme.ShowWarning("Please select a purchase order first."); return; }
+                ShowPurchaseOrderDetailDialog(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Purchase Order ID"));
             });
             AttachSearchAndFilter(toolbar, grid);
             grid.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
-                var idObj = grid.Rows[e.RowIndex].Cells[0].Value;
-                if (idObj == null) return;
+                long purchaseOrderId = GridHelper.TryGetRowLongId(grid, grid.Rows[e.RowIndex], "Purchase Order ID");
+                if (purchaseOrderId <= 0) return;
                 if (AppSession.CanEdit(PermissionModule.PurchaseOrder))
-                    ShowPurchaseOrderDetailDialog(Convert.ToInt64(idObj));
+                    ShowPurchaseOrderDetailDialog(purchaseOrderId);
                 else
-                    ShowPurchaseOrderTableDialog(Convert.ToInt64(idObj), grid.Rows[e.RowIndex]);
+                    ShowPurchaseOrderTableDialog(purchaseOrderId, grid.Rows[e.RowIndex]);
             };
 
             try { grid.DataSource = _purchaseOrderCtrl.GetAllPurchaseOrders(); GridHelper.ApplyStyle(grid); } catch { }
@@ -151,12 +151,12 @@ namespace FurnitureERP.Forms
                 catch { }
             }, () =>
             {
-                if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a GRN first."); return; }
-                ShowGrnTableDialog(Convert.ToInt64(grid.CurrentRow.Cells[0].Value), grid.CurrentRow);
+                if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID") <= 0) { UITheme.ShowWarning("Please select a GRN first."); return; }
+                ShowGrnTableDialog(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID"), grid.CurrentRow);
             }, () =>
             {
-                if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a GRN first."); return; }
-                ShowGrnDetailDialog(Convert.ToInt64(grid.CurrentRow.Cells[0].Value));
+                if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID") <= 0) { UITheme.ShowWarning("Please select a GRN first."); return; }
+                ShowGrnDetailDialog(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID"));
             });
 
             AttachSearchAndFilter(toolbar, grid);
@@ -170,9 +170,9 @@ namespace FurnitureERP.Forms
             btnConfirm.Location = new Point(confirmX + 10, 8);
             btnConfirm.Click += (s, e) =>
             {
-                if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a GRN first."); return; }
+                if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID") <= 0) { UITheme.ShowWarning("Please select a GRN first."); return; }
                 if (!PermissionGuard.Ensure(PermissionModule.GoodsReceivedNote, PermissionAction.Edit, this)) return;
-                long grnId = Convert.ToInt64(grid.CurrentRow.Cells[0].Value);
+                long grnId = GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID");
                 ShowConfirmGrnDialog(grnId, () =>
                 {
                     try
@@ -189,12 +189,12 @@ namespace FurnitureERP.Forms
             grid.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
-                var idObj = grid.Rows[e.RowIndex].Cells[0].Value;
-                if (idObj == null) return;
+                long grnId = GridHelper.TryGetRowLongId(grid, grid.Rows[e.RowIndex], "GRN ID");
+                if (grnId <= 0) return;
                 if (AppSession.CanEdit(PermissionModule.GoodsReceivedNote))
-                    ShowGrnDetailDialog(Convert.ToInt64(idObj));
+                    ShowGrnDetailDialog(grnId);
                 else
-                    ShowGrnTableDialog(Convert.ToInt64(idObj), grid.Rows[e.RowIndex]);
+                    ShowGrnTableDialog(grnId, grid.Rows[e.RowIndex]);
             };
 
             try { grid.DataSource = _grnCtrl.GetAllGoodsReceivedNotes(); GridHelper.ApplyStyle(grid); } catch { }
@@ -214,18 +214,18 @@ namespace FurnitureERP.Forms
                 try { grid.DataSource = _supplierCtrl.GetAllSuppliers(); GridHelper.ApplyStyle(grid); } catch { }
             }, () =>
             {
-                if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a supplier first."); return; }
-                ShowSupplierTableDialog(Convert.ToInt64(grid.CurrentRow.Cells[0].Value), grid.CurrentRow);
+                if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Supplier ID") <= 0) { UITheme.ShowWarning("Please select a supplier first."); return; }
+                ShowSupplierTableDialog(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Supplier ID"), grid.CurrentRow);
             });
             AttachSearchAndFilter(toolbar, grid);
             grid.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
-                var idObj = grid.Rows[e.RowIndex].Cells[0].Value;
-                if (idObj == null) return;
-                var entity = _supplierCtrl.GetById(Convert.ToInt64(idObj));
+                long supplierId = GridHelper.TryGetRowLongId(grid, grid.Rows[e.RowIndex], "Supplier ID");
+                if (supplierId <= 0) return;
+                var entity = _supplierCtrl.GetById(supplierId);
                 if (entity != null && AppSession.CanEdit(PermissionModule.Supplier)) ShowSupplierDialog(entity);
-                else ShowSupplierTableDialog(Convert.ToInt64(idObj), grid.Rows[e.RowIndex]);
+                else ShowSupplierTableDialog(supplierId, grid.Rows[e.RowIndex]);
             };
 
             try { grid.DataSource = _supplierCtrl.GetAllSuppliers(); GridHelper.ApplyStyle(grid); } catch { }
@@ -261,7 +261,7 @@ namespace FurnitureERP.Forms
                 btnEdit.Location = new Point(btnDetail.Right + 10, 8);
                 btnEdit.Click += (s, e) =>
                 {
-                    if (grid?.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a record first."); return; }
+                    if (GridHelper.TryGetRowLongId(grid, grid?.CurrentRow) <= 0) { UITheme.ShowWarning("Please select a record first."); return; }
                     if (!PermissionGuard.Ensure(permissionModule, PermissionAction.Edit, this)) return;
                     onEdit();
                 };

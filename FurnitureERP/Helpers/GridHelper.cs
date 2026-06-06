@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace FurnitureERP.Helpers
@@ -9,7 +11,7 @@ namespace FurnitureERP.Helpers
     {
         public static DataGridView CreateStyledGrid()
         {
-            return new DataGridView
+            var grid = new DataGridView
             {
                 Dock = DockStyle.Fill,
                 ReadOnly = true,
@@ -25,12 +27,20 @@ namespace FurnitureERP.Helpers
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
                 RowTemplate = { Height = 32 }
             };
+            grid.DataBindingComplete += (s, e) =>
+            {
+                if (s is DataGridView boundGrid && e.ListChangedType == ListChangedType.Reset)
+                    StyleGrid(boundGrid);
+            };
+            return grid;
         }
 
         public static void ApplyStyle(DataGridView grid) => StyleGrid(grid);
 
         public static void StyleGrid(DataGridView grid)
         {
+            if (grid == null || grid.Columns.Count == 0) return;
+
             grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
             {
                 BackColor = UITheme.Primary,
@@ -53,19 +63,62 @@ namespace FurnitureERP.Helpers
             };
             grid.EnableHeadersVisualStyles = false;
 
+            var codeColumns = new List<DataGridViewColumn>();
+            var otherColumns = new List<DataGridViewColumn>();
+
             foreach (DataGridViewColumn col in grid.Columns)
             {
                 if (col == null) continue;
-                // Combo columns often use *ID as ValueMember but must stay visible (e.g. PO raw material picker).
                 if (col is DataGridViewComboBoxColumn)
+                {
+                    otherColumns.Add(col);
                     continue;
-                string header = (col.HeaderText ?? string.Empty).Trim();
-                string name = (col.Name ?? string.Empty).Trim();
-                bool isIdColumn = header.EndsWith("ID") || header.EndsWith("Id")
-                                  || name.EndsWith("ID") || name.EndsWith("Id");
-                if (isIdColumn)
+                }
+
+                if (IsIdColumn(col))
+                {
                     col.Visible = false;
+                    continue;
+                }
+
+                if (IsCodeColumn(col))
+                    codeColumns.Add(col);
+                else
+                    otherColumns.Add(col);
             }
+
+            int displayIndex = 0;
+            foreach (var col in codeColumns)
+                col.DisplayIndex = displayIndex++;
+            foreach (var col in otherColumns.Where(c => c.Visible))
+                col.DisplayIndex = displayIndex++;
+        }
+
+        public static long TryGetRowLongId(DataGridView grid, DataGridViewRow row, params string[] preferredIdColumns)
+        {
+            if (grid == null || row == null) return 0;
+
+            if (preferredIdColumns != null)
+            {
+                foreach (string columnName in preferredIdColumns)
+                {
+                    if (string.IsNullOrWhiteSpace(columnName) || !grid.Columns.Contains(columnName)) continue;
+                    if (TryParseCellLong(row.Cells[columnName]?.Value, out long preferredId))
+                        return preferredId;
+                }
+            }
+
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                if (!IsIdColumn(col)) continue;
+                if (TryParseCellLong(row.Cells[col.Name]?.Value, out long id))
+                    return id;
+            }
+
+            if (row.Cells.Count > 0 && TryParseCellLong(row.Cells[0].Value, out long fallbackId))
+                return fallbackId;
+
+            return 0;
         }
 
         public static void StyleGridWithStockAlert(DataGridView grid, string stockColumn, string minStockColumn)
@@ -104,6 +157,37 @@ namespace FurnitureERP.Helpers
                 col.MinimumWidth = 52;
                 col.FillWeight = weights.TryGetValue(col.HeaderText, out float weight) ? weight : 80f;
             }
+        }
+
+        private static bool TryParseCellLong(object value, out long id)
+        {
+            id = 0;
+            if (value == null || value == DBNull.Value) return false;
+            return long.TryParse(value.ToString(), out id);
+        }
+
+        private static bool IsIdColumn(DataGridViewColumn col)
+        {
+            string header = (col.HeaderText ?? string.Empty).Trim();
+            string name = (col.Name ?? col.DataPropertyName ?? string.Empty).Trim();
+            return IsIdLikeName(header) || IsIdLikeName(name);
+        }
+
+        private static bool IsCodeColumn(DataGridViewColumn col)
+        {
+            string header = (col.HeaderText ?? string.Empty).Trim();
+            string name = (col.Name ?? col.DataPropertyName ?? string.Empty).Trim();
+            return header.IndexOf("Code", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Code", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsIdLikeName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            return name.Equals("ID", System.StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith(" ID", System.StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith("Id", System.StringComparison.OrdinalIgnoreCase)
+                || (name.Length > 2 && name.EndsWith("ID", System.StringComparison.OrdinalIgnoreCase));
         }
     }
 }

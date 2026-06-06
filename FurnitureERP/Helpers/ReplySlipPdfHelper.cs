@@ -12,6 +12,7 @@ namespace FurnitureERP.Helpers
     public class ReplySlipPdfData
     {
         public string SlipCode { get; set; }
+        public string RelatedDeliveryNote { get; set; }
         public string SalesOrder { get; set; }
         public string Customer { get; set; }
         public string Staff { get; set; }
@@ -106,7 +107,14 @@ namespace FurnitureERP.Helpers
 
             y = DrawInfoPair(gfx, leftX, y, colWidth, "Sales Order", data.SalesOrder, labelFont, valueFont);
             double rightY = DrawInfoPair(gfx, rightX, infoStartY, colWidth, "Status", data.Status, labelFont, valueFont);
-            y = Math.Max(y, DrawInfoPair(gfx, rightX, rightY, colWidth, "Signed By", data.SignedBy, labelFont, valueFont));
+            y = Math.Max(y, rightY);
+            if (!string.IsNullOrWhiteSpace(data.RelatedDeliveryNote))
+            {
+                rightY = DrawInfoPair(gfx, rightX, y, colWidth, "Delivery Note", data.RelatedDeliveryNote, labelFont, valueFont);
+                y = Math.Max(y, rightY);
+            }
+            rightY = DrawInfoPair(gfx, rightX, y, colWidth, "Signed By", data.SignedBy, labelFont, valueFont);
+            y = Math.Max(y, rightY);
 
             double row2Y = y;
             y = DrawInfoPair(gfx, leftX, row2Y, colWidth, "Customer", data.Customer, labelFont, valueFont);
@@ -154,6 +162,7 @@ namespace FurnitureERP.Helpers
                     string unit = GetCell(row, "Unit");
                     decimal unitPrice = ParseDecimal(row, "Unit Price");
                     decimal qty = ParseDecimal(row, "Qty");
+                    if (qty == 0) qty = ParseDecimal(row, "Ship Qty");
                     decimal discount = ParseDecimal(row, "Discount");
                     decimal amount = ParseDecimal(row, "Amount");
                     if (amount == 0 && qty > 0)
@@ -244,6 +253,56 @@ namespace FurnitureERP.Helpers
                 ProductLines = productLines,
                 SuggestedFileName = fileNameHint
             };
+        }
+
+        public static ReplySlipPdfData FromDeliveryNoteHeaderAndLines(DataTable header, DataTable lines, decimal total, string fileNameHint = null)
+        {
+            if (header == null || header.Rows.Count == 0)
+                throw new ArgumentException("Header is required.", nameof(header));
+
+            var row = header.Rows[0];
+            string slipCode = GetCell(row, "Reply Slip Code");
+            if (string.IsNullOrWhiteSpace(slipCode))
+            {
+                string dnCode = GetCell(row, "Delivery Note Code");
+                slipCode = Sales_user.Controllers.DeliveryNoteController.FormatReplySlipCodeFromDeliveryNoteCode(dnCode) ?? "";
+            }
+
+            string status = GetCell(row, "Status");
+            if (int.TryParse(status, out int statusCode))
+                status = DictionaryService.GetDisplayName(DictionaryService.Categories.Delivery, statusCode);
+
+            var productLines = lines?.Copy();
+            RemoveTotalRows(productLines);
+            EnsureQtyColumnFromShipQty(productLines);
+
+            return new ReplySlipPdfData
+            {
+                SlipCode = slipCode,
+                RelatedDeliveryNote = GetCell(row, "Delivery Note Code"),
+                SalesOrder = GetCell(row, "Sales Order"),
+                Customer = GetCell(row, "Customer"),
+                Staff = GetCell(row, "Staff"),
+                SignedBy = GetCell(row, "Signed By"),
+                SignedDate = FormatDateValue(row, "Signed Date"),
+                CreateDate = FormatDateValue(row, "Create Date"),
+                Status = status,
+                Remark = GetCell(row, "Remark"),
+                TotalAmount = total,
+                ProductLines = productLines,
+                SuggestedFileName = fileNameHint
+            };
+        }
+
+        private static void EnsureQtyColumnFromShipQty(DataTable lines)
+        {
+            if (lines == null) return;
+            if (!lines.Columns.Contains("Qty") && lines.Columns.Contains("Ship Qty"))
+            {
+                lines.Columns.Add("Qty", typeof(decimal));
+                foreach (DataRow row in lines.Rows)
+                    row["Qty"] = row["Ship Qty"];
+            }
         }
 
         private static void RemoveTotalRows(DataTable lines)
