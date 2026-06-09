@@ -21,6 +21,8 @@ namespace FurnitureERP.Helpers
             public const string Product = "PRODUCT_STATUS";
             public const string RawMaterial = "RAW_MATERIAL_STATUS";
             public const string Staff = "STAFF_STATUS";
+            public const string Department = "DEPARTMENT";
+            public const string StaffTitle = "STAFF_TITLE";
             public const string Quotation = "QUOTATION_STATUS";
             public const string ReplySlip = "REPLY_SLIP_STATUS";
             public const string PoPaymentType = "FINANCIAL_CLEARING_TYPE";
@@ -29,6 +31,7 @@ namespace FurnitureERP.Helpers
             public const string RefundReason = "REFUND_REASON";
             public const string RefundStatus = "REFUND_STATUS";
             public const string PaymentTerm = "PAYMENT_TERM";
+            public const string ShipMethod = "SHIP_METHOD";
         }
 
         private static readonly Dictionary<string, Dictionary<int, string>> _cache =
@@ -186,6 +189,29 @@ namespace FurnitureERP.Helpers
             [3] = "60 Days",
             [4] = "90 Days"
         };
+        private static readonly Dictionary<int, string> _shipMethodFallback = new Dictionary<int, string>
+        {
+            [0] = "Sea Freight",
+            [1] = "Air Freight",
+            [2] = "Land Transport",
+            [3] = "Express Delivery",
+            [4] = "Rail Freight",
+            [5] = "In-house Delivery"
+        };
+        private static readonly Dictionary<string, int> _shipMethodLegacyLookup =
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["courier"] = 3,
+                ["company truck"] = 5,
+                ["customer pickup"] = 5,
+                ["sea freight"] = 0,
+                ["air freight"] = 1,
+                ["express"] = 3,
+                ["express delivery"] = 3,
+                ["land transport"] = 2,
+                ["rail freight"] = 4,
+                ["in-house delivery"] = 5
+            };
 
         public static void ClearCache() => _cache.Clear();
 
@@ -218,7 +244,50 @@ namespace FurnitureERP.Helpers
             if (string.Equals(category, Categories.PaymentTerm, StringComparison.OrdinalIgnoreCase)
                 && _paymentTermFallback.TryGetValue(codeValue, out var paymentTermName))
                 return paymentTermName;
+            if (string.Equals(category, Categories.ShipMethod, StringComparison.OrdinalIgnoreCase)
+                && _shipMethodFallback.TryGetValue(codeValue, out var shipMethodName))
+                return shipMethodName;
             return codeValue.ToString();
+        }
+
+        public static string FormatShipMethod(string storedValue)
+        {
+            if (string.IsNullOrWhiteSpace(storedValue)) return "";
+            if (int.TryParse(storedValue.Trim(), out int code))
+                return GetDisplayName(Categories.ShipMethod, code);
+            return storedValue.Trim();
+        }
+
+        public static int? ResolveShipMethodCode(string storedValue)
+        {
+            if (string.IsNullOrWhiteSpace(storedValue)) return null;
+            storedValue = storedValue.Trim();
+            if (int.TryParse(storedValue, out int code))
+                return code;
+
+            foreach (var item in GetItems(Categories.ShipMethod))
+            {
+                if (string.Equals(item.Value, storedValue, StringComparison.OrdinalIgnoreCase))
+                    return item.Key;
+            }
+
+            if (_shipMethodLegacyLookup.TryGetValue(storedValue, out int legacyCode))
+                return legacyCode;
+
+            return null;
+        }
+
+        public static DataTable DecorateShipMethodColumn(DataTable source, string columnName = "Ship Method")
+        {
+            if (source == null || !source.Columns.Contains(columnName))
+                return source;
+
+            foreach (DataRow row in source.Rows)
+            {
+                if (row[columnName] == DBNull.Value) continue;
+                row[columnName] = FormatShipMethod(row[columnName]?.ToString());
+            }
+            return source;
         }
 
         public static string GetRefundReasonStorageKey(int codeValue)

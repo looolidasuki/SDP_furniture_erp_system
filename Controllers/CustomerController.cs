@@ -1,3 +1,4 @@
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System.Collections.Generic;
@@ -7,12 +8,11 @@ namespace Sales_user.Controllers
 {
     public class CustomerController
     {
-        // 在 CustomerController.cs 中加入
+        private const string CustomerCodeSql = "CONCAT('CU-', LPAD(customerID, 9, '0'))";
 
         public DataTable GetAllCustomers()
         {
-            string sql = @"SELECT customerCode AS 'Customer Code',
-                                  customerRefNumber AS 'Customer Ref Number',
+            string sql = $@"SELECT {CustomerCodeSql} AS 'Customer Code',
                                   customerName AS 'Customer Name',
                                   billingAddress AS 'Billing Address',
                                   paymentTerm AS 'Payment Term',
@@ -24,9 +24,60 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql);
         }
 
+        public long FindCustomerIdByText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+            text = text.Trim();
+
+            if (long.TryParse(text, out long numericId) && numericId > 0 && GetById(numericId) != null)
+                return numericId;
+
+            if (text.StartsWith("CU-", System.StringComparison.OrdinalIgnoreCase))
+            {
+                string digits = text.Substring(3).Trim();
+                if (long.TryParse(digits, out long parsedId) && parsedId > 0 && GetById(parsedId) != null)
+                    return parsedId;
+            }
+
+            int separator = text.IndexOf('—');
+            if (separator < 0)
+                separator = text.IndexOf(" - ", System.StringComparison.Ordinal);
+            if (separator > 0)
+            {
+                long fromPrefix = FindCustomerIdByText(text.Substring(0, separator).Trim());
+                if (fromPrefix > 0) return fromPrefix;
+            }
+
+            string sqlByCode = $@"SELECT customerID FROM Customer
+                                  WHERE {CustomerCodeSql} = @code
+                                  ORDER BY customerID LIMIT 1";
+            var byCode = DatabaseConnect.ExecuteQuery(sqlByCode, new[] { new MySqlParameter("@code", text) });
+            if (byCode != null && byCode.Rows.Count > 0)
+                return System.Convert.ToInt64(byCode.Rows[0]["customerID"]);
+
+            string sqlByName = @"SELECT customerID FROM Customer
+                                 WHERE customerName = @name
+                                 ORDER BY customerID LIMIT 1";
+            var byName = DatabaseConnect.ExecuteQuery(sqlByName, new[] { new MySqlParameter("@name", text) });
+            if (byName != null && byName.Rows.Count > 0)
+                return System.Convert.ToInt64(byName.Rows[0]["customerID"]);
+
+            string like = "%" + text.Replace("%", "").Replace("_", "") + "%";
+            string sqlLike = $@"SELECT customerID FROM Customer
+                                WHERE customerName LIKE @like
+                                   OR {CustomerCodeSql} LIKE @like
+                                ORDER BY customerID LIMIT 1";
+            var byLike = DatabaseConnect.ExecuteQuery(sqlLike, new[] { new MySqlParameter("@like", like) });
+            if (byLike != null && byLike.Rows.Count > 0)
+                return System.Convert.ToInt64(byLike.Rows[0]["customerID"]);
+
+            return 0;
+        }
+
         public Customer GetById(long customerId)
         {
-            string sql = @"SELECT customerID, customerCode, customerRefNumber, customerName, billingAddress, paymentTerm
+            string sql = $@"SELECT customerID, {CustomerCodeSql} AS customerCode,
+                                  customerName, billingAddress, paymentTerm
                            FROM Customer WHERE customerID = @id";
             DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] {
                 new MySqlParameter("@id", customerId)
@@ -36,8 +87,8 @@ namespace Sales_user.Controllers
             return new Customer
             {
                 CustomerID = System.Convert.ToInt64(row["customerID"]),
-                CustomerCode = row["customerCode"] == System.DBNull.Value ? null : row["customerCode"].ToString(),
-                CustomerRefNumber = row["customerRefNumber"] == System.DBNull.Value ? null : row["customerRefNumber"].ToString(),
+                CustomerCode = row["customerCode"]?.ToString(),
+                CustomerRefNumber = null,
                 CustomerName = row["customerName"].ToString(),
                 BillingAddress = row["billingAddress"].ToString(),
                 PaymentTerm = row["paymentTerm"].ToString()
@@ -46,41 +97,25 @@ namespace Sales_user.Controllers
 
         public long Insert(Customer customer)
         {
-            string sql = @"INSERT INTO Customer (customerCode, customerRefNumber, customerName, billingAddress, paymentTerm)
-                           VALUES (@code, @ref, @name, @address, @term)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
-                new MySqlParameter("@code", string.IsNullOrWhiteSpace(customer.CustomerCode) ? (object)System.DBNull.Value : customer.CustomerCode.Trim()),
-                new MySqlParameter("@ref", string.IsNullOrWhiteSpace(customer.CustomerRefNumber) ? (object)System.DBNull.Value : customer.CustomerRefNumber.Trim()),
+            string sql = @"INSERT INTO Customer (customerID, customerName, billingAddress, paymentTerm)
+                           VALUES (@id, @name, @address, @term)";
+            long id = DatabaseConnect.InsertWithAllocatedId("customer", "customerID", sql, new[] {
                 new MySqlParameter("@name", customer.CustomerName ?? ""),
                 new MySqlParameter("@address", customer.BillingAddress ?? (object)System.DBNull.Value),
                 new MySqlParameter("@term", customer.PaymentTerm ?? (object)System.DBNull.Value)
             });
+            customer.CustomerCode = DocumentCodeHelper.FormatCustomerCode(id);
+            return id;
         }
 
         public void UpdateCodeAfterInsert(long customerId)
         {
-            string code = "CU-" + customerId.ToString("D9");
-            DatabaseConnect.ExecuteNonQuery(
-                "UPDATE Customer SET customerCode = @code WHERE customerID = @id",
-                new[]
-                {
-                    new MySqlParameter("@code", code),
-                    new MySqlParameter("@id", customerId)
-                });
+            // Display code is derived from customerID; no physical column in merged schema.
         }
 
         public void UpdateRefNumberAfterInsert(long customerId)
         {
-            string refNo = FormatCustomerRefNumber(customerId);
-            DatabaseConnect.ExecuteNonQuery(
-                @"UPDATE Customer SET customerRefNumber = @ref
-                  WHERE customerID = @id
-                    AND (customerRefNumber IS NULL OR TRIM(customerRefNumber) = '')",
-                new[]
-                {
-                    new MySqlParameter("@ref", refNo),
-                    new MySqlParameter("@id", customerId)
-                });
+            // Customer reference numbers live on sales orders (customerReferenceNumber).
         }
 
         public static string FormatCustomerRefNumber(long id)
@@ -90,11 +125,9 @@ namespace Sales_user.Controllers
 
         public bool Update(Customer customer)
         {
-            string sql = @"UPDATE Customer SET customerCode = @code, customerRefNumber = @ref, customerName = @name, billingAddress = @address,
+            string sql = @"UPDATE Customer SET customerName = @name, billingAddress = @address,
                            paymentTerm = @term, lastModifyDate = NOW() WHERE customerID = @id";
             return DatabaseConnect.ExecuteNonQuery(sql, new[] {
-                new MySqlParameter("@code", string.IsNullOrWhiteSpace(customer.CustomerCode) ? (object)System.DBNull.Value : customer.CustomerCode.Trim()),
-                new MySqlParameter("@ref", string.IsNullOrWhiteSpace(customer.CustomerRefNumber) ? (object)System.DBNull.Value : customer.CustomerRefNumber.Trim()),
                 new MySqlParameter("@name", customer.CustomerName ?? ""),
                 new MySqlParameter("@address", customer.BillingAddress ?? (object)System.DBNull.Value),
                 new MySqlParameter("@term", customer.PaymentTerm ?? (object)System.DBNull.Value),
@@ -119,8 +152,7 @@ namespace Sales_user.Controllers
 
         public DataTable Search(SearchFilterCriteria filter)
         {
-            string sql = @"SELECT customerCode AS 'Customer Code',
-                                  customerRefNumber AS 'Customer Ref Number',
+            string sql = $@"SELECT {CustomerCodeSql} AS 'Customer Code',
                                   customerName AS 'Customer Name',
                                   billingAddress AS 'Billing Address',
                                   paymentTerm AS 'Payment Term',
@@ -130,8 +162,7 @@ namespace Sales_user.Controllers
                            FROM Customer WHERE 1=1";
             var conditions = new List<string>();
             var parameters = new List<MySqlParameter>();
-            SearchQueryHelper.AddLike(conditions, parameters, "customerCode", filter.Keyword, "@code");
-            SearchQueryHelper.AddLike(conditions, parameters, "customerRefNumber", filter.Keyword, "@ref");
+            SearchQueryHelper.AddLike(conditions, parameters, CustomerCodeSql, filter.Keyword, "@code");
             SearchQueryHelper.AddLike(conditions, parameters, "customerName", filter.Name ?? filter.Keyword, "@name");
             SearchQueryHelper.AddLike(conditions, parameters, "billingAddress", filter.Keyword, "@addr");
             SearchQueryHelper.AddDateFrom(conditions, parameters, "createDate", filter.FromDate);
@@ -198,9 +229,9 @@ namespace Sales_user.Controllers
 
         public long InsertContactPerson(ContactPerson cp)
         {
-            string sql = @"INSERT INTO contactperson (customerID, contactPerson, title, phone, email)
-                           VALUES (@cid, @name, @title, @phone, @email)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[]
+            string sql = @"INSERT INTO contactperson (contactPersonID, customerID, contactPerson, title, phone, email)
+                           VALUES (@id, @cid, @name, @title, @phone, @email)";
+            return DatabaseConnect.InsertWithAllocatedId("contactperson", "contactPersonID", sql, new[]
             {
                 new MySqlParameter("@cid", cp.CustomerID),
                 new MySqlParameter("@name", cp.Name ?? (object)System.DBNull.Value),
@@ -232,9 +263,9 @@ namespace Sales_user.Controllers
 
         public long InsertDeliveryAddress(CustomerDeliveryAddress addr)
         {
-            string sql = @"INSERT INTO customerdeliveryaddress (customerID, deliveryAddress, contactPerson, phone, email)
-                           VALUES (@cid, @addr, @contact, @phone, @email)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[]
+            string sql = @"INSERT INTO customerdeliveryaddress (addressID, customerID, deliveryAddress, contactPerson, phone, email)
+                           VALUES (@id, @cid, @addr, @contact, @phone, @email)";
+            return DatabaseConnect.InsertWithAllocatedId("customerdeliveryaddress", "addressID", sql, new[]
             {
                 new MySqlParameter("@cid", addr.CustomerID),
                 new MySqlParameter("@addr", addr.DeliveryAddress ?? (object)System.DBNull.Value),

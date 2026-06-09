@@ -1,6 +1,8 @@
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
+using System.Collections.Generic;
 using System.Data;
 
 namespace Sales_user.Controllers
@@ -37,9 +39,9 @@ namespace Sales_user.Controllers
         public long Insert(Invoice invoice)
         {
             string sql = @"INSERT INTO Invoice
-                (invoiceCode, customerID, salesOrderID, staffID, invoiceType, status, remark)
-                VALUES (@code, @customerID, @soID, @staffID, @type, @status, @remark)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                (invoiceID, invoiceCode, customerID, salesOrderID, staffID, invoiceType, status, remark)
+                VALUES (@id, @code, @customerID, @soID, @staffID, @type, @status, @remark)";
+            return DatabaseConnect.InsertWithAllocatedId("invoice", "invoiceID", sql, new[] {
                 new MySqlParameter("@code", invoice.InvoiceCode),
                 new MySqlParameter("@customerID", invoice.CustomerID),
                 new MySqlParameter("@soID", invoice.SalesOrderID),
@@ -55,7 +57,7 @@ namespace Sales_user.Controllers
             DatabaseConnect.ExecuteNonQuery(
                 "UPDATE Invoice SET invoiceCode = @code WHERE invoiceID = @id",
                 new[] {
-                    new MySqlParameter("@code", "INV-" + invoiceId),
+                    new MySqlParameter("@code", DocumentCodeHelper.FormatInvoiceCode(invoiceId)),
                     new MySqlParameter("@id", invoiceId)
                 });
         }
@@ -171,7 +173,7 @@ namespace Sales_user.Controllers
                                   c.billingAddress AS 'Billing Address',
                                   c.paymentTerm AS 'Payment Terms',
                                   so.salesOrderCode AS 'Sales Order',
-                                  so.customerRefNumber AS 'Customer Ref Number',
+                                  so.customerReferenceNumber AS 'Customer Ref Number',
                                   CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
                                   i.invoiceType AS 'Invoice Type',
                                   i.createDate AS 'Create Date',
@@ -220,27 +222,76 @@ namespace Sales_user.Controllers
 
         public DataTable GetInvoicesForCustomerPicker(long customerId)
         {
-            string sql = @"SELECT i.invoiceID AS 'Invoice ID',
+            return GetInvoicesForSalesOrderPicker(customerId, 0);
+        }
+
+        public DataTable GetInvoicesForSalesOrderPicker(long customerId, long salesOrderId = 0)
+        {
+            if (customerId <= 0)
+                return null;
+
+            var parameters = new List<MySqlParameter> { new MySqlParameter("@cid", customerId) };
+            string soFilter = "";
+            if (salesOrderId > 0)
+            {
+                soFilter = " AND i.salesOrderID = @soId";
+                parameters.Add(new MySqlParameter("@soId", salesOrderId));
+            }
+
+            string sql = $@"SELECT i.invoiceID AS 'Invoice ID',
                                   i.invoiceCode AS 'Invoice Code',
+                                  i.salesOrderID AS 'Sales Order ID',
                                   so.salesOrderCode AS 'Sales Order',
                                   (SELECT COALESCE(SUM(il.amount), 0) FROM InvoiceLine il WHERE il.invoiceID = i.invoiceID) AS 'Total',
+                                  GREATEST(
+                                      (SELECT COALESCE(SUM(il.amount), 0) FROM InvoiceLine il WHERE il.invoiceID = i.invoiceID)
+                                      - (SELECT COALESCE(SUM(rvi.receivedAmount), 0)
+                                         FROM receiptvoucherinvoice rvi
+                                         INNER JOIN receiptvoucher rv ON rvi.receiptVoucherID = rv.receiptVoucherID
+                                         WHERE rvi.invoiceID = i.invoiceID AND rvi.invoiceID IS NOT NULL AND rv.status = 1)
+                                      + (SELECT COALESCE(SUM(rr.refundAmount), 0)
+                                         FROM RefundRequest rr
+                                         WHERE rr.InvoiceID = i.invoiceID AND rr.status = 2),
+                                      0) AS 'Outstanding',
                                   i.status AS 'Status'
                            FROM Invoice i
                            LEFT JOIN SalesOrder so ON i.salesOrderID = so.salesOrderID
-                           WHERE i.customerID = @cid
+                           WHERE i.customerID = @cid{soFilter}
                            ORDER BY i.createDate DESC";
-            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@cid", customerId) });
-            if (dt != null && !dt.Columns.Contains("DisplayText"))
-            {
-                dt.Columns.Add("DisplayText", typeof(string));
-                foreach (DataRow row in dt.Rows)
-                {
-                    string code = row["Invoice Code"]?.ToString();
-                    string total = row["Total"]?.ToString();
-                    row["DisplayText"] = string.IsNullOrWhiteSpace(total) ? code : $"{code} — {total}";
-                }
-            }
+            var dt = DatabaseConnect.ExecuteQuery(sql, parameters.ToArray());
+            DecorateInvoicePickerRows(dt);
             return dt;
+        }
+
+        public decimal GetOutstandingByInvoice(long invoiceId)
+        {
+            if (invoiceId <= 0) return 0;
+            decimal total = GetInvoiceTotal(invoiceId);
+            decimal received = 0;
+            var header = GetHeaderDetail(invoiceId);
+            if (header != null && header.Rows.Count > 0 && header.Columns.Contains("Total Received"))
+                decimal.TryParse(header.Rows[0]["Total Received"]?.ToString(), out received);
+            decimal outstanding = total - received;
+            return outstanding < 0 ? 0 : outstanding;
+        }
+
+        private static void DecorateInvoicePickerRows(DataTable dt)
+        {
+            if (dt == null) return;
+            if (!dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+
+            foreach (DataRow row in dt.Rows)
+            {
+                decimal outstanding = row.Table.Columns.Contains("Outstanding") && row["Outstanding"] != DBNull.Value
+                    ? Convert.ToDecimal(row["Outstanding"])
+                    : 0;
+                string code = row["Invoice Code"]?.ToString();
+                string so = row["Sales Order"]?.ToString();
+                row["DisplayText"] = string.IsNullOrWhiteSpace(so)
+                    ? $"{code} — Outstanding {outstanding:N2}"
+                    : $"{code} — {so} — Outstanding {outstanding:N2}";
+            }
         }
 
         public int GetCount()

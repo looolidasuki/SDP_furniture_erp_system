@@ -67,10 +67,13 @@ namespace Sales_user.Controllers
                                   p.size AS 'Size',
                                   p.color AS 'Color',
                                   p.basePriceByCurrency AS 'Base Price',
+                                  p.currencyID AS 'Currency ID',
+                                  c.rateToBase AS 'Currency Rate',
                                   p.unit AS 'Unit',
                                   p.status AS 'Status',
                                   COALESCE(ws.available, agg.available, 0) AS 'Available Stock'
                            FROM Product p
+                           LEFT JOIN Currency c ON p.currencyID = c.currencyID
                            LEFT JOIN (
                                SELECT productID,
                                       SUM(GREATEST(physicalQuantity - reservedQuantity, 0)) AS available
@@ -205,12 +208,12 @@ namespace Sales_user.Controllers
             long validStaffID = (product.StaffID <= 0) ? 1 : product.StaffID;
 
             string sql = @"INSERT INTO Product
-        (productCode, category, sequenceNumber, styleNumber, size, color,
+        (productID, productCode, category, sequenceNumber, styleNumber, size, color,
          basePriceByCurrency, currencyID, staffID, unit, status, remark)
-        VALUES (@code, @category, @seq, @style, @size, @color,
+        VALUES (@id, @code, @category, @seq, @style, @size, @color,
                 @price, @currencyID, @staffID, @unit, @status, @remark)";
 
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+            return DatabaseConnect.InsertWithAllocatedId("product", "productID", sql, new[] {
         new MySqlParameter("@code", product.ProductCode),
         new MySqlParameter("@category", product.Category),
         new MySqlParameter("@seq", product.SequenceNumber ?? (object)System.DBNull.Value),
@@ -301,11 +304,11 @@ namespace Sales_user.Controllers
                 long validCurrencyID = product.CurrencyID <= 0 ? 1 : product.CurrencyID;
                 long validStaffID = product.StaffID <= 0 ? 1 : product.StaffID;
 
-                long productId = DatabaseConnect.ExecuteInsertReturnId(conn, trans,
+                long productId = DatabaseConnect.InsertWithAllocatedId(conn, trans, "product", "productID",
                     @"INSERT INTO Product
-                      (productCode, category, sequenceNumber, styleNumber, size, color,
+                      (productID, productCode, category, sequenceNumber, styleNumber, size, color,
                        basePriceByCurrency, currencyID, staffID, unit, status, remark)
-                      VALUES (@code, @category, @seq, @style, @size, @color,
+                      VALUES (@id, @code, @category, @seq, @style, @size, @color,
                               @price, @currencyID, @staffID, @unit, @status, @remark)",
                     new[]
                     {

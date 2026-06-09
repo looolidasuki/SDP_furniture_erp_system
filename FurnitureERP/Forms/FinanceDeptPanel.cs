@@ -19,6 +19,7 @@ namespace FurnitureERP.Forms
         private readonly SupplierController _supplierCtrl = new SupplierController();
         private readonly CustomerController _customerCtrl = new CustomerController();
         private readonly PurchaseOrderController _poCtrl = new PurchaseOrderController();
+        private readonly SalesOrderController _soCtrl = new SalesOrderController();
 
         private TabControl _tabs;
         private DataGridView _pvGrid;
@@ -339,10 +340,10 @@ namespace FurnitureERP.Forms
             var dlg = new Form
             {
                 Text = title,
-                Size = new Size(760, 620),
+                Size = new Size(760, 680),
                 StartPosition = FormStartPosition.CenterParent,
                 FormBorderStyle = FormBorderStyle.Sizable,
-                MinimumSize = new Size(680, 520),
+                MinimumSize = new Size(680, 580),
                 BackColor = UITheme.Background
             };
 
@@ -352,11 +353,24 @@ namespace FurnitureERP.Forms
 
             var txtCode = new TextBox
             {
-                Text = pv?.PaymentVoucherCode ?? "",
+                Text = isNew ? "(auto-generated)" : (pv?.PaymentVoucherCode ?? ""),
                 Width = 280,
-                MaxLength = 30
+                MaxLength = 30,
+                ReadOnly = isNew,
+                ForeColor = isNew ? UITheme.TextGray : UITheme.TextDark
             };
-            var cmbSupplier = BuildSupplierCombo(pv?.SupplierID ?? 0);
+            var cmbSupplier = new ComboBox { Width = 280 };
+            var supplierBinder = new FilteredComboBinder(cmbSupplier, "Supplier ID", "DisplayText");
+            supplierBinder.SetSource(BuildSupplierPickerTable(), pv?.SupplierID ?? 0);
+            var cmbLinkPo = new ComboBox { Width = 280 };
+            FilteredComboBinder poLinkBinder = null;
+            var lblPoBalance = new Label
+            {
+                AutoSize = false,
+                Height = 23,
+                ForeColor = UITheme.TextGray,
+                Text = "Select a purchase order to auto-fill supplier and amount."
+            };
             var lblStaff = new Label { Text = staffLabel, AutoSize = true, ForeColor = UITheme.TextDark };
             var txtAmount = new TextBox { Text = pv?.Amount.ToString("0.##") ?? string.Empty, Width = 280 };
 
@@ -375,18 +389,20 @@ namespace FurnitureERP.Forms
             cmbStatus.SelectedIndex = pv != null ? Math.Max(0, Math.Min(pv.Status, 3)) : 0;
             var txtRemark = new TextBox { Text = pv?.Remark ?? string.Empty, Multiline = true, Height = 44, Width = 280 };
 
-            int headerRows = 8;
+            int headerRows = 10;
             var header = new TableLayoutPanel { Dock = DockStyle.Top, Height = headerRows * 34 + 24, Padding = new Padding(12), ColumnCount = 2, RowCount = headerRows };
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            UITheme.AddFormField(header, 0, "Voucher Code *", txtCode);
+            UITheme.AddFormField(header, 0, isNew ? "Voucher Code" : "Voucher Code *", txtCode);
             UITheme.AddFormField(header, 1, "Supplier *", cmbSupplier);
-            UITheme.AddFormField(header, 2, "Staff", lblStaff);
-            UITheme.AddFormField(header, 3, "Amount *", txtAmount);
-            UITheme.AddFormField(header, 4, "Payment Method", cmbMethod);
-            UITheme.AddFormField(header, 5, "Method Ref", txtRef);
-            UITheme.AddFormField(header, 6, "Status", cmbStatus);
-            UITheme.AddFormField(header, 7, "Remark", txtRemark);
+            UITheme.AddFormField(header, 2, "Purchase Order", cmbLinkPo);
+            UITheme.AddFormField(header, 3, "PO Balance", lblPoBalance);
+            UITheme.AddFormField(header, 4, "Staff", lblStaff);
+            UITheme.AddFormField(header, 5, "Amount *", txtAmount);
+            UITheme.AddFormField(header, 6, "Payment Method", cmbMethod);
+            UITheme.AddFormField(header, 7, "Method Ref", txtRef);
+            UITheme.AddFormField(header, 8, "Status", cmbStatus);
+            UITheme.AddFormField(header, 9, "Remark", txtRemark);
 
             var settlementTable = CreatePoSettlementEditorTable();
             if (pv?.PurchaseOrderLines != null)
@@ -405,7 +421,10 @@ namespace FurnitureERP.Forms
             IEnumerable<long> ensurePoIds = pv?.PurchaseOrderLines?
                 .Where(l => l.PurchaseOrderID > 0)
                 .Select(l => l.PurchaseOrderID);
+            long initialPoId = pv?.PurchaseOrderID ?? pv?.PurchaseOrderLines?.FirstOrDefault(l => l.PurchaseOrderID > 0)?.PurchaseOrderID ?? 0;
             DataTable poPicker = BuildPoPickerForSupplier(ResolveSupplierId(cmbSupplier), ensurePoIds);
+            poLinkBinder = new FilteredComboBinder(cmbLinkPo, "Purchase Order ID", "DisplayText");
+            poLinkBinder.SetSource(poPicker, initialPoId);
             DataTable clearingPicker = BuildClearingTypeDataTable();
 
             var settlementGrid = new DataGridView
@@ -469,7 +488,7 @@ namespace FurnitureERP.Forms
             {
                 if (e.RowIndex < 0) return;
                 if (settlementGrid.Columns[e.ColumnIndex].Name == "colPo")
-                    SyncPoRowFromPicker(settlementGrid.Rows[e.RowIndex], poPicker);
+                    SyncPoRowFromPicker(settlementGrid.Rows[e.RowIndex], poPicker, txtAmount, lblPoBalance);
             };
             settlementGrid.CurrentCellDirtyStateChanged += (s, e) =>
             {
@@ -477,13 +496,38 @@ namespace FurnitureERP.Forms
                     settlementGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
             };
 
-            cmbSupplier.SelectedIndexChanged += (s, e) =>
+            bool suppressPvComboEvents = false;
+            Action refreshPoPickers = () =>
             {
+                if (suppressPvComboEvents) return;
                 var ids = CollectPoIdsFromGrid(settlementGrid);
+                long linkPoId = GetComboLongId(cmbLinkPo);
+                if (linkPoId > 0) ids = ids.Concat(new[] { linkPoId });
                 poPicker = BuildPoPickerForSupplier(ResolveSupplierId(cmbSupplier), ids);
                 colPo.DataSource = null;
                 colPo.DataSource = poPicker;
+                poLinkBinder.SuppressEvents = true;
+                try { poLinkBinder.RefreshSource(poPicker, linkPoId); }
+                finally { poLinkBinder.SuppressEvents = false; }
             };
+
+            cmbSupplier.SelectedIndexChanged += (s, e) => refreshPoPickers();
+            supplierBinder.SelectionCommitted += (s, e) => refreshPoPickers();
+
+            Action applyPoLink = () =>
+            {
+                if (suppressPvComboEvents) return;
+                long poId = ResolvePurchaseOrderId(cmbLinkPo, ResolveSupplierId(cmbSupplier));
+                ApplyPurchaseOrderLink(
+                    poId, cmbSupplier, txtAmount, lblPoBalance, settlementTable,
+                    ref poPicker, colPo, poLinkBinder, settlementGrid,
+                    v => suppressPvComboEvents = v);
+            };
+            poLinkBinder.SelectionCommitted += (s, e) => applyPoLink();
+            cmbLinkPo.Leave += (s, e) => applyPoLink();
+
+            if (initialPoId > 0)
+                UpdatePoBalanceLabel(initialPoId, lblPoBalance);
 
             var lblSettleHint = new Label
             {
@@ -533,8 +577,8 @@ namespace FurnitureERP.Forms
                     return;
                 }
 
-                string voucherCode = txtCode.Text.Trim();
-                if (!TryValidateVoucherCode(voucherCode, isNew, pv?.PaymentVoucherID ?? 0, _pvCtrl.ExistsByCode, out string codeError))
+                string voucherCode = isNew ? "PV-TEMP" : txtCode.Text.Trim();
+                if (!isNew && !TryValidateVoucherCode(voucherCode, false, pv?.PaymentVoucherID ?? 0, _pvCtrl.ExistsByCode, out string codeError))
                 {
                     UITheme.ShowWarning(codeError);
                     return;
@@ -586,7 +630,7 @@ namespace FurnitureERP.Forms
             var dlg = new Form
             {
                 Text = title,
-                Size = new Size(520, 480),
+                Size = new Size(560, 560),
                 StartPosition = FormStartPosition.CenterParent,
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 MaximizeBox = false,
@@ -599,11 +643,25 @@ namespace FurnitureERP.Forms
 
             var txtCode = new TextBox
             {
-                Text = existingRv?.ReceiptVoucherCode ?? "",
+                Text = isNew ? "(auto-generated)" : (existingRv?.ReceiptVoucherCode ?? ""),
                 Width = 300,
-                MaxLength = 30
+                MaxLength = 30,
+                ReadOnly = isNew,
+                ForeColor = isNew ? UITheme.TextGray : UITheme.TextDark
             };
-            var cmbCustomer = BuildCustomerCombo(existingRv?.CusomerID ?? 0);
+            var cmbCustomer = new ComboBox { Width = 300 };
+            var cmbSalesOrder = new ComboBox { Width = 300 };
+            var cmbInvoice = new ComboBox { Width = 300 };
+            var customerBinder = CustomerComboHelper.Attach(cmbCustomer, _customerCtrl, existingRv?.CusomerID ?? 0);
+            var soBinder = new FilteredComboBinder(cmbSalesOrder, "Order ID", "DisplayText");
+            var invoiceBinder = new FilteredComboBinder(cmbInvoice, "Invoice ID", "DisplayText");
+            var lblInvoiceBalance = new Label
+            {
+                AutoSize = false,
+                Height = 23,
+                ForeColor = UITheme.TextGray,
+                Text = "Type or select customer, sales order and invoice to auto-fill amount."
+            };
             var lblStaff = new Label { Text = staffLabel, AutoSize = true, ForeColor = UITheme.TextDark };
             var txtAmount = new TextBox { Text = existingRv?.PaymentAmount.ToString("0.##") ?? string.Empty, Width = 300 };
 
@@ -632,19 +690,128 @@ namespace FurnitureERP.Forms
             cmbStatus.SelectedIndex = existingRv != null ? Math.Max(0, Math.Min(existingRv.Status, 2)) : 0;
             var txtRemark = new TextBox { Text = existingRv?.Remark ?? string.Empty, Multiline = true, Height = 44, Width = 300 };
 
-            int rvFieldRows = 9;
+            int rvFieldRows = 12;
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 2, RowCount = rvFieldRows };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            UITheme.AddFormField(layout, 0, "Voucher Code *", txtCode);
+            for (int i = 0; i < rvFieldRows; i++)
+                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            UITheme.AddFormField(layout, 0, isNew ? "Voucher Code" : "Voucher Code *", txtCode);
             UITheme.AddFormField(layout, 1, "Customer *", cmbCustomer);
-            UITheme.AddFormField(layout, 2, "Staff", lblStaff);
-            UITheme.AddFormField(layout, 3, "Amount *", txtAmount);
-            UITheme.AddFormField(layout, 4, "Payment Method", cmbMethod);
-            UITheme.AddFormField(layout, 5, "Method Ref", txtRef);
-            UITheme.AddFormField(layout, 6, "Received Date *", dtpReceived);
-            UITheme.AddFormField(layout, 7, "Status", cmbStatus);
-            UITheme.AddFormField(layout, 8, "Remark", txtRemark);
+            UITheme.AddFormField(layout, 2, "Sales Order", cmbSalesOrder);
+            UITheme.AddFormField(layout, 3, "Invoice", cmbInvoice);
+            UITheme.AddFormField(layout, 4, "Invoice Balance", lblInvoiceBalance);
+            UITheme.AddFormField(layout, 5, "Staff", lblStaff);
+            UITheme.AddFormField(layout, 6, "Amount *", txtAmount);
+            UITheme.AddFormField(layout, 7, "Payment Method", cmbMethod);
+            UITheme.AddFormField(layout, 8, "Method Ref", txtRef);
+            UITheme.AddFormField(layout, 9, "Received Date *", dtpReceived);
+            UITheme.AddFormField(layout, 10, "Status", cmbStatus);
+            UITheme.AddFormField(layout, 11, "Remark", txtRemark);
+
+            bool suppressRvComboEvents = false;
+            long initialCustomerId = existingRv?.CusomerID ?? 0;
+            soBinder.SetSource(BuildSalesOrderPicker(initialCustomerId));
+            invoiceBinder.SetSource(BuildInvoicePickerForRv(initialCustomerId, 0));
+
+            long GetRvCustomerId() => CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
+
+            long GetRvSalesOrderId(long customerId) =>
+                soBinder.GetSelectedId() > 0 ? soBinder.GetSelectedId() : ResolveSalesOrderId(cmbSalesOrder, customerId);
+
+            long GetRvInvoiceId(long customerId, long salesOrderId) =>
+                invoiceBinder.GetSelectedId() > 0 ? invoiceBinder.GetSelectedId() : ResolveInvoiceId(cmbInvoice, customerId, salesOrderId);
+
+            Action loadSoAndInvoiceForCustomer = () =>
+            {
+                if (suppressRvComboEvents) return;
+                long customerId = GetRvCustomerId();
+                if (customerId <= 0) return;
+
+                suppressRvComboEvents = true;
+                soBinder.SuppressEvents = true;
+                invoiceBinder.SuppressEvents = true;
+                try
+                {
+                    soBinder.RefreshSource(BuildSalesOrderPicker(customerId), 0);
+                    invoiceBinder.RefreshSource(BuildInvoicePickerForRv(customerId, 0), 0);
+                }
+                finally
+                {
+                    soBinder.SuppressEvents = false;
+                    invoiceBinder.SuppressEvents = false;
+                    suppressRvComboEvents = false;
+                }
+                lblInvoiceBalance.Text = "Select or type a sales order, then an invoice.";
+            };
+
+            Action loadInvoicesForSalesOrder = () =>
+            {
+                if (suppressRvComboEvents) return;
+                long customerId = GetRvCustomerId();
+                if (customerId <= 0) return;
+
+                long salesOrderId = GetRvSalesOrderId(customerId);
+                if (salesOrderId > 0)
+                {
+                    var so = _soCtrl.GetById(salesOrderId);
+                    if (so != null && so.CustomerID > 0 && customerId != so.CustomerID)
+                    {
+                        customerId = so.CustomerID;
+                        customerBinder.SuppressEvents = true;
+                        try { customerBinder.SelectById(customerId); }
+                        finally { customerBinder.SuppressEvents = false; }
+                    }
+                }
+
+                suppressRvComboEvents = true;
+                invoiceBinder.SuppressEvents = true;
+                try
+                {
+                    invoiceBinder.RefreshSource(BuildInvoicePickerForRv(customerId, salesOrderId), 0);
+                }
+                finally
+                {
+                    invoiceBinder.SuppressEvents = false;
+                    suppressRvComboEvents = false;
+                }
+                lblInvoiceBalance.Text = salesOrderId > 0
+                    ? "Select or type an invoice."
+                    : "Select or type a sales order, then an invoice.";
+            };
+
+            Action applyResolvedInvoiceLink = () =>
+            {
+                if (suppressRvComboEvents) return;
+                long customerId = GetRvCustomerId();
+                long salesOrderId = GetRvSalesOrderId(customerId);
+                long invoiceId = GetRvInvoiceId(customerId, salesOrderId);
+                ApplyInvoiceLink(invoiceId, cmbSalesOrder, txtAmount, lblInvoiceBalance, v => suppressRvComboEvents = v);
+            };
+
+            customerBinder.SelectionCommitted += (s, e) => loadSoAndInvoiceForCustomer();
+            cmbCustomer.Leave += (s, e) =>
+            {
+                if (customerBinder.GetSelectedId() > 0) return;
+                if (ResolveCustomerId(cmbCustomer) > 0)
+                    loadSoAndInvoiceForCustomer();
+            };
+
+            soBinder.SelectionCommitted += (s, e) => loadInvoicesForSalesOrder();
+            cmbSalesOrder.Leave += (s, e) =>
+            {
+                if (soBinder.GetSelectedId() > 0) return;
+                long customerId = GetRvCustomerId();
+                if (customerId > 0 && ResolveSalesOrderId(cmbSalesOrder, customerId) > 0)
+                    loadInvoicesForSalesOrder();
+            };
+
+            invoiceBinder.SelectionCommitted += (s, e) => applyResolvedInvoiceLink();
+            cmbInvoice.Leave += (s, e) =>
+            {
+                if (invoiceBinder.GetSelectedId() > 0) return;
+                applyResolvedInvoiceLink();
+            };
 
             var btnSave = UITheme.CreatePrimaryButton("Save");
             if (isNew) PermissionGuard.ApplyCreateButton(btnSave, PermissionModule.ReceiptVoucher);
@@ -656,7 +823,7 @@ namespace FurnitureERP.Forms
                 var action = isNew ? PermissionAction.Create : PermissionAction.Edit;
                 if (!PermissionGuard.Ensure(PermissionModule.ReceiptVoucher, action, dlg)) return;
 
-                long custId = GetComboLongId(cmbCustomer);
+                long custId = ResolveCustomerId(cmbCustomer);
                 if (custId <= 0 || defaultStaffId <= 0 ||
                     !decimal.TryParse(txtAmount.Text.Trim(), out decimal amount) || amount <= 0)
                 {
@@ -664,8 +831,8 @@ namespace FurnitureERP.Forms
                     return;
                 }
 
-                string voucherCode = txtCode.Text.Trim();
-                if (!TryValidateVoucherCode(voucherCode, isNew, existingRv?.ReceiptVoucherID ?? 0, _rvCtrl.ExistsByCode, out string codeError))
+                string voucherCode = isNew ? "RV-TEMP" : txtCode.Text.Trim();
+                if (!isNew && !TryValidateVoucherCode(voucherCode, false, existingRv?.ReceiptVoucherID ?? 0, _rvCtrl.ExistsByCode, out string codeError))
                 {
                     UITheme.ShowWarning(codeError);
                     return;
@@ -1705,11 +1872,8 @@ namespace FurnitureERP.Forms
             }
         }
 
-        private ComboBox BuildSupplierCombo(long selectedSupplierId = 0)
+        private DataTable BuildSupplierPickerTable()
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 280 };
-            cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-            cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
             var dt = _supplierCtrl.GetAllSuppliers();
             if (dt != null && !dt.Columns.Contains("DisplayText"))
                 dt.Columns.Add("DisplayText", typeof(string));
@@ -1718,32 +1882,21 @@ namespace FurnitureERP.Forms
                 foreach (DataRow row in dt.Rows)
                     row["DisplayText"] = row["Supplier Name"]?.ToString();
             }
-            cmb.DataSource = dt;
-            cmb.DisplayMember = "DisplayText";
-            cmb.ValueMember = "Supplier ID";
-            if (selectedSupplierId > 0) SetComboLongValue(cmb, selectedSupplierId);
+            return dt;
+        }
+
+        private ComboBox BuildSupplierCombo(long selectedSupplierId = 0)
+        {
+            var cmb = new ComboBox { Width = 280 };
+            var binder = new FilteredComboBinder(cmb, "Supplier ID", "DisplayText");
+            binder.SetSource(BuildSupplierPickerTable(), selectedSupplierId);
             return cmb;
         }
 
         private ComboBox BuildCustomerCombo(long selectedCustomerId = 0)
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
-            var dt = _customerCtrl.GetAllCustomers();
-            if (dt != null && !dt.Columns.Contains("DisplayText"))
-                dt.Columns.Add("DisplayText", typeof(string));
-            if (dt != null)
-            {
-                foreach (DataRow row in dt.Rows)
-                {
-                    string code = dt.Columns.Contains("Customer Code") ? row["Customer Code"]?.ToString() : "";
-                    string name = row["Customer Name"]?.ToString();
-                    row["DisplayText"] = string.IsNullOrWhiteSpace(code) ? name : $"{code} — {name}";
-                }
-            }
-            cmb.DataSource = dt;
-            cmb.DisplayMember = "DisplayText";
-            cmb.ValueMember = "Customer ID";
-            if (selectedCustomerId > 0) SetComboLongValue(cmb, selectedCustomerId);
+            var cmb = new ComboBox { Width = 300 };
+            CustomerComboHelper.Attach(cmb, _customerCtrl, selectedCustomerId);
             return cmb;
         }
 
@@ -1754,6 +1907,56 @@ namespace FurnitureERP.Forms
             string name = (cmbSupplier.Text ?? "").Trim();
             if (string.IsNullOrWhiteSpace(name)) return 0;
             return _supplierCtrl.FindSupplierIdByName(name);
+        }
+
+        private long ResolveCustomerId(ComboBox cmbCustomer) =>
+            CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
+
+        private static string ExtractLeadingCode(string text)
+        {
+            text = (text ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(text)) return text;
+            int separator = text.IndexOf('—');
+            if (separator < 0)
+                separator = text.IndexOf(" - ", StringComparison.Ordinal);
+            return separator > 0 ? text.Substring(0, separator).Trim() : text;
+        }
+
+        private long ResolveSalesOrderId(ComboBox cmbSalesOrder, long customerId)
+        {
+            long id = GetComboLongId(cmbSalesOrder);
+            if (id > 0) return id;
+            string text = ExtractLeadingCode(cmbSalesOrder.Text);
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+            var so = _soCtrl.GetByCode(text);
+            if (so == null) return 0;
+            if (customerId > 0 && so.CustomerID != customerId) return 0;
+            return so.SalesOrderID;
+        }
+
+        private long ResolveInvoiceId(ComboBox cmbInvoice, long customerId, long salesOrderId)
+        {
+            long id = GetComboLongId(cmbInvoice);
+            if (id > 0) return id;
+            string text = ExtractLeadingCode(cmbInvoice.Text);
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+            var invoice = _invoiceCtrl.GetByCode(text);
+            if (invoice == null) return 0;
+            if (customerId > 0 && invoice.CustomerID != customerId) return 0;
+            if (salesOrderId > 0 && invoice.SalesOrderID != salesOrderId) return 0;
+            return invoice.InvoiceID;
+        }
+
+        private long ResolvePurchaseOrderId(ComboBox cmbPo, long supplierId)
+        {
+            long id = GetComboLongId(cmbPo);
+            if (id > 0) return id;
+            string text = ExtractLeadingCode(cmbPo.Text);
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+            var po = _poCtrl.GetByCode(text);
+            if (po == null) return 0;
+            if (supplierId > 0 && po.SupplierID != supplierId) return 0;
+            return po.PurchaseOrderID;
         }
 
         private DataTable BuildPoPickerForSupplier(long supplierId, IEnumerable<long> ensurePoIds = null)
@@ -1914,7 +2117,175 @@ namespace FurnitureERP.Forms
             return dt;
         }
 
-        private static void SyncPoRowFromPicker(DataGridViewRow row, DataTable poPicker)
+        private void BindPoLinkCombo(ComboBox combo, DataTable poPicker, long selectedPoId)
+        {
+            combo.DataSource = null;
+            if (poPicker == null)
+            {
+                combo.Items.Clear();
+                return;
+            }
+            combo.DataSource = poPicker;
+            combo.DisplayMember = "DisplayText";
+            combo.ValueMember = "Purchase Order ID";
+            if (selectedPoId > 0) SetComboLongValue(combo, selectedPoId);
+        }
+
+        private void UpdatePoBalanceLabel(long poId, Label lblBalance)
+        {
+            if (poId <= 0)
+            {
+                lblBalance.Text = "Select a purchase order to auto-fill supplier and amount.";
+                return;
+            }
+            decimal total = _poCtrl.GetTotalAmount(poId);
+            decimal settled = _pvCtrl.GetSettledTotalByPurchaseOrder(poId);
+            decimal outstanding = _pvCtrl.GetOutstandingByPurchaseOrder(poId);
+            lblBalance.Text = $"PO Total: {total:N2}  |  Settled: {settled:N2}  |  Outstanding: {outstanding:N2}";
+        }
+
+        private void ApplyPurchaseOrderLink(long poId, ComboBox cmbSupplier, TextBox txtAmount, Label lblBalance,
+            DataTable settlementTable, ref DataTable poPicker, DataGridViewComboBoxColumn colPo, FilteredComboBinder poLinkBinder,
+            DataGridView settlementGrid, Action<bool> setSuppress)
+        {
+            if (poId <= 0)
+            {
+                lblBalance.Text = "Select a purchase order to auto-fill supplier and amount.";
+                return;
+            }
+
+            var po = _poCtrl.GetById(poId);
+            setSuppress(true);
+            try
+            {
+                if (po != null && po.SupplierID > 0 && ResolveSupplierId(cmbSupplier) != po.SupplierID)
+                    SetComboLongValue(cmbSupplier, po.SupplierID);
+
+                var ids = CollectPoIdsFromGrid(settlementGrid).Concat(new[] { poId });
+                poPicker = BuildPoPickerForSupplier(ResolveSupplierId(cmbSupplier), ids);
+                colPo.DataSource = null;
+                colPo.DataSource = poPicker;
+                if (poLinkBinder != null)
+                {
+                    poLinkBinder.SuppressEvents = true;
+                    try { poLinkBinder.RefreshSource(poPicker, poId); }
+                    finally { poLinkBinder.SuppressEvents = false; }
+                }
+            }
+            finally { setSuppress(false); }
+
+            UpdatePoBalanceLabel(poId, lblBalance);
+            decimal outstanding = _pvCtrl.GetOutstandingByPurchaseOrder(poId);
+            if (outstanding > 0)
+                txtAmount.Text = outstanding.ToString("0.##");
+
+            string reqDate = po?.RequestDeliveryDate == default
+                ? ""
+                : po.RequestDeliveryDate.ToString("yyyy-MM-dd");
+            settlementTable.Rows.Clear();
+            settlementTable.Rows.Add(poId, po?.PurchaseOrderCode ?? "", reqDate, 1, outstanding);
+        }
+
+        private DataTable BuildSalesOrderPicker(long customerId)
+        {
+            DataTable dt;
+            if (customerId <= 0)
+            {
+                dt = new DataTable();
+                dt.Columns.Add("Order ID", typeof(long));
+                dt.Columns["Order ID"].AllowDBNull = true;
+                dt.Columns.Add("Order Code", typeof(string));
+                dt.Columns.Add("DisplayText", typeof(string));
+            }
+            else
+            {
+                dt = _soCtrl.GetSalesOrdersPickerByCustomer(customerId);
+                if (dt != null && !dt.Columns.Contains("DisplayText"))
+                {
+                    dt.Columns.Add("DisplayText", typeof(string));
+                    foreach (DataRow row in dt.Rows)
+                    {
+                        string code = row["Order Code"]?.ToString();
+                        string customerRef = row.Table.Columns.Contains("Customer Ref") ? row["Customer Ref"]?.ToString() : "";
+                        row["DisplayText"] = string.IsNullOrWhiteSpace(customerRef) ? code : $"{code} — {customerRef}";
+                    }
+                }
+            }
+            InsertBlankPickerRow(dt, "Order ID", "DisplayText", "(Select Sales Order)");
+            return dt;
+        }
+
+        private DataTable BuildInvoicePickerForRv(long customerId, long salesOrderId)
+        {
+            DataTable dt;
+            if (customerId <= 0)
+            {
+                dt = new DataTable();
+                dt.Columns.Add("Invoice ID", typeof(long));
+                dt.Columns["Invoice ID"].AllowDBNull = true;
+                dt.Columns.Add("DisplayText", typeof(string));
+            }
+            else
+            {
+                dt = _invoiceCtrl.GetInvoicesForSalesOrderPicker(customerId, salesOrderId);
+            }
+            return BuildInvoicePickerWithBlank(dt);
+        }
+
+        private static void BindSalesOrderCombo(ComboBox combo, DataTable soPicker, long selectedSoId)
+        {
+            combo.DataSource = null;
+            if (soPicker == null)
+            {
+                combo.Items.Clear();
+                return;
+            }
+            combo.DataSource = soPicker;
+            combo.DisplayMember = "DisplayText";
+            combo.ValueMember = "Order ID";
+            if (selectedSoId > 0) SetComboLongValue(combo, selectedSoId);
+        }
+
+        private static void BindInvoiceCombo(ComboBox combo, DataTable invoicePicker, long selectedInvoiceId)
+        {
+            combo.DataSource = null;
+            if (invoicePicker == null)
+            {
+                combo.Items.Clear();
+                return;
+            }
+            combo.DataSource = invoicePicker;
+            combo.DisplayMember = "DisplayText";
+            combo.ValueMember = "Invoice ID";
+            if (selectedInvoiceId > 0) SetComboLongValue(combo, selectedInvoiceId);
+        }
+
+        private void ApplyInvoiceLink(long invoiceId, ComboBox cmbSalesOrder, TextBox txtAmount, Label lblBalance,
+            Action<bool> setSuppress)
+        {
+            if (invoiceId <= 0)
+            {
+                lblBalance.Text = "Select an invoice to auto-fill amount.";
+                return;
+            }
+
+            var invoice = _invoiceCtrl.GetById(invoiceId);
+            if (invoice != null && invoice.SalesOrderID > 0 && GetComboLongId(cmbSalesOrder) != invoice.SalesOrderID)
+            {
+                setSuppress(true);
+                try { SetComboLongValue(cmbSalesOrder, invoice.SalesOrderID); }
+                finally { setSuppress(false); }
+            }
+
+            decimal total = _invoiceCtrl.GetInvoiceTotal(invoiceId);
+            decimal outstanding = _invoiceCtrl.GetOutstandingByInvoice(invoiceId);
+            decimal received = Math.Max(0, total - outstanding);
+            lblBalance.Text = $"Invoice Total: {total:N2}  |  Received: {received:N2}  |  Outstanding: {outstanding:N2}";
+            if (outstanding > 0)
+                txtAmount.Text = outstanding.ToString("0.##");
+        }
+
+        private void SyncPoRowFromPicker(DataGridViewRow row, DataTable poPicker, TextBox txtAmount, Label lblBalance)
         {
             if (row == null || poPicker == null) return;
             object val = row.Cells["colPo"]?.Value;
@@ -1933,6 +2304,15 @@ namespace FurnitureERP.Forms
                 }
                 break;
             }
+
+            decimal outstanding = _pvCtrl.GetOutstandingByPurchaseOrder(poId);
+            row.Cells["colPay"].Value = outstanding;
+            if (row.DataBoundItem is DataRowView rowView)
+                rowView.Row["Pay Amount"] = outstanding;
+
+            UpdatePoBalanceLabel(poId, lblBalance);
+            if (outstanding > 0)
+                txtAmount.Text = outstanding.ToString("0.##");
         }
 
         private static bool TryBuildPoSettlements(DataGridView grid, decimal voucherAmount,
@@ -2007,8 +2387,23 @@ namespace FurnitureERP.Forms
 
         private static long GetComboLongId(ComboBox cmb)
         {
-            if (cmb?.SelectedValue == null) return 0;
-            return long.TryParse(cmb.SelectedValue.ToString(), out long id) ? id : 0;
+            if (cmb == null) return 0;
+            try
+            {
+                if (cmb.SelectedValue != null && cmb.SelectedValue != DBNull.Value
+                    && long.TryParse(cmb.SelectedValue.ToString(), out long id) && id > 0)
+                    return id;
+            }
+            catch { }
+
+            if (cmb.SelectedIndex >= 0 && cmb.SelectedIndex < cmb.Items.Count
+                && cmb.Items[cmb.SelectedIndex] is DataRowView drv
+                && drv.Row.Table.Columns.Contains(cmb.ValueMember)
+                && drv[cmb.ValueMember] != DBNull.Value
+                && long.TryParse(drv[cmb.ValueMember].ToString(), out long rowId))
+                return rowId;
+
+            return 0;
         }
 
         private static void SetComboLongValue(ComboBox cmb, long value)

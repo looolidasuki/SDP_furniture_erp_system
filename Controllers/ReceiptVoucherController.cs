@@ -32,7 +32,7 @@ namespace Sales_user.Controllers
 
                                   rv.receiptVoucherCode AS 'Voucher Code',
 
-                                  c.customerCode AS 'Customer Code',
+                                  CONCAT('CU-', LPAD(c.customerID, 9, '0')) AS 'Customer Code',
 
                                   c.customerName AS 'Customer',
 
@@ -118,17 +118,17 @@ namespace Sales_user.Controllers
 
             string sql = @"INSERT INTO receiptvoucher
 
-                (receiptVoucherCode, cusomerID, staffID, paymentAmount, paymentMethod, paymentMethodRef,
+                (receiptVoucherID, receiptVoucherCode, cusomerID, staffID, paymentAmount, paymentMethod, paymentMethodRef,
 
                  remark, status, currencyID, paymentReceivedDate, createDate)
 
-                VALUES (@code, @cusomerID, @staffID, @amount, @method, @ref, @remark, @status, @currencyID, @receivedDate, NOW())";
+                VALUES (@id, @code, @cusomerID, @staffID, @amount, @method, @ref, @remark, @status, @currencyID, @receivedDate, NOW())";
 
 
 
-            long id = DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+            long id = DatabaseConnect.InsertWithAllocatedId("receiptvoucher", "receiptVoucherID", sql, new[] {
 
-                new MySqlParameter("@code", (rv.ReceiptVoucherCode ?? "").Trim()),
+                new MySqlParameter("@code", string.IsNullOrWhiteSpace(rv.ReceiptVoucherCode) ? "RV-TEMP" : rv.ReceiptVoucherCode.Trim()),
 
                 new MySqlParameter("@cusomerID", rv.CusomerID),
 
@@ -150,8 +150,22 @@ namespace Sales_user.Controllers
 
             });
 
+            if (id > 0)
+                UpdateCodeAfterInsert(id);
+
             return id;
 
+        }
+
+        public void UpdateCodeAfterInsert(long receiptVoucherId)
+        {
+            DatabaseConnect.ExecuteNonQuery(
+                "UPDATE receiptvoucher SET receiptVoucherCode = @code WHERE receiptVoucherID = @id",
+                new[]
+                {
+                    new MySqlParameter("@code", DocumentCodeHelper.FormatReceiptVoucherCode(receiptVoucherId)),
+                    new MySqlParameter("@id", receiptVoucherId)
+                });
         }
 
 
@@ -355,7 +369,7 @@ namespace Sales_user.Controllers
 
             string sql = @"SELECT rv.receiptVoucherCode AS 'Voucher Code',
 
-                                  c.customerCode AS 'Customer Code',
+                                  CONCAT('CU-', LPAD(c.customerID, 9, '0')) AS 'Customer Code',
 
                                   c.customerName AS 'Customer',
 

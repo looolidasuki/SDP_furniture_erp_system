@@ -93,15 +93,37 @@ namespace FurnitureERP.Helpers
         // Form field helpers
         public static void AddFormRow(TableLayoutPanel layout, int row, string labelText, Control control)
         {
+            const int topInset = 8;
+            bool useFill = (control is TextBox textBox && textBox.Multiline)
+                || control is Panel
+                || control is FlowLayoutPanel
+                || control is TableLayoutPanel;
+
             var lbl = new Label
             {
                 Text = labelText,
                 Font = new Font("Segoe UI", 9),
                 ForeColor = TextDark,
+                AutoSize = false,
                 Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleLeft
+                TextAlign = ContentAlignment.TopLeft,
+                Padding = new Padding(0, topInset, 0, 0),
+                Margin = Padding.Empty
             };
-            control.Dock = DockStyle.Fill;
+
+            if (useFill)
+            {
+                control.Dock = DockStyle.Fill;
+                control.Margin = new Padding(0, topInset, 0, 0);
+            }
+            else
+            {
+                control.Height = control is ComboBox ? 24 : 23;
+                control.Dock = DockStyle.None;
+                control.Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right;
+                control.Margin = new Padding(0, topInset, 0, 0);
+            }
+
             layout.Controls.Add(lbl, 0, row);
             layout.Controls.Add(control, 1, row);
         }

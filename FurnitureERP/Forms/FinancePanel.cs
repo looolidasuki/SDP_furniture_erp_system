@@ -457,11 +457,8 @@ namespace FurnitureERP.Forms
                     UITheme.AddFormField(layout, rowIdx++, "", lblLock);
                 }
 
-                cmbCustomer.SelectedIndexChanged += (s, e) =>
-                {
-                    long cid = GetComboLongId(cmbCustomer);
-                    BindSalesOrderCombo(cmbSalesOrder, cid, 0);
-                };
+                CustomerComboHelper.WireCustomerChanged(cmbCustomer, _customerCtrl, customerId =>
+                    BindSalesOrderCombo(cmbSalesOrder, customerId, 0));
 
                 var lineGrid = GridHelper.CreateStyledGrid();
                 lineGrid.ReadOnly = true;
@@ -485,11 +482,11 @@ namespace FurnitureERP.Forms
                 btnUpdate.Click += (s, e) =>
                 {
                     if (!PermissionGuard.Ensure(PermissionModule.Invoice, PermissionAction.Edit, dlg)) return;
-                    long customerId = GetComboLongId(cmbCustomer);
+                    long customerId = CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
                     long salesOrderId = GetComboLongId(cmbSalesOrder);
                     if (customerId <= 0 || salesOrderId <= 0)
                     {
-                        UITheme.ShowWarning("Please select a valid customer and sales order.");
+                        UITheme.ShowWarning("Please select or type a valid customer and sales order.");
                         return;
                     }
                     if (!locked)
@@ -1097,10 +1094,8 @@ namespace FurnitureERP.Forms
                     lblNormalHint.Visible = !deposit;
                 }
                 cmbType.SelectedIndexChanged += (s, e) => RefreshTypeUi();
-                cmbCustomer.SelectedIndexChanged += (s, e) =>
-                {
-                    BindSalesOrderCombo(cmbSalesOrder, GetComboLongId(cmbCustomer), 0);
-                };
+                CustomerComboHelper.WireCustomerChanged(cmbCustomer, _customerCtrl, customerId =>
+                    BindSalesOrderCombo(cmbSalesOrder, customerId, 0));
                 RefreshTypeUi();
 
                 layout.Dock = DockStyle.Fill;
@@ -1115,11 +1110,11 @@ namespace FurnitureERP.Forms
                         UITheme.ShowWarning("To create a normal invoice, use Invoice from Delivery after the delivery note is confirmed.");
                         return;
                     }
-                    long customerId = GetComboLongId(cmbCustomer);
+                    long customerId = CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
                     long salesOrderId = GetComboLongId(cmbSalesOrder);
                     if (customerId <= 0 || salesOrderId <= 0)
                     {
-                        UITheme.ShowWarning("Please select a customer and sales order.");
+                        UITheme.ShowWarning("Please select or type a valid customer and sales order.");
                         return;
                     }
                     var so = _salesOrderCtrl.GetFullById(salesOrderId);
@@ -1622,23 +1617,8 @@ namespace FurnitureERP.Forms
 
         private ComboBox BuildCustomerCombo(long selectedCustomerId = 0)
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
-            var dt = _customerCtrl.GetAllCustomers();
-            if (dt != null && !dt.Columns.Contains("DisplayText"))
-                dt.Columns.Add("DisplayText", typeof(string));
-            if (dt != null)
-            {
-                foreach (DataRow row in dt.Rows)
-                {
-                    string code = dt.Columns.Contains("Customer Code") ? row["Customer Code"]?.ToString() : "";
-                    string name = row["Customer Name"]?.ToString();
-                    row["DisplayText"] = string.IsNullOrWhiteSpace(code) ? name : $"{code} — {name}";
-                }
-            }
-            cmb.DataSource = dt;
-            cmb.DisplayMember = "DisplayText";
-            cmb.ValueMember = "Customer ID";
-            if (selectedCustomerId > 0) SetComboLongValue(cmb, selectedCustomerId);
+            var cmb = new ComboBox { Width = 340 };
+            CustomerComboHelper.Attach(cmb, _customerCtrl, selectedCustomerId);
             return cmb;
         }
 

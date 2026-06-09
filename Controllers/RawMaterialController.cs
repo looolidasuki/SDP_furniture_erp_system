@@ -43,9 +43,9 @@ namespace Sales_user.Controllers
         public long Insert(RawMaterial material)
         {
             string sql = @"INSERT INTO RawMaterial
-                (rawMaterialCode, category, SequenceNumber, size, color, minimumStockLevel, status)
-                VALUES (@code, @category, @seq, @size, @color, @minStock, @status)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                (rawMaterialID, rawMaterialCode, category, SequenceNumber, size, color, minimumStockLevel, status)
+                VALUES (@id, @code, @category, @seq, @size, @color, @minStock, @status)";
+            return DatabaseConnect.InsertWithAllocatedId("rawmaterial", "rawMaterialID", sql, new[] {
                 new MySqlParameter("@code", material.RawMaterialCode),
                 new MySqlParameter("@category", material.Category),
                 new MySqlParameter("@seq", material.SequenceNumber ?? (object)System.DBNull.Value),
@@ -180,6 +180,53 @@ namespace Sales_user.Controllers
                 Color = row["color"]?.ToString(),
                 MinimumStockLevel = row["minimumStockLevel"] != System.DBNull.Value ? System.Convert.ToInt32(row["minimumStockLevel"]) : 0,
                 Status = row["status"] != System.DBNull.Value ? System.Convert.ToInt32(row["status"]) : 0
+            };
+        }
+
+        public RawMaterialWarehouseSnapshot GetWarehouseStockSnapshot(long rawMaterialId, long warehouseId)
+        {
+            var material = GetById(rawMaterialId);
+            var snap = new RawMaterialWarehouseSnapshot
+            {
+                MinimumStockLevel = material?.MinimumStockLevel ?? 0
+            };
+
+            var dt = DatabaseConnect.ExecuteQuery(
+                @"SELECT physicalQuantity, reservedQuantity, purchasedQuantity
+                  FROM RawMaterialWarehouse
+                  WHERE rawMaterialID = @rmId AND warehouseID = @whId",
+                new[]
+                {
+                    new MySqlParameter("@rmId", rawMaterialId),
+                    new MySqlParameter("@whId", warehouseId)
+                });
+
+            if (dt != null && dt.Rows.Count > 0)
+            {
+                var row = dt.Rows[0];
+                snap.Physical = row["physicalQuantity"] == System.DBNull.Value ? 0 : System.Convert.ToDecimal(row["physicalQuantity"]);
+                snap.Reserved = row["reservedQuantity"] == System.DBNull.Value ? 0 : System.Convert.ToDecimal(row["reservedQuantity"]);
+                snap.Purchased = row["purchasedQuantity"] == System.DBNull.Value ? 0 : System.Convert.ToDecimal(row["purchasedQuantity"]);
+            }
+
+            return snap;
+        }
+
+        public RawMaterialPreferredSupplier GetPreferredSupplierQuote(long rawMaterialId)
+        {
+            if (rawMaterialId <= 0) return null;
+            string sql = @"SELECT rms.supplierID, rms.basePrice
+                           FROM RawMaterialSupplier rms
+                           WHERE rms.rawMaterialID = @id AND rms.status = 1
+                           ORDER BY rms.quoteDate DESC, rms.lastModify DESC
+                           LIMIT 1";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", rawMaterialId) });
+            if (dt == null || dt.Rows.Count == 0) return null;
+            var row = dt.Rows[0];
+            return new RawMaterialPreferredSupplier
+            {
+                SupplierId = System.Convert.ToInt64(row["supplierID"]),
+                BasePrice = System.Convert.ToDecimal(row["basePrice"])
             };
         }
 

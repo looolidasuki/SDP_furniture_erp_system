@@ -16,6 +16,7 @@ namespace FurnitureERP.Forms
         private readonly WarehouseController _warehouseCtrl = new WarehouseController();
         private readonly RawMaterialController _rawMaterialCtrl = new RawMaterialController();
         private readonly RawMaterialRequestNoteController _rmrnCtrl = new RawMaterialRequestNoteController();
+        private readonly ProductionMaterialWorkflowService _materialWorkflow = new ProductionMaterialWorkflowService();
         private readonly ProductController _productCtrl = new ProductController();
 
         private DataGridView _grid;
@@ -120,14 +121,20 @@ namespace FurnitureERP.Forms
             btnRMRN.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.RawMaterialRequestNote, PermissionAction.View, this)) ShowRawMaterialRequestsPanel(); };
             btnRMRN.Visible = AppSession.CanView(PermissionModule.RawMaterialRequestNote);
 
-            _searchBox = new TextBox { Width = 160, Height = 28, Location = new Point(btnRMRN.Right + 10, 12) };
+            Button btnCreateRmrn = UITheme.CreateSecondaryButton("Create RM Request");
+            btnCreateRmrn.Location = new Point(btnRMRN.Right + 10, 9);
+            btnCreateRmrn.Click += (s, e) => CreateRmrnForSelectedProductionOrder();
+            PermissionGuard.ApplyCreateButton(btnCreateRmrn, PermissionModule.RawMaterialRequestNote);
+            btnCreateRmrn.Visible = AppSession.CanCreate(PermissionModule.RawMaterialRequestNote);
+
+            _searchBox = new TextBox { Width = 160, Height = 28, Location = new Point(btnCreateRmrn.Right + 10, 12) };
             _searchBox.TextChanged += (s, e) => LoadData(_searchBox.Text.Trim());
 
             _statusFilter = new ComboBox { Width = 150, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(_searchBox.Right + 8, 12) };
             DictionaryUIHelper.BindStatusFilter(_statusFilter, DictionaryService.Categories.Production);
             _statusFilter.SelectedIndexChanged += (s, e) => LoadData(_searchBox.Text.Trim());
 
-            toolbar.Controls.AddRange(new Control[] { btnNew, btnQuickNew, btnSample, btnRefresh, btnDetail, btnEdit, btnComplete, btnViewProducts, btnAddProduct, btnRMRN, _searchBox, _statusFilter });
+            toolbar.Controls.AddRange(new Control[] { btnNew, btnQuickNew, btnSample, btnRefresh, btnDetail, btnEdit, btnComplete, btnViewProducts, btnAddProduct, btnRMRN, btnCreateRmrn, _searchBox, _statusFilter });
 
             _grid = GridHelper.CreateStyledGrid();
             _grid.CellDoubleClick += (s, e) =>
@@ -222,37 +229,32 @@ namespace FurnitureERP.Forms
             var toolbar = new Panel { Dock = DockStyle.Top, Height = 68 };
             var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefresh.Location = new Point(0, 9);
+            var cmbWarehouse = BuildInventoryWarehouseCombo();
+            cmbWarehouse.Width = 280;
+            cmbWarehouse.Location = new Point(btnRefresh.Right + 10, 10);
             var legend = StockAlertHelper.CreateLegendLabel();
             legend.Location = new Point(0, 38);
-
-            string sql = @"SELECT rm.rawMaterialCode AS 'Code',
-                                  rm.category AS 'Category',
-                                  rm.size AS 'Size',
-                                  rm.color AS 'Color',
-                                  rw.warehouseID AS 'Warehouse ID',
-                                  rw.currentStock AS 'Current Stock',
-                                  rw.reservedStock AS 'Reserved Stock',
-                                  rw.availableStock AS 'Available Stock',
-                                  rm.minimumStockLevel AS 'Min Stock Level',
-                                  rw.unit AS 'Unit',
-                                  rw.lastUpdated AS 'Last Updated'
-                           FROM RawMaterialWarehouse rw
-                           INNER JOIN RawMaterial rm ON rw.rawMaterialID = rm.rawMaterialID
-                           ORDER BY rm.rawMaterialCode";
 
             Action loadStock = () =>
             {
                 try
                 {
-                    var dt = DatabaseConnect.ExecuteQuery(sql);
-                    grid.DataSource = dt;
-                    GridHelper.StyleGridWithStockAlert(grid, "Available Stock", "Min Stock Level");
+                    long whId = GetComboLongId(cmbWarehouse, "Warehouse ID");
+                    if (whId <= 0)
+                    {
+                        grid.DataSource = null;
+                        return;
+                    }
+                    grid.DataSource = _warehouseCtrl.GetWarehouseRawMaterials(whId);
+                    GridHelper.StyleGridWithStockAlert(grid, "Available Qty", "Min Stock Level");
                 }
                 catch { }
             };
 
             btnRefresh.Click += (s, e) => loadStock();
+            cmbWarehouse.SelectedIndexChanged += (s, e) => loadStock();
             toolbar.Controls.Add(btnRefresh);
+            toolbar.Controls.Add(cmbWarehouse);
             toolbar.Controls.Add(legend);
 
             loadStock();
@@ -489,7 +491,7 @@ namespace FurnitureERP.Forms
                     if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a product first."); return; }
                     long pid = Convert.ToInt64(grid.CurrentRow.Cells[0].Value);
                     if (ShowProductFormDialog(dlg, productCtrl, new RawMaterialController(), pid) == DialogResult.OK)
-                        loadProducts();
+                loadProducts();
                 };
                 PermissionGuard.ApplyEditButton(btnEditProduct, PermissionModule.Product);
 
@@ -692,7 +694,9 @@ namespace FurnitureERP.Forms
 
                 var lblInfo = new Label
                 {
-                    Text = "Finished goods will be received into the selected warehouse.\r\nStock will be auto-reserved for the linked sales order where needed.",
+                    Text = "Production consumes raw materials in the paired production warehouse,\r\n" +
+                           "then finished goods are transferred to the selected inventory warehouse for delivery.\r\n" +
+                           "Stock will be auto-reserved for the linked sales order where needed.",
                     Dock = DockStyle.Fill,
                     ForeColor = UITheme.TextGray,
                     Font = new Font("Segoe UI", 9f)
@@ -700,13 +704,13 @@ namespace FurnitureERP.Forms
                 layout.SetColumnSpan(lblInfo, 2);
                 layout.Controls.Add(lblInfo, 0, 1);
 
-                var cmbWarehouse = BuildWarehouseCombo();
+                var cmbWarehouse = BuildInventoryWarehouseCombo();
                 if (cmbWarehouse.Items.Count > 0)
                 {
-                    try { cmbWarehouse.SelectedValue = SalesWorkflowService.DefaultFinishedGoodsWarehouseId; }
+                    try { cmbWarehouse.SelectedValue = WarehouseHelper.DefaultInventoryWarehouseId; }
                     catch { cmbWarehouse.SelectedIndex = 0; }
                 }
-                UITheme.AddFormField(layout, 0, "Warehouse *", cmbWarehouse);
+                UITheme.AddFormField(layout, 0, "Inventory Warehouse *", cmbWarehouse);
 
                 bool completed = false;
                 var btnConfirm = UITheme.CreatePrimaryButton("Complete");
@@ -730,8 +734,8 @@ namespace FurnitureERP.Forms
 
                     UITheme.ShowSuccess(result.Message);
                     completed = true;
-                    dlg.DialogResult = DialogResult.OK;
-                    dlg.Close();
+                        dlg.DialogResult = DialogResult.OK;
+                        dlg.Close();
                 };
 
                 var btnPanel = new FlowLayoutPanel
@@ -750,25 +754,208 @@ namespace FurnitureERP.Forms
             }
         }
 
-        private ComboBox BuildWarehouseCombo()
+        private ComboBox BuildWarehouseCombo() => BuildInventoryWarehouseCombo();
+
+        private ComboBox BuildInventoryWarehouseCombo()
         {
             var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320 };
             var dt = _warehouseCtrl.GetAllWarehouses();
-            if (dt != null && !dt.Columns.Contains("DisplayText"))
-                dt.Columns.Add("DisplayText", typeof(string));
-            if (dt != null)
+            if (dt == null) return cmb;
+
+            var filtered = dt.Clone();
+            foreach (DataRow row in dt.Rows)
             {
-                foreach (DataRow row in dt.Rows)
-                {
-                    string name = row["Warehouse Name"]?.ToString();
-                    string addr = row["Address"]?.ToString();
-                    row["DisplayText"] = string.IsNullOrWhiteSpace(addr) ? name : $"{name} — {addr}";
-                }
+                long whId = Convert.ToInt64(row["Warehouse ID"]);
+                string whName = row["Warehouse Name"]?.ToString();
+                if (WarehouseHelper.IsInventoryWarehouse(whId, whName))
+                    filtered.ImportRow(row);
             }
-            cmb.DataSource = dt;
+
+            if (!filtered.Columns.Contains("DisplayText"))
+                filtered.Columns.Add("DisplayText", typeof(string));
+            foreach (DataRow row in filtered.Rows)
+            {
+                string name = row["Warehouse Name"]?.ToString();
+                string addr = row["Address"]?.ToString();
+                row["DisplayText"] = string.IsNullOrWhiteSpace(addr) ? name : $"{name} — {addr}";
+            }
+
+            cmb.DataSource = filtered;
             cmb.DisplayMember = "DisplayText";
             cmb.ValueMember = "Warehouse ID";
             return cmb;
+        }
+
+        private void CreateRmrnForSelectedProductionOrder()
+        {
+            if (!PermissionGuard.Ensure(PermissionModule.RawMaterialRequestNote, PermissionAction.Create, this))
+                return;
+
+            long? ptoId = GetSelectedProductionOrderId();
+            if (!ptoId.HasValue)
+            {
+                UITheme.ShowWarning("Please select a production order first.");
+                return;
+            }
+
+            var order = _productionCtrl.GetById(ptoId.Value);
+            if (order == null)
+            {
+                UITheme.ShowWarning("Production order not found.");
+                return;
+            }
+            if (order.Status >= ProductionWorkflowService.StatusCompleted)
+            {
+                UITheme.ShowWarning("Completed production orders cannot create new RM requests.");
+                return;
+            }
+
+            ShowCreateRmrnDialog(ptoId.Value);
+        }
+
+        private void ShowCreateRmrnDialog(long productionOrderId)
+        {
+            var productLines = _productionCtrl.GetSampleLinesForEditor(productionOrderId);
+            if (productLines == null || productLines.Rows.Count == 0)
+            {
+                UITheme.ShowWarning("This production order has no product lines.");
+                return;
+            }
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Create RM Request Note";
+                dlg.Size = new Size(900, 620);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.BackColor = UITheme.Background;
+
+                var top = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Top,
+                    Height = 110,
+                    ColumnCount = 2,
+                    RowCount = 3,
+                    Padding = new Padding(16)
+                };
+                top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+                top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var dtpRequest = new DateTimePicker { Value = DateTime.Today.AddDays(7), Width = 220 };
+                var txtRemark = new TextBox { Width = 420 };
+                UITheme.AddFormField(top, 0, "Request Date *", dtpRequest);
+                UITheme.AddFormField(top, 1, "Remark", txtRemark);
+
+                var productGrid = GridHelper.CreateStyledGrid();
+                productGrid.Dock = DockStyle.Top;
+                productGrid.Height = 160;
+                productGrid.ReadOnly = false;
+                var productTable = productLines.Copy();
+                if (!productTable.Columns.Contains("Select"))
+                {
+                    productTable.Columns.Add("Select", typeof(bool));
+                    foreach (DataRow row in productTable.Rows)
+                        row["Select"] = true;
+                }
+                productGrid.DataSource = productTable;
+                GridHelper.StyleGrid(productGrid);
+                foreach (DataGridViewColumn col in productGrid.Columns)
+                    col.ReadOnly = col.Name != "Select" && col.HeaderText != "Select";
+
+                var previewGrid = GridHelper.CreateStyledGrid();
+                previewGrid.Dock = DockStyle.Fill;
+                previewGrid.ReadOnly = true;
+
+                var btnPreview = UITheme.CreateSecondaryButton("Preview RM Requirements");
+                btnPreview.Dock = DockStyle.Top;
+                btnPreview.Height = 34;
+                btnPreview.Click += (s, e) =>
+                {
+                    var selectedIds = GetSelectedProductIds(productTable);
+                    previewGrid.DataSource = _materialWorkflow.PreviewBomRequirements(productionOrderId, selectedIds);
+                    GridHelper.StyleGrid(previewGrid);
+                };
+
+                var btnSave = UITheme.CreatePrimaryButton("Create Request Note");
+                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
+                btnCancel.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
+                {
+                    long staffId = AppSession.CurrentUser?.StaffID ?? 0;
+                    if (staffId <= 0)
+                    {
+                        UITheme.ShowWarning("Current user staff record is required.");
+                        return;
+                    }
+
+                    var selectedIds = GetSelectedProductIds(productTable);
+                    if (selectedIds.Count == 0)
+                    {
+                        UITheme.ShowWarning("Select at least one product.");
+                        return;
+                    }
+
+                    var result = _materialWorkflow.CreateRequestNoteFromPto(
+                        productionOrderId, selectedIds, staffId, dtpRequest.Value.Date, txtRemark.Text.Trim());
+                    if (!result.Success)
+                    {
+                        UITheme.ShowWarning(result.Message);
+                        return;
+                    }
+
+                    UITheme.ShowSuccess(result.Message);
+                    dlg.DialogResult = DialogResult.OK;
+                    dlg.Close();
+                };
+
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnCancel);
+
+                var center = new Panel { Dock = DockStyle.Fill, Padding = new Padding(16, 0, 16, 0) };
+                center.Controls.Add(previewGrid);
+                center.Controls.Add(btnPreview);
+                center.Controls.Add(new Label
+                {
+                    Dock = DockStyle.Top,
+                    Height = 24,
+                    Text = "RM requirement preview",
+                    ForeColor = UITheme.TextGray
+                });
+                center.Controls.Add(productGrid);
+                center.Controls.Add(new Label
+                {
+                    Dock = DockStyle.Top,
+                    Height = 24,
+                    Text = "Select PTO products",
+                    ForeColor = UITheme.TextGray
+                });
+
+                dlg.Controls.Add(center);
+                dlg.Controls.Add(top);
+                dlg.Controls.Add(btnPanel);
+                dlg.ShowDialog(this);
+            }
+        }
+
+        private static List<long> GetSelectedProductIds(DataTable productTable)
+        {
+            var ids = new List<long>();
+            if (productTable == null) return ids;
+            foreach (DataRow row in productTable.Rows)
+            {
+                bool selected = row.Table.Columns.Contains("Select")
+                    && row["Select"] != DBNull.Value
+                    && Convert.ToBoolean(row["Select"]);
+                if (!selected) continue;
+                ids.Add(Convert.ToInt64(row["ProductID"]));
+            }
+            return ids;
         }
 
         private void ShowSampleProductionForm(long? productionOrderId, bool readOnly)
@@ -958,11 +1145,11 @@ namespace FurnitureERP.Forms
                                     DictionaryUIHelper.GetSelectedStatusCode(cmbStatus),
                                     txtRemark.Text.Trim(),
                                     lineData);
-                                UITheme.ShowSuccess("Sample production order PO-" + newId + " created.");
+                                UITheme.ShowSuccess("Sample production order PTO-" + newId.ToString("D8") + " created.");
                             }
 
                             dlg.DialogResult = DialogResult.OK;
-                            dlg.Close();
+                        dlg.Close();
                             LoadData(_searchBox?.Text?.Trim());
                         }
                         catch (Exception ex) { UITheme.ShowError(ex.Message); }
@@ -1330,7 +1517,7 @@ namespace FurnitureERP.Forms
                                     Remark = txtRemark.Text.Trim()
                                 };
                                 long newId = _productionCtrl.CreateWithLines(po, lineData);
-                                UITheme.ShowSuccess("Production order PO-" + newId + " created.");
+                                UITheme.ShowSuccess("Production order PTO-" + newId.ToString("D8") + " created.");
                             }
                             dlg.DialogResult = DialogResult.OK;
                             dlg.Close();
@@ -1842,7 +2029,7 @@ namespace FurnitureERP.Forms
                                 string.IsNullOrWhiteSpace(remark) ? null : remark,
                                 advanceSalesOrderToProcessing: soStatus == 1,
                                 status: status);
-                            created.Add(soLabel + " → PO-" + poId);
+                            created.Add(soLabel + " → PTO-" + poId.ToString("D8"));
                         }
                         catch (Exception ex)
                         {
@@ -2138,7 +2325,7 @@ namespace FurnitureERP.Forms
                                 Size = txtSize.Text.Trim(),
                                 Color = txtColor.Text.Trim(),
                                 Unit = txtUnit.Text.Trim(),
-                                BasePriceByCurrency = string.IsNullOrEmpty(txtPrice.Text) ? 0 : decimal.Parse(txtPrice.Text),
+                            BasePriceByCurrency = string.IsNullOrEmpty(txtPrice.Text) ? 0 : decimal.Parse(txtPrice.Text),
                                 Status = string.IsNullOrEmpty(txtStatus.Text) ? 1 : int.Parse(txtStatus.Text)
                             };
                             string imageRef = txtImageUrl.Text.Trim();
@@ -2339,6 +2526,19 @@ namespace FurnitureERP.Forms
             return true;
         }
 
+        private void NavigateToIssueMaterials(long requestNoteId)
+        {
+            if (!PermissionGuard.Ensure(PermissionModule.InternalTransferForm, PermissionAction.Create, this))
+                return;
+
+            AppSession.PendingRmRequestNoteId = requestNoteId;
+            var main = FindForm() as MainForm;
+            if (main != null)
+                main.LoadModule("Internal Transfer");
+            else
+                UITheme.ShowWarning("Open Internal Transfer from the main menu to issue materials.");
+        }
+
         private void ShowRawMaterialRequestsPanel()
         {
             using (var dlg = new Form())
@@ -2371,6 +2571,16 @@ namespace FurnitureERP.Forms
                     DetailViewHelper.ShowDetail(dlg, $"RM Request Note Detail — ID: {id}", fields, lines, $"RMRequest_{id}");
                 };
 
+                var btnIssue = UITheme.CreatePrimaryButton("Issue Materials");
+                btnIssue.Location = new Point(btnDetail.Right + 10, 9);
+                btnIssue.Click += (s, e) =>
+                {
+                    if (grid.CurrentRow?.Cells[0].Value == null) { UITheme.ShowWarning("Please select a request note first."); return; }
+                    long id = Convert.ToInt64(grid.CurrentRow.Cells[0].Value);
+                    NavigateToIssueMaterials(id);
+                };
+                PermissionGuard.ApplyCreateButton(btnIssue, PermissionModule.InternalTransferForm);
+
                 grid.CellDoubleClick += (s, e) =>
                 {
                     if (e.RowIndex < 0) return;
@@ -2381,6 +2591,8 @@ namespace FurnitureERP.Forms
 
                 toolbar.Controls.Add(btnRefresh);
                 toolbar.Controls.Add(btnDetail);
+                if (AppSession.CanCreate(PermissionModule.InternalTransferForm))
+                    toolbar.Controls.Add(btnIssue);
 
                 var btnClose = UITheme.CreateSecondaryButton("Close");
                 btnClose.Dock = DockStyle.Bottom;

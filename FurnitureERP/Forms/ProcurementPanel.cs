@@ -216,6 +216,12 @@ namespace FurnitureERP.Forms
             {
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Supplier ID") <= 0) { UITheme.ShowWarning("Please select a supplier first."); return; }
                 ShowSupplierTableDialog(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Supplier ID"), grid.CurrentRow);
+            }, () =>
+            {
+                long supplierId = GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Supplier ID");
+                if (supplierId <= 0) { UITheme.ShowWarning("Please select a supplier first."); return; }
+                var entity = _supplierCtrl.GetById(supplierId);
+                if (entity != null) ShowSupplierDialog(entity);
             });
             AttachSearchAndFilter(toolbar, grid);
             grid.CellDoubleClick += (s, e) =>
@@ -1119,7 +1125,7 @@ namespace FurnitureERP.Forms
                 var lblSupplier = new Label { AutoSize = true, ForeColor = UITheme.TextDark };
                 Action refreshSupplierLabel = () =>
                 {
-                    long poId = GetComboLongId(cmbPO);
+                    long poId = ResolvePurchaseOrderId(cmbPO);
                     if (poId <= 0) { lblSupplier.Text = "—"; return; }
                     var po = _purchaseOrderCtrl.GetById(poId);
                     if (po == null) { lblSupplier.Text = "—"; return; }
@@ -1148,7 +1154,7 @@ namespace FurnitureERP.Forms
                 cmbPO.SelectedIndexChanged += (s, e) =>
                 {
                     refreshSupplierLabel();
-                    long poId = GetComboLongId(cmbPO);
+                    long poId = ResolvePurchaseOrderId(cmbPO);
                     lineGrid.Tag = poId;
                     if (poId > 0)
                         LoadGrnLinesForPurchaseOrder(lineGrid, id, poId, grn.Status);
@@ -1175,7 +1181,7 @@ namespace FurnitureERP.Forms
                 btnClose.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
-                    long poId = GetComboLongId(cmbPO);
+                    long poId = ResolvePurchaseOrderId(cmbPO);
                     if (poId <= 0)
                     {
                         UITheme.ShowWarning("Please select a purchase order.");
@@ -1383,11 +1389,17 @@ namespace FurnitureERP.Forms
                             PurchaseOrderCode = "PO-TEMP",
                             SupplierID = supplierId,
                             StaffID = staffId,
+                            WarehouseID = GetComboLongId(cmbReceivingWarehouse),
                             RequestDeliveryDate = dtpDelivery.Value,
                             Status = cmbStatus.SelectedIndex,
                             Remark = remark
                         };
                         long id = _purchaseOrderCtrl.Insert(po);
+                        if (id <= 0)
+                        {
+                            UITheme.ShowError("Purchase order creation failed: invalid ID.");
+                            return;
+                        }
                         _purchaseOrderCtrl.UpdateCodeAfterInsert(id);
 
                         if (!TryValidatePurchaseOrderLines(lineGrid, cmbSupplier, out string lineError))
@@ -1785,25 +1797,23 @@ namespace FurnitureERP.Forms
                 dlg.BackColor = UITheme.Background;
 
                 var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2 };
-                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180));
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 140));
                 root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(12) };
+                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(12) };
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
 
-                var txtCode = new TextBox();
                 var cmbPO = BuildPurchaseOrderCombo(allowTypeToSearch: true);
                 var lblSupplier = new Label { AutoSize = true, ForeColor = UITheme.TextDark, Text = "—" };
                 var txtRemark = new TextBox { Multiline = true, Dock = DockStyle.Fill };
 
                 Action refreshSupplier = () =>
                 {
-                    long poId = GetComboLongId(cmbPO);
+                    long poId = ResolvePurchaseOrderId(cmbPO);
                     if (poId <= 0) { lblSupplier.Text = "—"; return; }
                     var po = _purchaseOrderCtrl.GetById(poId);
                     if (po == null) { lblSupplier.Text = "—"; return; }
@@ -1818,7 +1828,7 @@ namespace FurnitureERP.Forms
                 Action onPurchaseOrderChanged = () =>
                 {
                     refreshSupplier();
-                    long poId = GetComboLongId(cmbPO);
+                    long poId = ResolvePurchaseOrderId(cmbPO);
                     if (poId > 0)
                         LoadPoLinesForNewGrn(lineGrid, poId);
                 };
@@ -1827,10 +1837,9 @@ namespace FurnitureERP.Forms
                 cmbPO.SelectionChangeCommitted += (s, e) => onPurchaseOrderChanged();
                 cmbPO.Leave += (s, e) => onPurchaseOrderChanged();
 
-                UITheme.AddFormField(layout, 0, "GRN Code *", txtCode);
-                UITheme.AddFormField(layout, 1, "Purchase Order *", cmbPO);
-                UITheme.AddFormField(layout, 2, "Supplier", lblSupplier);
-                UITheme.AddFormField(layout, 3, "Remark", txtRemark);
+                UITheme.AddFormField(layout, 0, "Purchase Order *", cmbPO);
+                UITheme.AddFormField(layout, 1, "Supplier", lblSupplier);
+                UITheme.AddFormField(layout, 2, "Remark", txtRemark);
                 root.Controls.Add(layout, 0, 0);
 
                 var linePanel = new Panel { Dock = DockStyle.Fill };
@@ -1851,18 +1860,7 @@ namespace FurnitureERP.Forms
                 btnCancel.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
-                    string code = txtCode.Text.Trim();
-                    if (string.IsNullOrWhiteSpace(code))
-                    {
-                        UITheme.ShowWarning("GRN Code is required.");
-                        return;
-                    }
-                    if (_grnCtrl.ExistsByCode(code))
-                    {
-                        UITheme.ShowWarning("This GRN Code already exists.");
-                        return;
-                    }
-                    long poId = GetComboLongId(cmbPO);
+                    long poId = ResolvePurchaseOrderId(cmbPO);
                     if (poId <= 0)
                     {
                         UITheme.ShowWarning("Please select a purchase order.");
@@ -1884,7 +1882,7 @@ namespace FurnitureERP.Forms
                     {
                         var grn = new GoodsReceivedNote
                         {
-                            GoodsReceivedNoteCode = code,
+                            GoodsReceivedNoteCode = "GRN-TEMP",
                             SupplierID = po.SupplierID,
                             PurchaseOrderID = poId,
                             StaffID = AppSession.CurrentUser?.StaffID ?? 1,
@@ -1892,8 +1890,14 @@ namespace FurnitureERP.Forms
                             Remark = txtRemark.Text.Trim()
                         };
                         long id = _grnCtrl.Insert(grn);
+                        if (id <= 0)
+                        {
+                            UITheme.ShowError("GRN creation failed: invalid ID.");
+                            return;
+                        }
+                        _grnCtrl.UpdateCodeAfterInsert(id);
                         _grnCtrl.ReplaceLines(id, lines);
-                        UITheme.ShowSuccess("GRN created.");
+                        UITheme.ShowSuccess("GRN " + DocumentCodeHelper.Build("GRN", id) + " created.");
                         dlg.DialogResult = DialogResult.OK;
                         dlg.Close();
                     }
@@ -1909,7 +1913,7 @@ namespace FurnitureERP.Forms
                 if (cmbPO.Items.Count > 0 && cmbPO.SelectedIndex < 0)
                     cmbPO.SelectedIndex = 0;
                 refreshSupplier();
-                long initialPoId = GetComboLongId(cmbPO);
+                long initialPoId = ResolvePurchaseOrderId(cmbPO);
                 if (initialPoId > 0)
                     LoadPoLinesForNewGrn(lineGrid, initialPoId);
 
@@ -2188,6 +2192,20 @@ namespace FurnitureERP.Forms
             }
 
             return 0;
+        }
+
+        private long ResolvePurchaseOrderId(ComboBox cmb)
+        {
+            long id = GetComboLongId(cmb);
+            if (id > 0) return id;
+
+            string text = (cmb?.Text ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(text)) return 0;
+
+            int dash = text.IndexOf('—');
+            string codePart = dash > 0 ? text.Substring(0, dash).Trim() : text;
+            var po = _purchaseOrderCtrl.GetByCode(codePart);
+            return po?.PurchaseOrderID ?? 0;
         }
 
         private static void SetComboLongValue(ComboBox cmb, long value)

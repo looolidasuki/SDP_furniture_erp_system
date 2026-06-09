@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using Sales_user.Controllers;
 using Sales_user.Models;
 using FurnitureERP.Helpers;
 
@@ -15,6 +16,7 @@ namespace FurnitureERP.Forms
         private Panel _headerPanel;
         private Panel _navContainer;
         private Button _activeNavButton;
+        private readonly StaffController _staffCtrl = new StaffController();
 
         public MainForm()
         {
@@ -214,12 +216,118 @@ namespace FurnitureERP.Forms
         {
             Label moduleTitle = new Label { Name = "lblModuleTitle", Text = "Overview", Font = new Font("Segoe UI", 13, FontStyle.Bold), ForeColor = UITheme.Primary, AutoSize = true, Location = new Point(20, 17) };
             Label userLabel = new Label { Name = "lblUser", AutoSize = true, ForeColor = UITheme.TextDark, Font = new Font("Segoe UI", 9) };
+            var btnChangePassword = UITheme.CreateSecondaryButton("Change Password");
+            btnChangePassword.Name = "btnChangePassword";
+            btnChangePassword.Size = new Size(130, 30);
+            btnChangePassword.Click += (s, e) => ShowChangePasswordDialog();
             _headerPanel.Controls.Add(moduleTitle);
+            _headerPanel.Controls.Add(btnChangePassword);
             _headerPanel.Controls.Add(userLabel);
-            _headerPanel.Resize += (s, e) => {
-                if (_headerPanel.Controls["lblUser"] is Label ul)
-                    ul.Location = new Point(_headerPanel.Width - ul.PreferredWidth - 20, (_headerPanel.Height - ul.PreferredHeight) / 2);
-            };
+            _headerPanel.Resize += (s, e) => LayoutHeaderControls();
+        }
+
+        private void LayoutHeaderControls()
+        {
+            int right = _headerPanel.Width - 20;
+            if (_headerPanel.Controls["lblUser"] is Label ul)
+            {
+                ul.Location = new Point(right - ul.PreferredWidth, (_headerPanel.Height - ul.PreferredHeight) / 2);
+                right = ul.Left - 12;
+            }
+            if (_headerPanel.Controls["btnChangePassword"] is Button btn)
+                btn.Location = new Point(right - btn.Width, (_headerPanel.Height - btn.Height) / 2);
+        }
+
+        private void ShowChangePasswordDialog()
+        {
+            if (!AppSession.IsLoggedIn || AppSession.CurrentUser == null)
+            {
+                UITheme.ShowWarning("Please log in first.");
+                return;
+            }
+
+            using (var dlg = new Form())
+            {
+                dlg.Text = "Change Password";
+                dlg.Size = new Size(460, 300);
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.BackColor = UITheme.Background;
+
+                var layout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 2,
+                    RowCount = 3,
+                    Padding = new Padding(16)
+                };
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+                var txtCurrent = new TextBox { UseSystemPasswordChar = true, Dock = DockStyle.Fill };
+                var txtNew = new TextBox { UseSystemPasswordChar = true, Dock = DockStyle.Fill };
+                var txtConfirm = new TextBox { UseSystemPasswordChar = true, Dock = DockStyle.Fill };
+                UITheme.AddFormRow(layout, 0, "Current Password *", txtCurrent);
+                UITheme.AddFormRow(layout, 1, "New Password *", txtNew);
+                UITheme.AddFormRow(layout, 2, "Confirm Password *", txtConfirm);
+
+                var btnSave = UITheme.CreatePrimaryButton("Save");
+                var btnClose = UITheme.CreateSecondaryButton("Close");
+                btnClose.Click += (s, e) => dlg.Close();
+                btnSave.Click += (s, e) =>
+                {
+                    string current = txtCurrent.Text;
+                    string newPassword = (txtNew.Text ?? "").Trim();
+                    string confirm = txtConfirm.Text;
+
+                    if (string.IsNullOrEmpty(current) || string.IsNullOrWhiteSpace(newPassword))
+                    {
+                        UITheme.ShowWarning("Current and new password are required.");
+                        return;
+                    }
+                    if (!string.Equals(newPassword, confirm, StringComparison.Ordinal))
+                    {
+                        UITheme.ShowWarning("New password and confirmation do not match.");
+                        return;
+                    }
+                    if (string.Equals(current, newPassword, StringComparison.Ordinal))
+                    {
+                        UITheme.ShowWarning("New password must be different from the current password.");
+                        return;
+                    }
+
+                    try
+                    {
+                        long staffId = AppSession.CurrentUser.StaffID;
+                        if (_staffCtrl.ChangePassword(staffId, current, newPassword))
+                        {
+                            UITheme.ShowSuccess("Password changed successfully.");
+                            dlg.DialogResult = DialogResult.OK;
+                            dlg.Close();
+                        }
+                        else
+                            UITheme.ShowError("Current password is incorrect or the update failed.");
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowError(ex.Message);
+                    }
+                };
+
+                var btnPanel = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 50,
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Padding = new Padding(8)
+                };
+                btnPanel.Controls.Add(btnSave);
+                btnPanel.Controls.Add(btnClose);
+                dlg.Controls.Add(layout);
+                dlg.Controls.Add(btnPanel);
+                dlg.ShowDialog(this);
+            }
         }
 
         private void NavButton_Click(object sender, EventArgs e)
@@ -328,7 +436,7 @@ namespace FurnitureERP.Forms
             {
                 string roleLabel = AppSession.IsSuperUser ? "Super User" : user.Department;
                 ul.Text = user.FullName + " | " + roleLabel;
-                ul.Location = new Point(_headerPanel.Width - ul.PreferredWidth - 20, (_headerPanel.Height - ul.PreferredHeight) / 2);
+                LayoutHeaderControls();
             }
             PopulateNavButtons();
             ActivateNavButton("Overview");

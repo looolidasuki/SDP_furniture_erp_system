@@ -38,13 +38,22 @@ namespace Sales_user.Controllers
 
         public long Insert(Sales_user.Models.SystemDictionary entry)
         {
-            string sql = @"INSERT INTO SystemDictionary (category, codeValue, displayNameEnglish, sortOrder)
-                           VALUES (@category, @codeValue, @displayName, @sortOrder)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
-                new MySqlParameter("@category", entry.Category),
-                new MySqlParameter("@codeValue", entry.CodeValue),
-                new MySqlParameter("@displayName", entry.DisplayNameEnglish ?? (object)System.DBNull.Value),
-                new MySqlParameter("@sortOrder", entry.SortOrder)
+            return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            {
+                long nextId = DatabaseConnect.AllocateNextId("systemdictionary", "dictionaryID", conn, trans);
+                if (nextId <= 0)
+                    throw new InvalidOperationException("Unable to allocate dictionary ID.");
+
+                string sql = @"INSERT INTO SystemDictionary (dictionaryID, category, codeValue, displayNameEnglish, sortOrder)
+                               VALUES (@id, @category, @codeValue, @displayName, @sortOrder)";
+                DatabaseConnect.ExecuteNonQuery(conn, trans, sql, new[] {
+                    new MySqlParameter("@id", nextId),
+                    new MySqlParameter("@category", entry.Category),
+                    new MySqlParameter("@codeValue", entry.CodeValue),
+                    new MySqlParameter("@displayName", entry.DisplayNameEnglish ?? (object)System.DBNull.Value),
+                    new MySqlParameter("@sortOrder", entry.SortOrder)
+                });
+                return nextId;
             });
         }
 

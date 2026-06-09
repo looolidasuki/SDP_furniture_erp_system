@@ -209,6 +209,16 @@ namespace Sales_user.Controllers
             return value == null || value == DBNull.Value ? 0 : Convert.ToDecimal(value);
         }
 
+        public decimal GetOutstandingByPurchaseOrder(long purchaseOrderId)
+        {
+            if (purchaseOrderId <= 0) return 0;
+            var poCtrl = new PurchaseOrderController();
+            decimal total = poCtrl.GetTotalAmount(purchaseOrderId);
+            decimal settled = GetSettledTotalByPurchaseOrder(purchaseOrderId);
+            decimal outstanding = total - settled;
+            return outstanding < 0 ? 0 : outstanding;
+        }
+
         public DataTable GetSettlementsByPurchaseOrder(long purchaseOrderId)
         {
             string sql = @"SELECT pv.paymentVoucherCode AS 'Voucher Code',
@@ -227,54 +237,31 @@ namespace Sales_user.Controllers
         // 5. 新增付款憑證 (解決第3個錯誤)
         public long Insert(PaymentVoucher pv)
         {
-            // 使用你最原本內建的預設連接字串
-            string connectionString = "Server=localhost;Port=3306;Database=furniture_erp_system;Uid=root;Pwd=;CharSet=utf8mb4;AllowPublicKeyRetrieval=True;SslMode=Disabled;";
-
-            using (var conn = new MySqlConnection(connectionString))
+            return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
             {
-                conn.Open();
-                using (var trans = conn.BeginTransaction())
-                {
-                    try
+                string sqlMain = @"INSERT INTO paymentvoucher
+                    (paymentVoucherID, paymentVoucherCode, supplierID, staffID, totalAmount, paymentMethod, paymentMethodRef, remark, status)
+                    VALUES (@id, @code, @supplierID, @staffID, @amount, @method, @ref, @remark, @status)";
+
+                long pvId = DatabaseConnect.InsertWithAllocatedId(conn, trans, "paymentvoucher", "paymentVoucherID",
+                    sqlMain,
+                    new[]
                     {
-                        // 步驟 A: 寫入主表
-                        string sqlMain = @"INSERT INTO paymentvoucher
-                            (paymentVoucherCode, supplierID, staffID, totalAmount, paymentMethod, paymentMethodRef, remark, status)
-                            VALUES (@code, @supplierID, @staffID, @amount, @method, @ref, @remark, @status)";
+                        new MySqlParameter("@code",
+                            string.IsNullOrWhiteSpace(pv.PaymentVoucherCode) ? "PV-TEMP" : pv.PaymentVoucherCode.Trim()),
+                        new MySqlParameter("@supplierID", pv.SupplierID),
+                        new MySqlParameter("@staffID", pv.StaffID),
+                        new MySqlParameter("@amount", pv.Amount),
+                        new MySqlParameter("@method", pv.PaymentMethod ?? ""),
+                        new MySqlParameter("@ref", pv.PaymentRef ?? ""),
+                        new MySqlParameter("@remark", pv.Remark ?? (object)DBNull.Value),
+                        new MySqlParameter("@status", pv.Status)
+                    });
 
-                        long pvId = 0;
-                        using (var cmd = new MySqlCommand(sqlMain, conn, trans))
-                        {
-                            cmd.Parameters.AddWithValue("@code", (pv.PaymentVoucherCode ?? "").Trim());
-                            cmd.Parameters.AddWithValue("@supplierID", pv.SupplierID);
-                            cmd.Parameters.AddWithValue("@staffID", pv.StaffID);
-                            cmd.Parameters.AddWithValue("@amount", pv.Amount);
-
-                            // ✅ 修正錯誤 3：因為 pv.PaymentMethod 現在是 string，
-                            // AddWithValue 會自動將其轉為 MySQL 辨識的字串，避免傳入錯誤的型態 (如 sbyte/int)
-                            cmd.Parameters.AddWithValue("@method", pv.PaymentMethod ?? "");
-
-                            cmd.Parameters.AddWithValue("@ref", pv.PaymentRef ?? "");
-                            cmd.Parameters.AddWithValue("@remark", pv.Remark ?? (object)DBNull.Value);
-                            cmd.Parameters.AddWithValue("@status", pv.Status);
-
-                            cmd.ExecuteNonQuery();
-                            pvId = cmd.LastInsertedId;
-                        }
-
-                        if (pvId > 0)
-                            WritePurchaseOrderSettlements(conn, trans, pvId, pv);
-
-                        trans.Commit();
-                        return pvId;
-                    }
-                    catch (Exception)
-                    {
-                        trans.Rollback();
-                        return 0;
-                    }
-                }
-            }
+                UpdateCodeAfterInsert(conn, trans, pvId);
+                WritePurchaseOrderSettlements(conn, trans, pvId, pv);
+                return pvId;
+            });
         }
 
         // 6. 更新資料
@@ -363,6 +350,28 @@ namespace Sales_user.Controllers
                     new MySqlParameter("@status", status),
                     new MySqlParameter("@id", paymentVoucherId)
                 }) > 0;
+        }
+
+        public void UpdateCodeAfterInsert(long paymentVoucherId)
+        {
+            DatabaseConnect.ExecuteNonQuery(
+                "UPDATE paymentvoucher SET paymentVoucherCode = @code WHERE paymentVoucherID = @id",
+                new[]
+                {
+                    new MySqlParameter("@code", DocumentCodeHelper.FormatPaymentVoucherCode(paymentVoucherId)),
+                    new MySqlParameter("@id", paymentVoucherId)
+                });
+        }
+
+        private static void UpdateCodeAfterInsert(MySqlConnection conn, MySqlTransaction trans, long paymentVoucherId)
+        {
+            using (var cmd = new MySqlCommand(
+                "UPDATE paymentvoucher SET paymentVoucherCode = @code WHERE paymentVoucherID = @id", conn, trans))
+            {
+                cmd.Parameters.AddWithValue("@code", DocumentCodeHelper.FormatPaymentVoucherCode(paymentVoucherId));
+                cmd.Parameters.AddWithValue("@id", paymentVoucherId);
+                cmd.ExecuteNonQuery();
+            }
         }
 
         private static void WritePurchaseOrderSettlements(MySqlConnection conn, MySqlTransaction trans, long pvId, PaymentVoucher pv)

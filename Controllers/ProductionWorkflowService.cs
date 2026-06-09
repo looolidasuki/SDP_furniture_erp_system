@@ -1,5 +1,6 @@
 using System;
 using System.Data;
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 
@@ -10,13 +11,25 @@ namespace Sales_user.Controllers
         public const int StatusCompleted = 3;
 
         private readonly ProductionOrderController _productionCtrl = new ProductionOrderController();
+        private readonly ProductController _productCtrl = new ProductController();
+        private readonly WarehouseController _warehouseCtrl = new WarehouseController();
 
+        /// <summary>
+        /// Completes production in the production warehouse, consumes raw materials there,
+        /// then transfers finished goods to the inventory warehouse for delivery preparation.
+        /// </summary>
         public WorkflowResult CompleteProductionOrder(
             long productionOrderId,
-            long warehouseId = SalesWorkflowService.DefaultFinishedGoodsWarehouseId)
+            long inventoryWarehouseId = WarehouseHelper.DefaultInventoryWarehouseId)
         {
-            if (warehouseId <= 0)
-                return WorkflowResult.Fail("A valid warehouse is required.");
+            var invWarehouse = _warehouseCtrl.GetById(inventoryWarehouseId);
+            if (inventoryWarehouseId <= 0 || invWarehouse == null
+                || !WarehouseHelper.IsInventoryWarehouse(inventoryWarehouseId, invWarehouse.WarehouseName))
+                return WorkflowResult.Fail("Please select a valid inventory warehouse.");
+
+            long productionWarehouseId = _warehouseCtrl.GetPairedProductionWarehouseId(inventoryWarehouseId);
+            if (productionWarehouseId <= 0)
+                return WorkflowResult.Fail("No paired production warehouse found for the selected inventory warehouse.");
 
             var order = _productionCtrl.GetById(productionOrderId);
             if (order == null)
@@ -39,11 +52,38 @@ namespace Sales_user.Controllers
                         int productionQty = Convert.ToInt32(row["productionQty"]);
                         if (productionQty <= 0) continue;
 
-                        InventoryWorkflowService.UpsertProductStock(conn, trans, productId, warehouseId, productionQty);
+                        InventoryWorkflowService.UpsertProductStock(
+                            conn, trans, productId, productionWarehouseId, productionQty);
+
+                        var bom = _productCtrl.GetBomLinesInternal(productId);
+                        if (bom == null || bom.Rows.Count == 0)
+                            throw new InvalidOperationException("Product ID " + productId + " has no BOM for material consumption.");
+
+                        foreach (DataRow bomRow in bom.Rows)
+                        {
+                            long rmId = Convert.ToInt64(bomRow["rawMaterialID"]);
+                            decimal needPerUnit = Convert.ToDecimal(bomRow["rawMaterialNeedQty"]);
+                            decimal consumeQty = needPerUnit * productionQty;
+                            if (consumeQty <= 0) continue;
+
+                            InventoryWorkflowService.DeductRawMaterialStock(
+                                conn, trans, rmId, productionWarehouseId, consumeQty);
+                        }
+                    }
+
+                    foreach (DataRow row in lines.Rows)
+                    {
+                        long productId = Convert.ToInt64(row["productID"]);
+                        int productionQty = Convert.ToInt32(row["productionQty"]);
+                        if (productionQty <= 0) continue;
+
+                        TransferFinishedGoodsInTransaction(
+                            conn, trans, productionWarehouseId, inventoryWarehouseId, productId, productionQty);
+
                         if (!InternalSampleProductionService.IsInternalSampleSalesOrder(order.SalesOrderID))
                         {
                             TryReserveProducedStockForSalesOrder(
-                                conn, trans, order.SalesOrderID, warehouseId, productId, productionQty);
+                                conn, trans, order.SalesOrderID, inventoryWarehouseId, productId, productionQty);
                         }
                     }
 
@@ -64,13 +104,40 @@ namespace Sales_user.Controllers
                 return WorkflowResult.Ok(
                     productionOrderId,
                     isSample
-                        ? "Sample production completed. Finished goods received into warehouse (not reserved for sales)."
-                        : "Production completed. Finished goods received into warehouse and reserved for the sales order where applicable.");
+                        ? "Production completed. Finished goods moved from production warehouse to inventory warehouse."
+                        : "Production completed. Finished goods moved to inventory warehouse and reserved for the sales order where applicable.");
             }
             catch (Exception ex)
             {
                 return WorkflowResult.Fail("Production completion failed: " + ex.Message);
             }
+        }
+
+        private static void TransferFinishedGoodsInTransaction(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long productionWarehouseId,
+            long inventoryWarehouseId,
+            long productId,
+            decimal qty)
+        {
+            int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
+                @"UPDATE WarehouseProduct
+                  SET physicalQuantity = physicalQuantity - @qty
+                  WHERE warehouseID = @fromWhId AND productID = @itemId
+                    AND physicalQuantity >= @qty",
+                new[]
+                {
+                    new MySqlParameter("@qty", qty),
+                    new MySqlParameter("@fromWhId", productionWarehouseId),
+                    new MySqlParameter("@itemId", productId)
+                });
+
+            if (affected == 0)
+                throw new InvalidOperationException(
+                    "Finished goods were not available in the production warehouse for product ID " + productId + ".");
+
+            InventoryWorkflowService.UpsertProductStock(conn, trans, productId, inventoryWarehouseId, qty);
         }
 
         private static void TryReserveProducedStockForSalesOrder(

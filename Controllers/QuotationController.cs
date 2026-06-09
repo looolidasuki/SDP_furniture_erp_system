@@ -1,3 +1,4 @@
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System.Collections.Generic;
@@ -23,9 +24,9 @@ namespace Sales_user.Controllers
         public long Insert(Quotation quotation)
         {
             string sql = @"INSERT INTO Quotation
-                (quotationCode, sequenceNumber, staffID, customerID, currencyID, status, remark)
-                VALUES (@code, @seq, @staffID, @customerID, @currencyID, @quotationStatus, @remark)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                (quotationID, quotationCode, sequenceNumber, staffID, customerID, currencyID, status, remark)
+                VALUES (@id, @code, @seq, @staffID, @customerID, @currencyID, @quotationStatus, @remark)";
+            return DatabaseConnect.InsertWithAllocatedId("quotation", "quotationID", sql, new[] {
                 new MySqlParameter("@code", quotation.QuotationCode),
                 new MySqlParameter("@seq", quotation.SequenceNumber),
                 new MySqlParameter("@staffID", quotation.StaffID),
@@ -38,7 +39,7 @@ namespace Sales_user.Controllers
 
         public void UpdateCodeAfterInsert(long quotationId)
         {
-            string code = "QT-" + quotationId;
+            string code = DocumentCodeHelper.Build("QT", quotationId);
             DatabaseConnect.ExecuteNonQuery(
                 "UPDATE Quotation SET quotationCode = @code WHERE quotationID = @id",
                 new[] {
@@ -169,6 +170,22 @@ namespace Sales_user.Controllers
                 {
                     new MySqlParameter("@quotationStatus", status),
                     new MySqlParameter("@id", quotationId)
+                }) > 0;
+        }
+
+        public bool UpdateHeader(Quotation quotation)
+        {
+            return DatabaseConnect.ExecuteNonQuery(
+                @"UPDATE Quotation SET customerID = @customerID, currencyID = @currencyID,
+                  status = @quotationStatus, remark = @remark, lastModifyDate = NOW()
+                  WHERE quotationID = @id",
+                new[]
+                {
+                    new MySqlParameter("@customerID", quotation.CustomerID),
+                    new MySqlParameter("@currencyID", quotation.CurrencyID > 0 ? quotation.CurrencyID : 1),
+                    new MySqlParameter("@quotationStatus", quotation.Status),
+                    new MySqlParameter("@remark", quotation.Remark ?? (object)System.DBNull.Value),
+                    new MySqlParameter("@id", quotation.QuotationID)
                 }) > 0;
         }
 

@@ -33,10 +33,14 @@ namespace FurnitureERP.Helpers
 
         public static bool CanEdit(string module) => IsLoggedIn && PermissionService.Has(CurrentUser, module, PermissionAction.Edit);
 
+        /// <summary>When set, Internal Transfer opens on Issue RM Request with this note pre-selected.</summary>
+        public static long? PendingRmRequestNoteId { get; set; }
+
         public static void Clear()
         {
             CurrentUser = null;
             LoginTime = null;
+            PendingRmRequestNoteId = null;
         }
     }
 }

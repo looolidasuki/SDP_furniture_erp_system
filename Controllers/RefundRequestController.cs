@@ -60,7 +60,7 @@ namespace Sales_user.Controllers
         public DataTable GetHeaderDetail(string requestCode)
         {
             string sql = @"SELECT rr.refundRequestCode AS 'Request Code',
-                                  c.customerCode AS 'Customer Code',
+                                  CONCAT('CU-', LPAD(c.customerID, 9, '0')) AS 'Customer Code',
                                   c.customerName AS 'Customer',
                                   (SELECT cp.contactPerson FROM contactperson cp
                                     WHERE cp.customerID = c.customerID
@@ -116,12 +116,12 @@ namespace Sales_user.Controllers
         public long CreateRefundRequest(RefundRequest refund)
         {
             string sql = @"INSERT INTO RefundRequest
-                (refundRequestCode, staffID, ReceiptVoucherID, InvoiceID,
+                (refundRequestID, refundRequestCode, staffID, ReceiptVoucherID, InvoiceID,
                  refundAmount, refundMethod, refundRef, refundReason, status, remark)
-                VALUES (@code, @staffID, @receiptID, @invoiceID,
+                VALUES (@id, @code, @staffID, @receiptID, @invoiceID,
                         @amount, @method, @ref, @reason, @status, @remark)";
 
-            long id = DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+            long id = DatabaseConnect.InsertWithAllocatedId("refundrequest", "refundRequestID", sql, new[] {
                 new MySqlParameter("@code", refund.RefundRequestCode),
                 new MySqlParameter("@staffID", refund.StaffID),
                 new MySqlParameter("@receiptID", refund.ReceiptVoucherID ?? (object)DBNull.Value),

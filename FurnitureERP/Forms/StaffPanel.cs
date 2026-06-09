@@ -87,16 +87,23 @@ namespace FurnitureERP.Forms
             }
 
             long id = Convert.ToInt64(_grid.CurrentRow.Cells[0].Value);
-            using (var dlg = UITheme.BuildInputDialog("Reset Password", new[] { "New Password *" }))
+            using (var dlg = UITheme.BuildInputDialog("Reset Password", new[] { "New Password *", "Confirm Password *" }))
             {
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
-                string password = UITheme.GetDialogValues(dlg)[0];
+                var values = UITheme.GetDialogValues(dlg);
+                string password = values.Length > 0 ? values[0] : "";
+                string confirm = values.Length > 1 ? values[1] : "";
                 if (string.IsNullOrWhiteSpace(password))
                 {
                     UITheme.ShowWarning("Password is required.");
                     return;
                 }
-                if (_staffCtrl.ResetPassword(id, password))
+                if (!string.Equals(password.Trim(), confirm.Trim(), StringComparison.Ordinal))
+                {
+                    UITheme.ShowWarning("Password and confirmation do not match.");
+                    return;
+                }
+                if (_staffCtrl.ResetPassword(id, password.Trim()))
                     UITheme.ShowSuccess("Password reset successfully.");
                 else
                     UITheme.ShowError("Failed to reset password.");
@@ -115,15 +122,27 @@ namespace FurnitureERP.Forms
                 dlg.MaximizeBox = false;
                 dlg.BackColor = UITheme.Background;
 
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 8, Padding = new Padding(16) };
+                var layout = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 2,
+                    RowCount = 8,
+                    Padding = new Padding(16),
+                    AutoSize = false,
+                    GrowStyle = TableLayoutPanelGrowStyle.FixedSize
+                };
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                for (int i = 0; i < 8; i++)
+                    layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
 
                 var txtUsername = new TextBox { Text = existing?.Username ?? "" };
                 var txtFirst = new TextBox { Text = existing?.FirstName ?? "" };
                 var txtLast = new TextBox { Text = existing?.LastName ?? "" };
-                var txtTitle = new TextBox { Text = existing?.Title ?? "" };
-                var txtDept = new TextBox { Text = existing?.Department ?? "" };
+                var cmbTitle = new ComboBox();
+                var cmbDept = new ComboBox();
+                DictionaryUIHelper.BindDictionaryCombo(cmbTitle, DictionaryService.Categories.StaffTitle, existing?.Title);
+                DictionaryUIHelper.BindDictionaryCombo(cmbDept, DictionaryService.Categories.Department, existing?.Department);
                 var txtEmail = new TextBox { Text = existing?.Email ?? "" };
                 var txtPhone = new TextBox { Text = existing?.Phone ?? "" };
                 var txtPassword = new TextBox { UseSystemPasswordChar = true, Enabled = !isEdit };
@@ -133,8 +152,8 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormRow(layout, 0, "Username *", txtUsername);
                 UITheme.AddFormRow(layout, 1, "First Name *", txtFirst);
                 UITheme.AddFormRow(layout, 2, "Last Name *", txtLast);
-                UITheme.AddFormRow(layout, 3, "Title *", txtTitle);
-                UITheme.AddFormRow(layout, 4, "Department *", txtDept);
+                UITheme.AddFormRow(layout, 3, "Title *", cmbTitle);
+                UITheme.AddFormRow(layout, 4, "Department *", cmbDept);
                 UITheme.AddFormRow(layout, 5, "Email *", txtEmail);
                 if (isEdit)
                 {
@@ -152,10 +171,17 @@ namespace FurnitureERP.Forms
                 btnClose.Click += (s, e) => dlg.Close();
                 btnSave.Click += (s, e) =>
                 {
+                    string title = DictionaryUIHelper.GetSelectedDictionaryLabel(cmbTitle);
+                    string department = DictionaryUIHelper.GetSelectedDictionaryLabel(cmbDept);
                     if (string.IsNullOrWhiteSpace(txtUsername.Text) || string.IsNullOrWhiteSpace(txtFirst.Text) ||
                         string.IsNullOrWhiteSpace(txtLast.Text) || string.IsNullOrWhiteSpace(txtEmail.Text))
                     {
                         UITheme.ShowWarning("Username, name and email are required.");
+                        return;
+                    }
+                    if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(department))
+                    {
+                        UITheme.ShowWarning("Title and department are required.");
                         return;
                     }
 
@@ -166,8 +192,8 @@ namespace FurnitureERP.Forms
                             existing.Username = txtUsername.Text.Trim();
                             existing.FirstName = txtFirst.Text.Trim();
                             existing.LastName = txtLast.Text.Trim();
-                            existing.Title = txtTitle.Text.Trim();
-                            existing.Department = txtDept.Text.Trim();
+                            existing.Title = title;
+                            existing.Department = department;
                             existing.Email = txtEmail.Text.Trim();
                             existing.Phone = txtPhone.Text.Trim();
                             existing.Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
@@ -190,8 +216,8 @@ namespace FurnitureERP.Forms
                                 Password = txtPassword.Text,
                                 FirstName = txtFirst.Text.Trim(),
                                 LastName = txtLast.Text.Trim(),
-                                Title = txtTitle.Text.Trim(),
-                                Department = txtDept.Text.Trim(),
+                                Title = title,
+                                Department = department,
                                 Email = txtEmail.Text.Trim(),
                                 Phone = txtPhone.Text.Trim(),
                                 EmployDate = DateTime.Today,

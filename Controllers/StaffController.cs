@@ -1,4 +1,4 @@
-﻿using MySql.Data.MySqlClient;
+using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
 using System.Data;
@@ -78,16 +78,18 @@ namespace Sales_user.Controllers
                                   department AS 'Department',
                                   email AS 'Email',
                                   phone AS 'Phone',
-                                  employDate AS 'Employ Date',
+                                  IF(employDate IS NULL OR employDate = '0000-00-00', NULL, employDate) AS 'Employ Date',
                                   status AS 'Status'
                            FROM Staff
-                           ORDER BY employDate DESC";
+                           ORDER BY IF(employDate IS NULL OR employDate = '0000-00-00', '1900-01-01', employDate) DESC";
             return DatabaseConnect.ExecuteQuery(sql);
         }
 
         public Staff GetById(long staffId)
         {
-            string sql = @"SELECT staffID, username, firstName, lastName, title, department, email, phone, employDate, status
+            string sql = @"SELECT staffID, username, firstName, lastName, title, department, email, phone,
+                                  IF(employDate IS NULL OR employDate = '0000-00-00', NULL, employDate) AS employDate,
+                                  status
                            FROM Staff WHERE staffID = @id";
             DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", staffId) });
             if (dt == null || dt.Rows.Count == 0) return null;
@@ -97,9 +99,9 @@ namespace Sales_user.Controllers
         public long Insert(Staff staff)
         {
             string sql = @"INSERT INTO Staff
-                (username, password, title, department, firstName, lastName, employDate, phone, email, status)
-                VALUES (@user, @pass, @title, @dept, @first, @last, @employDate, @phone, @email, @status)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                (staffID, username, password, title, department, firstName, lastName, employDate, phone, email, status)
+                VALUES (@id, @user, @pass, @title, @dept, @first, @last, @employDate, @phone, @email, @status)";
+            return DatabaseConnect.InsertWithAllocatedId("staff", "staffID", sql, new[] {
                 new MySqlParameter("@user", staff.Username),
                 new MySqlParameter("@pass", HashPassword(staff.Password)),
                 new MySqlParameter("@title", staff.Title),
@@ -134,6 +136,9 @@ namespace Sales_user.Controllers
 
         public bool ResetPassword(long staffId, string newPassword)
         {
+            if (string.IsNullOrWhiteSpace(newPassword))
+                return false;
+
             return DatabaseConnect.ExecuteNonQuery(
                 "UPDATE Staff SET password = @pass WHERE staffID = @id",
                 new[]
@@ -141,6 +146,23 @@ namespace Sales_user.Controllers
                     new MySqlParameter("@pass", HashPassword(newPassword)),
                     new MySqlParameter("@id", staffId)
                 }) > 0;
+        }
+
+        public bool ChangePassword(long staffId, string currentPassword, string newPassword)
+        {
+            if (string.IsNullOrEmpty(currentPassword) || string.IsNullOrWhiteSpace(newPassword))
+                return false;
+
+            string sql = "SELECT password FROM Staff WHERE staffID = @id";
+            DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", staffId) });
+            if (dt == null || dt.Rows.Count == 0)
+                return false;
+
+            string storedPassword = dt.Rows[0]["password"]?.ToString() ?? string.Empty;
+            if (!VerifyPassword(currentPassword, storedPassword))
+                return false;
+
+            return ResetPassword(staffId, newPassword);
         }
 
         public bool SetStatus(long staffId, int status)
@@ -166,8 +188,24 @@ namespace Sales_user.Controllers
                 Department = row["department"].ToString(),
                 Email = row["email"].ToString(),
                 Phone = row.Table.Columns.Contains("phone") && row["phone"] != DBNull.Value ? row["phone"].ToString() : null,
+                EmployDate = ReadEmployDate(row),
                 Status = row["status"] == DBNull.Value ? (int?)null : Convert.ToInt32(row["status"])
             };
+        }
+
+        private static DateTime ReadEmployDate(DataRow row)
+        {
+            if (!row.Table.Columns.Contains("employDate") || row["employDate"] == DBNull.Value)
+                return DateTime.MinValue;
+
+            if (row["employDate"] is DateTime dt)
+                return dt.Year <= 1 ? DateTime.MinValue : dt;
+
+            string text = row["employDate"].ToString();
+            if (string.IsNullOrWhiteSpace(text) || text.StartsWith("0000"))
+                return DateTime.MinValue;
+
+            return DateTime.TryParse(text, out DateTime parsed) ? parsed : DateTime.MinValue;
         }
 
         private static string HashPassword(string password)

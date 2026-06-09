@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Sales_user.Models
 {
@@ -8,6 +8,7 @@ namespace Sales_user.Models
         public string PurchaseOrderCode { get; set; }
         public long SupplierID { get; set; }
         public long StaffID { get; set; }
+        public long WarehouseID { get; set; }
         public long? RelatedShortageReport { get; set; }
         public DateTime CreateDate { get; set; }
         public DateTime LastModifyDate { get; set; }

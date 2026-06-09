@@ -1,0 +1,9 @@
+-- Canonical database schema + seed data: furniture_erp_system_New.sql
+-- After import, apply: Scripts/merge_new_database_patches.sql (for existing DB upgrades)
+--
+-- Merged schema highlights (New base):
+--   - No customer.customerCode; display CU-{id} in application
+--   - salesorder.customerReferenceNumber (not customerRefNumber)
+--   - deliverynote.replySlipCode + signedBy/signedDate (no ReplySlip table)
+--   - production PTO-*, purchase PO-*, material request SCR-*
+--   - admin: Super User / password 123456

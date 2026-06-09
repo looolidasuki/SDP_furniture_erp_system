@@ -351,7 +351,7 @@ namespace Sales_user.Controllers
             }
         }
 
-        private static void UpsertRawMaterialStock(MySqlConnection conn, MySqlTransaction trans, long rawMaterialId, long warehouseId, decimal qty)
+        public static void UpsertRawMaterialStock(MySqlConnection conn, MySqlTransaction trans, long rawMaterialId, long warehouseId, decimal qty)
         {
             object exists = DatabaseConnect.ExecuteScalar(conn, trans,
                 "SELECT COUNT(*) FROM RawMaterialWarehouse WHERE rawMaterialID = @rmId AND warehouseID = @whId",
@@ -379,6 +379,73 @@ namespace Sales_user.Controllers
                 DatabaseConnect.ExecuteNonQuery(conn, trans,
                     @"INSERT INTO RawMaterialWarehouse (rawMaterialID, warehouseID, physicalQuantity, reservedQuantity, purchasedQuantity)
                       VALUES (@rmId, @whId, @qty, 0, 0)",
+                    new[]
+                    {
+                        new MySqlParameter("@rmId", rawMaterialId),
+                        new MySqlParameter("@whId", warehouseId),
+                        new MySqlParameter("@qty", qty)
+                    });
+            }
+        }
+
+        public static void DeductRawMaterialStock(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long rawMaterialId,
+            long warehouseId,
+            decimal qty)
+        {
+            int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
+                @"UPDATE RawMaterialWarehouse
+                  SET physicalQuantity = physicalQuantity - @qty
+                  WHERE rawMaterialID = @rmId AND warehouseID = @whId
+                    AND physicalQuantity >= @qty",
+                new[]
+                {
+                    new MySqlParameter("@qty", qty),
+                    new MySqlParameter("@rmId", rawMaterialId),
+                    new MySqlParameter("@whId", warehouseId)
+                });
+
+            if (affected == 0)
+                throw new InvalidOperationException(
+                    "Insufficient raw material stock in warehouse for item ID " + rawMaterialId + ".");
+        }
+
+        public static void AddRawMaterialPurchasedQuantity(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long rawMaterialId,
+            long warehouseId,
+            decimal qty)
+        {
+            object exists = DatabaseConnect.ExecuteScalar(conn, trans,
+                "SELECT COUNT(*) FROM RawMaterialWarehouse WHERE rawMaterialID = @rmId AND warehouseID = @whId",
+                new[]
+                {
+                    new MySqlParameter("@rmId", rawMaterialId),
+                    new MySqlParameter("@whId", warehouseId)
+                });
+
+            if (Convert.ToInt64(exists) > 0)
+            {
+                DatabaseConnect.ExecuteNonQuery(conn, trans,
+                    @"UPDATE RawMaterialWarehouse
+                      SET purchasedQuantity = purchasedQuantity + @qty
+                      WHERE rawMaterialID = @rmId AND warehouseID = @whId",
+                    new[]
+                    {
+                        new MySqlParameter("@qty", qty),
+                        new MySqlParameter("@rmId", rawMaterialId),
+                        new MySqlParameter("@whId", warehouseId)
+                    });
+            }
+            else
+            {
+                DatabaseConnect.ExecuteNonQuery(conn, trans,
+                    @"INSERT INTO RawMaterialWarehouse
+                      (rawMaterialID, warehouseID, physicalQuantity, reservedQuantity, purchasedQuantity)
+                      VALUES (@rmId, @whId, 0, 0, @qty)",
                     new[]
                     {
                         new MySqlParameter("@rmId", rawMaterialId),

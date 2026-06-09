@@ -33,9 +33,9 @@ namespace Sales_user.Controllers
             {
                 long invoiceId = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
                 {
-                    long invId = DatabaseConnect.ExecuteInsertReturnId(conn, trans,
-                        @"INSERT INTO Invoice (invoiceCode, customerID, salesOrderID, staffID, invoiceType, status, remark)
-                          VALUES (@code, @customerID, @soID, @staffID, @type, @status, @remark)",
+                    long invId = DatabaseConnect.InsertWithAllocatedId(conn, trans, "invoice", "invoiceID",
+                        @"INSERT INTO Invoice (invoiceID, invoiceCode, customerID, salesOrderID, staffID, invoiceType, status, remark)
+                          VALUES (@id, @code, @customerID, @soID, @staffID, @type, @status, @remark)",
                         new[]
                         {
                             new MySqlParameter("@code", "INV-TEMP"),
@@ -51,7 +51,7 @@ namespace Sales_user.Controllers
                         "UPDATE Invoice SET invoiceCode = @code WHERE invoiceID = @id",
                         new[]
                         {
-                            new MySqlParameter("@code", "INV-" + invId),
+                            new MySqlParameter("@code", DocumentCodeHelper.FormatInvoiceCode(invId)),
                             new MySqlParameter("@id", invId)
                         });
 
@@ -69,7 +69,7 @@ namespace Sales_user.Controllers
                     return invId;
                 });
 
-                return WorkflowResult.Ok(invoiceId, "Deposit invoice INV-" + invoiceId + " created.");
+                return WorkflowResult.Ok(invoiceId, "Deposit invoice " + DocumentCodeHelper.FormatInvoiceCode(invoiceId) + " created.");
             }
             catch (Exception ex)
             {
@@ -134,9 +134,9 @@ namespace Sales_user.Controllers
             {
                 long invoiceId = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
                 {
-                    long invId = DatabaseConnect.ExecuteInsertReturnId(conn, trans,
-                        @"INSERT INTO Invoice (invoiceCode, customerID, salesOrderID, staffID, invoiceType, status, remark)
-                          VALUES (@code, @customerID, @soID, @staffID, @type, @status, @remark)",
+                    long invId = DatabaseConnect.InsertWithAllocatedId(conn, trans, "invoice", "invoiceID",
+                        @"INSERT INTO Invoice (invoiceID, invoiceCode, customerID, salesOrderID, staffID, invoiceType, status, remark)
+                          VALUES (@id, @code, @customerID, @soID, @staffID, @type, @status, @remark)",
                         new[]
                         {
                             new MySqlParameter("@code", "INV-TEMP"),
@@ -152,7 +152,7 @@ namespace Sales_user.Controllers
                         "UPDATE Invoice SET invoiceCode = @code WHERE invoiceID = @id",
                         new[]
                         {
-                            new MySqlParameter("@code", "INV-" + invId),
+                            new MySqlParameter("@code", DocumentCodeHelper.FormatInvoiceCode(invId)),
                             new MySqlParameter("@id", invId)
                         });
 
@@ -227,7 +227,7 @@ namespace Sales_user.Controllers
                     return invId;
                 });
 
-                string msg = "Invoice INV-" + invoiceId + " created from delivery note.";
+                string msg = "Invoice " + DocumentCodeHelper.FormatInvoiceCode(invoiceId) + " created from delivery note.";
                 if (applyDepositOffset)
                     msg += " Deposit offset applied.";
                 return WorkflowResult.Ok(invoiceId, msg);

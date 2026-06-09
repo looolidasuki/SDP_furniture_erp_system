@@ -20,6 +20,7 @@ namespace FurnitureERP.Forms
         private readonly DeliveryNoteController _deliveryCtrl = new DeliveryNoteController();
         private readonly ReceiptVoucherController _receiptCtrl = new ReceiptVoucherController();
         private readonly SalesWorkflowService _salesWorkflow = new SalesWorkflowService();
+        private readonly CurrencyController _currencyCtrl = new CurrencyController();
 
         private TabControl _tabs;
 
@@ -829,7 +830,6 @@ namespace FurnitureERP.Forms
             dt.Columns.Add("Field");
             dt.Columns.Add("Value");
             AddCustomerFieldRow(dt, "Customer Code", customer.CustomerCode);
-            AddCustomerFieldRow(dt, "Customer Ref Number", customer.CustomerRefNumber);
             AddCustomerFieldRow(dt, "Customer Name", customer.CustomerName);
             AddCustomerFieldRow(dt, "Billing Address", customer.BillingAddress);
             AddCustomerFieldRow(dt, "Payment Term", customer.PaymentTerm);
@@ -1022,6 +1022,7 @@ namespace FurnitureERP.Forms
                 AppendCustomerDeliveryNoteTotalRow(lines, total);
                 var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
                 DecorateCustomerDeliveryNoteStatusField(fields, header?.Rows.Count > 0 ? header.Rows[0] : null);
+                DecorateCustomerDeliveryNoteShipMethodField(fields, header?.Rows.Count > 0 ? header.Rows[0] : null);
                 if (fields != null)
                 {
                     fields.Rows.Add("Total Ship Qty", totalShipQty.ToString());
@@ -1071,6 +1072,22 @@ namespace FurnitureERP.Forms
             foreach (DataRow row in fields.Rows)
             {
                 if (string.Equals(row["Field"]?.ToString(), "Status", StringComparison.OrdinalIgnoreCase))
+                {
+                    row["Value"] = label;
+                    break;
+                }
+            }
+        }
+
+        private static void DecorateCustomerDeliveryNoteShipMethodField(DataTable fields, DataRow headerRow)
+        {
+            if (fields == null || headerRow == null || !headerRow.Table.Columns.Contains("Ship Method")) return;
+            if (headerRow["Ship Method"] == DBNull.Value) return;
+
+            string label = DictionaryService.FormatShipMethod(headerRow["Ship Method"]?.ToString());
+            foreach (DataRow row in fields.Rows)
+            {
+                if (string.Equals(row["Field"]?.ToString(), "Ship Method", StringComparison.OrdinalIgnoreCase))
                 {
                     row["Value"] = label;
                     break;
@@ -1130,7 +1147,7 @@ namespace FurnitureERP.Forms
                     AutoSize = true,
                     AutoSizeMode = AutoSizeMode.GrowAndShrink,
                     ColumnCount = 2,
-                    RowCount = 5,
+                    RowCount = 4,
                     Padding = new Padding(16),
                     Width = 700
                 };
@@ -1138,13 +1155,15 @@ namespace FurnitureERP.Forms
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
                 layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
 
                 var txtName = new TextBox { Text = existing?.CustomerName ?? "" };
-                var txtCode = new TextBox { Text = existing?.CustomerCode ?? "", ReadOnly = existing != null };
-                var txtRef = new TextBox { Text = existing?.CustomerRefNumber ?? "" };
+                var txtCode = new TextBox
+                {
+                    Text = isEdit ? (existing?.CustomerCode ?? "") : "(assigned on save)",
+                    ReadOnly = true
+                };
                 var txtAddr = new TextBox
                 {
                     Text = existing?.BillingAddress ?? "",
@@ -1156,11 +1175,10 @@ namespace FurnitureERP.Forms
 
                 var toolTip = new ToolTip();
                 UITheme.AddFormRow(layout, 0, "Customer Code", txtCode);
-                UITheme.AddFormRow(layout, 1, "Customer Ref No.", txtRef);
-                toolTip.SetToolTip(txtRef, "Format: PO-PL-#########");
-                UITheme.AddFormRow(layout, 2, "Customer Name *", txtName);
-                UITheme.AddFormRow(layout, 3, "Billing Address", txtAddr);
-                UITheme.AddFormRow(layout, 4, "Payment Term", cmbTerm);
+                toolTip.SetToolTip(txtCode, "Display code derived from customer ID (CU-#########).");
+                UITheme.AddFormRow(layout, 1, "Customer Name *", txtName);
+                UITheme.AddFormRow(layout, 2, "Billing Address", txtAddr);
+                UITheme.AddFormRow(layout, 3, "Payment Term", cmbTerm);
                 generalPage.Controls.Add(layout);
 
                 var contactGrid = CreateCustomerChildGrid(
@@ -1202,8 +1220,6 @@ namespace FurnitureERP.Forms
                         long customerId;
                         if (isEdit)
                         {
-                            existing.CustomerCode = txtCode.Text.Trim();
-                            existing.CustomerRefNumber = txtRef.Text.Trim();
                             existing.CustomerName = txtName.Text.Trim();
                             existing.BillingAddress = txtAddr.Text.Trim();
                             existing.PaymentTerm = DictionaryUIHelper.GetSelectedPaymentTerm(cmbTerm);
@@ -1218,16 +1234,10 @@ namespace FurnitureERP.Forms
                         {
                             customerId = _customerCtrl.Insert(new Customer
                             {
-                                CustomerCode = txtCode.Text.Trim(),
-                                CustomerRefNumber = txtRef.Text.Trim(),
                                 CustomerName = txtName.Text.Trim(),
                                 BillingAddress = txtAddr.Text.Trim(),
                                 PaymentTerm = DictionaryUIHelper.GetSelectedPaymentTerm(cmbTerm)
                             });
-                            if (string.IsNullOrWhiteSpace(txtCode.Text))
-                                _customerCtrl.UpdateCodeAfterInsert(customerId);
-                            if (string.IsNullOrWhiteSpace(txtRef.Text))
-                                _customerCtrl.UpdateRefNumberAfterInsert(customerId);
                         }
 
                         _customerCtrl.SyncContactPersons(customerId, ReadContactPersonsFromGrid(contactGrid), originalContactIds);
@@ -1411,15 +1421,17 @@ namespace FurnitureERP.Forms
                 DictionaryUIHelper.BindStatusCombo(cmbStatus, DictionaryService.Categories.Quotation, existing?.Status ?? 0);
                 var txtRemark = new TextBox { Multiline = true, Height = 70, Text = existing?.Remark ?? string.Empty };
                 var lblStaff = new Label { Text = AppSession.CurrentUser?.Username ?? "Current User", AutoSize = true, ForeColor = UITheme.TextDark };
-                var lblCurrency = new Label { Text = "Default Currency", AutoSize = true, ForeColor = UITheme.TextDark };
-                if (isEdit) SetComboValue(cmbCustomer, existing.CustomerID);
+                var cmbCurrency = BuildCurrencyCombo(isEdit ? existing.CurrencyID : 1);
+                if (isEdit) CustomerComboHelper.SelectCustomer(cmbCustomer, existing.CustomerID);
                 UITheme.AddFormRow(form, 0, "Customer *", cmbCustomer);
                 UITheme.AddFormRow(form, 1, "Staff", lblStaff);
-                UITheme.AddFormRow(form, 2, "Currency", lblCurrency);
+                UITheme.AddFormRow(form, 2, "Currency *", cmbCurrency);
                 UITheme.AddFormRow(form, 3, "Status / Remark", BuildStatusRemarkRow(cmbStatus, txtRemark));
 
                 var lineGrid = BuildEditableQuotationLineGrid();
+                lineGrid.Tag = isEdit && existing.CurrencyID > 0 ? existing.CurrencyID : 1L;
                 if (isEdit) LoadProductLinesToGrid(lineGrid, _quotationCtrl.GetProductLinesInternal(existing.QuotationID));
+                cmbCurrency.SelectedIndexChanged += (s, e) => RecalculateGridPricesForCurrency(lineGrid, GetComboId(cmbCurrency));
 
                 root.Controls.Add(form, 0, 0);
                 root.Controls.Add(WrapEditableProductGrid(lineGrid, "Pick multiple products and set quantity/price/discount.", dlg), 0, 1);
@@ -1431,10 +1443,10 @@ namespace FurnitureERP.Forms
                 {
                     var action = isEdit ? PermissionAction.Edit : PermissionAction.Create;
                     if (!PermissionGuard.Ensure(PermissionModule.Quotation, action, dlg)) return;
-                    long customerId = GetComboId(cmbCustomer);
+                    long customerId = CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
                     if (customerId <= 0)
                     {
-                        UITheme.ShowWarning("Please select a customer.");
+                        UITheme.ShowWarning("Please select or type a valid customer.");
                         return;
                     }
                     var lines = ReadProductLinesFromGrid(lineGrid);
@@ -1449,10 +1461,11 @@ namespace FurnitureERP.Forms
                         {
                             existing.CustomerID = customerId;
                             existing.StaffID = AppSession.CurrentUser?.StaffID ?? 1;
-                            existing.CurrencyID = 1;
+                            existing.CurrencyID = GetComboId(cmbCurrency);
+                            if (existing.CurrencyID <= 0) existing.CurrencyID = 1;
                             existing.Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
                             existing.Remark = txtRemark.Text.Trim();
-                            _quotationCtrl.UpdateStatus(existing.QuotationID, existing.Status);
+                            _quotationCtrl.UpdateHeader(existing);
                             _quotationCtrl.ReplaceProductLines(existing.QuotationID, lines);
                         }
                         else
@@ -1462,7 +1475,7 @@ namespace FurnitureERP.Forms
                                 QuotationCode = "QT-TEMP",
                                 CustomerID = customerId,
                                 StaffID = AppSession.CurrentUser?.StaffID ?? 1,
-                                CurrencyID = 1,
+                                CurrencyID = GetComboId(cmbCurrency) > 0 ? GetComboId(cmbCurrency) : 1,
                                 Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus),
                                 Remark = txtRemark.Text.Trim(),
                                 SequenceNumber = 1
@@ -1541,7 +1554,7 @@ namespace FurnitureERP.Forms
                 if (isEdit)
                 {
                     SetComboValue(cmbSalesOrder, existing.SalesOrderID);
-                    SetComboValue(cmbCustomer, existing.CustomerID);
+                    CustomerComboHelper.SelectCustomer(cmbCustomer, existing.CustomerID);
                 }
 
                 cmbSalesOrder.SelectedIndexChanged += (s, e) =>
@@ -1549,7 +1562,7 @@ namespace FurnitureERP.Forms
                     if (!(cmbSalesOrder.SelectedItem is DataRowView rowView)) return;
                     if (!rowView.Row.Table.Columns.Contains("Customer ID")) return;
                     long cid = Convert.ToInt64(rowView["Customer ID"]);
-                    SetComboValue(cmbCustomer, cid);
+                    CustomerComboHelper.SelectCustomer(cmbCustomer, cid);
                 };
 
                 UITheme.AddFormRow(form, 0, "Sales Order *", cmbSalesOrder);
@@ -1574,7 +1587,7 @@ namespace FurnitureERP.Forms
                     var action = isEdit ? PermissionAction.Edit : PermissionAction.Create;
                     if (!PermissionGuard.Ensure(PermissionModule.ReplySlip, action, dlg)) return;
                     long soId = GetComboId(cmbSalesOrder);
-                    long customerId = GetComboId(cmbCustomer);
+                    long customerId = CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
                     if (soId <= 0 || customerId <= 0)
                     {
                         UITheme.ShowWarning("Please select sales order and customer.");
@@ -1681,7 +1694,7 @@ namespace FurnitureERP.Forms
                 }
                 var txtRemark = new TextBox { Multiline = true, Height = 70, Text = existing?.Remark ?? string.Empty };
                 var lblStaff = new Label { Text = AppSession.CurrentUser?.Username ?? "Current User", AutoSize = true, ForeColor = UITheme.TextDark };
-                var lblCurrency = new Label { Text = "Default Currency", AutoSize = true, ForeColor = UITheme.TextDark };
+                var cmbCurrency = BuildCurrencyCombo(isEdit ? existing.CurrencyCurrencyID : 1);
                 var cmbCustomerRefNumber = new ComboBox
                 {
                     DropDownStyle = ComboBoxStyle.DropDown,
@@ -1769,38 +1782,22 @@ namespace FurnitureERP.Forms
                     catch { }
                 };
 
-                if (isEdit) SetComboValue(cmbCustomer, existing.CustomerID);
                 if (isEdit)
                 {
+                    CustomerComboHelper.SelectCustomer(cmbCustomer, existing.CustomerID);
                     loadDeliveryAddresses(existing.CustomerID);
                     loadCustomerRefNumbers(existing.CustomerID);
                 }
 
-                cmbCustomer.SelectedIndexChanged += (s, e) =>
+                CustomerComboHelper.WireCustomerChanged(cmbCustomer, _customerCtrl, customerId =>
                 {
-                    long cid = GetComboId(cmbCustomer);
-                    if (cid > 0)
-                    {
-                        loadDeliveryAddresses(cid);
-                        loadCustomerRefNumbers(cid);
-                    }
-                };
-
-                // For newly created order, ensure delivery address list is populated
-                // if ComboBox default-selected customer exists.
-                if (!isEdit)
-                {
-                    long cid = GetComboId(cmbCustomer);
-                    if (cid > 0)
-                    {
-                        loadDeliveryAddresses(cid);
-                        loadCustomerRefNumbers(cid);
-                    }
-                }
+                    loadDeliveryAddresses(customerId);
+                    loadCustomerRefNumbers(customerId);
+                });
 
                 UITheme.AddFormRow(form, 0, "Customer *", cmbCustomer);
                 UITheme.AddFormRow(form, 1, "Staff", lblStaff);
-                UITheme.AddFormRow(form, 2, "Currency", lblCurrency);
+                UITheme.AddFormRow(form, 2, "Currency *", cmbCurrency);
                 UITheme.AddFormRow(form, 3, "Delivery Address *", cmbDeliveryAddress);
                 UITheme.AddFormRow(form, 4, "Requested Delivery Date", dtpRequestedDelivery);
                 UITheme.AddFormRow(form, 5, "Discount", txtDiscount);
@@ -1808,7 +1805,9 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormRow(form, 7, "Status / Remark", BuildStatusRemarkRow(cmbStatus, txtRemark));
 
                 var lineGrid = BuildEditableSalesOrderLineGrid();
+                lineGrid.Tag = isEdit && existing.CurrencyCurrencyID > 0 ? existing.CurrencyCurrencyID : 1L;
                 if (isEdit) LoadProductLinesToGrid(lineGrid, _salesOrderCtrl.GetProductLinesInternal(existing.SalesOrderID));
+                cmbCurrency.SelectedIndexChanged += (s, e) => RecalculateGridPricesForCurrency(lineGrid, GetComboId(cmbCurrency));
 
                 root.Controls.Add(form, 0, 0);
                 root.Controls.Add(WrapEditableProductGrid(lineGrid, "Pick multiple products and set quantity/price/discount.", dlg), 0, 1);
@@ -1820,10 +1819,10 @@ namespace FurnitureERP.Forms
                 {
                     var action = isEdit ? PermissionAction.Edit : PermissionAction.Create;
                     if (!PermissionGuard.Ensure(PermissionModule.SalesOrder, action, dlg)) return;
-                    long customerId = GetComboId(cmbCustomer);
+                    long customerId = CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
                     if (customerId <= 0)
                     {
-                        UITheme.ShowWarning("Please select a customer.");
+                        UITheme.ShowWarning("Please select or type a valid customer.");
                         return;
                     }
                     var selectedDeliveryAddress = DeliveryAddressDisplayHelper.ResolveAddressOnly(
@@ -1853,6 +1852,7 @@ namespace FurnitureERP.Forms
                             existing.DeliveryAddress = selectedDeliveryAddress.Trim();
                             existing.RequestedDeliveryDate = dtpRequestedDelivery.Value.Date;
                             existing.CustomerRefNumber = (cmbCustomerRefNumber.Text ?? "").Trim();
+                            existing.CurrencyCurrencyID = GetComboId(cmbCurrency) > 0 ? GetComboId(cmbCurrency) : 1;
                             existing.Discount = discount;
                             existing.Status = DictionaryUIHelper.GetSelectedStatusCode(cmbStatus);
                             existing.Remark = txtRemark.Text.Trim();
@@ -1871,21 +1871,21 @@ namespace FurnitureERP.Forms
                         }
                         else
                         {
-                            var so = new SalesOrder
-                            {
-                                SalesOrderCode = "SO-TEMP",
+                        var so = new SalesOrder
+                        {
+                            SalesOrderCode = "SO-TEMP",
                                 CustomerID = customerId,
                                 StaffID = AppSession.CurrentUser?.StaffID ?? 1,
-                                CurrencyCurrencyID = 1,
+                                CurrencyCurrencyID = GetComboId(cmbCurrency) > 0 ? GetComboId(cmbCurrency) : 1,
                                 DeliveryAddress = selectedDeliveryAddress.Trim(),
                                 RequestedDeliveryDate = dtpRequestedDelivery.Value.Date,
                                 CustomerRefNumber = (cmbCustomerRefNumber.Text ?? "").Trim(),
                                 Discount = discount,
                                 Status = 0,
                                 Remark = txtRemark.Text.Trim()
-                            };
-                            long id = _salesOrderCtrl.Insert(so);
-                            _salesOrderCtrl.UpdateCodeAfterInsert(id);
+                        };
+                        long id = _salesOrderCtrl.Insert(so);
+                        _salesOrderCtrl.UpdateCodeAfterInsert(id);
                             if (string.IsNullOrWhiteSpace((cmbCustomerRefNumber.Text ?? "").Trim()))
                                 _salesOrderCtrl.UpdateCustomerRefNumberAfterInsert(id);
                             _salesOrderCtrl.ReplaceProductLines(id, lines);
@@ -1909,25 +1909,10 @@ namespace FurnitureERP.Forms
             }
         }
 
-        private ComboBox BuildCustomerCombo()
+        private ComboBox BuildCustomerCombo(long selectedCustomerId = 0)
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
-            var dt = _customerCtrl.GetAllCustomers();
-            if (!dt.Columns.Contains("DisplayText"))
-                dt.Columns.Add("DisplayText", typeof(string));
-            foreach (DataRow row in dt.Rows)
-            {
-                string code = dt.Columns.Contains("Customer Code") ? row["Customer Code"]?.ToString() : "";
-                string refNo = dt.Columns.Contains("Customer Ref Number") ? row["Customer Ref Number"]?.ToString() : "";
-                string name = row["Customer Name"]?.ToString();
-                string prefix = "";
-                if (!string.IsNullOrWhiteSpace(code)) prefix += code;
-                if (!string.IsNullOrWhiteSpace(refNo)) prefix += (prefix.Length > 0 ? " / " : "") + refNo;
-                row["DisplayText"] = string.IsNullOrWhiteSpace(prefix) ? name : (prefix + " - " + name);
-            }
-            cmb.DataSource = dt;
-            cmb.DisplayMember = "DisplayText";
-            cmb.ValueMember = "Customer ID";
+            var cmb = new ComboBox { Width = 340 };
+            CustomerComboHelper.Attach(cmb, _customerCtrl, selectedCustomerId);
             return cmb;
         }
 
@@ -2048,7 +2033,8 @@ namespace FurnitureERP.Forms
             var row = grid.Rows[rowIndex];
             if (row.IsNewRow) return;
 
-            if (TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, out decimal basePrice))
+            long currencyId = grid.Tag is long cid ? cid : 1L;
+            if (TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, currencyId, out decimal basePrice))
                 row.Cells["Price"].Value = basePrice;
 
             ApplySalesOrderAvailableStock(grid, rowIndex);
@@ -2106,7 +2092,8 @@ namespace FurnitureERP.Forms
             var row = grid.Rows[rowIndex];
             if (row.IsNewRow) return;
 
-            if (!TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, out decimal basePrice))
+            long currencyId = grid.Tag is long cid ? cid : 1L;
+            if (!TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, currencyId, out decimal basePrice))
             {
                 EnsureSalesOrderPriceCellState(grid, rowIndex);
                 return;
@@ -2121,27 +2108,61 @@ namespace FurnitureERP.Forms
             if (rowIndex < 0 || rowIndex >= grid.Rows.Count) return;
             var row = grid.Rows[rowIndex];
             if (row.IsNewRow) return;
-            row.Cells["Price"].ReadOnly = TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, out _);
+            long currencyId = grid.Tag is long cid ? cid : 1L;
+            row.Cells["Price"].ReadOnly = TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, currencyId, out _);
         }
 
-        private bool TryGetProductBasePrice(DataGridView grid, object productCellValue, out decimal basePrice)
+        private bool TryGetProductBasePrice(DataGridView grid, object productCellValue, long targetCurrencyId, out decimal basePrice)
         {
             basePrice = 0m;
             if (productCellValue == null || productCellValue == DBNull.Value) return false;
             if (!long.TryParse(productCellValue.ToString(), out long productId) || productId <= 0) return false;
+            if (targetCurrencyId <= 0) targetCurrencyId = 1;
 
             if (!(grid.Columns["ProductID"] is DataGridViewComboBoxColumn comboCol)) return false;
             if (!(comboCol.DataSource is DataTable dt)) return false;
             if (!dt.Columns.Contains("Product ID") || !dt.Columns.Contains("Base Price")) return false;
 
+            decimal targetRate = _currencyCtrl.GetRateToBase(targetCurrencyId);
+
             foreach (DataRow dr in dt.Rows)
             {
                 if (dr["Product ID"] == DBNull.Value) continue;
                 if (Convert.ToInt64(dr["Product ID"]) != productId) continue;
-                basePrice = dr["Base Price"] == DBNull.Value ? 0m : Convert.ToDecimal(dr["Base Price"]);
+                decimal rawPrice = dr["Base Price"] == DBNull.Value ? 0m : Convert.ToDecimal(dr["Base Price"]);
+                decimal productRate = dt.Columns.Contains("Currency Rate") && dr["Currency Rate"] != DBNull.Value
+                    ? Convert.ToDecimal(dr["Currency Rate"])
+                    : 1m;
+                basePrice = CurrencyPriceHelper.ConvertPrice(rawPrice, productRate, targetRate);
                 return true;
             }
             return false;
+        }
+
+        private ComboBox BuildCurrencyCombo(long selectedCurrencyId = 1)
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
+            var dt = _currencyCtrl.GetAllForCombo();
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "Code";
+            cmb.ValueMember = "Currency ID";
+            if (selectedCurrencyId > 0)
+                SetComboValue(cmb, selectedCurrencyId);
+            return cmb;
+        }
+
+        private void RecalculateGridPricesForCurrency(DataGridView grid, long targetCurrencyId)
+        {
+            if (grid == null) return;
+            if (targetCurrencyId <= 0) targetCurrencyId = 1;
+            grid.Tag = targetCurrencyId;
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                if (row.Cells["ProductID"].Value == null) continue;
+                if (TryGetProductBasePrice(grid, row.Cells["ProductID"].Value, targetCurrencyId, out decimal price))
+                    row.Cells["Price"].Value = price;
+            }
         }
 
         private void LoadProductLinesToGrid(DataGridView grid, DataTable lines)

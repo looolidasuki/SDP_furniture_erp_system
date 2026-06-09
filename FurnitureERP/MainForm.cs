@@ -3,6 +3,7 @@ using System.Data;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using FurnitureERP.Helpers;
 using Sales_user.Controllers;
 using Sales_user.Models;
 
@@ -694,8 +695,9 @@ namespace FurnitureERP
                             Remark = vals[4]
                         };
                         long id = _grnCtrl.Insert(grn);
+                        if (id <= 0) { ShowError("GRN creation failed: invalid ID."); return; }
                         _grnCtrl.UpdateCodeAfterInsert(id);
-                        ShowSuccess($"GRN-{id} created."); LoadModule("Goods Received");
+                        ShowSuccess(DocumentCodeHelper.Build("GRN", id) + " created."); LoadModule("Goods Received");
                     }
                     catch (Exception ex) { ShowError(ex.Message); }
                 }
@@ -746,8 +748,9 @@ namespace FurnitureERP
                             Remark = vals[7]
                         };
                         long id = _deliveryCtrl.Insert(dn);
+                        if (id <= 0) { ShowError("Delivery note creation failed: invalid ID."); return; }
                         _deliveryCtrl.UpdateCodeAfterInsert(id);
-                        ShowSuccess($"Delivery Note DN-{id} created."); LoadModule("Delivery Notes");
+                        ShowSuccess(DeliveryNoteController.FormatDeliveryNoteCode(id) + " created."); LoadModule("Delivery Notes");
                     }
                     catch (Exception ex) { ShowError(ex.Message); }
                 }
@@ -778,7 +781,7 @@ namespace FurnitureERP
                         };
                         long id = _invoiceCtrl.Insert(inv);
                         _invoiceCtrl.UpdateCodeAfterInsert(id);
-                        ShowSuccess($"Invoice INV-{id} created."); LoadModule("Invoices");
+                        ShowSuccess($"Invoice {DocumentCodeHelper.FormatInvoiceCode(id)} created."); LoadModule("Invoices");
                     }
                     catch (Exception ex) { ShowError(ex.Message); }
                 }

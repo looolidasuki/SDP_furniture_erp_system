@@ -1,5 +1,7 @@
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
+using System;
 using System.Data;
 
 namespace Sales_user.Controllers
@@ -37,10 +39,20 @@ namespace Sales_user.Controllers
 
         public long Insert(GoodsReceivedNote note)
         {
+            return DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, note));
+        }
+
+        public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, GoodsReceivedNote note)
+        {
+            long nextId = DatabaseConnect.AllocateNextId("goodsreceivednote", "goodsReceivedNoteID", conn, trans);
+            if (nextId <= 0)
+                throw new InvalidOperationException("Unable to allocate goods received note ID.");
+
             string sql = @"INSERT INTO GoodsReceivedNote
-                (goodsReceivedNoteCode, supplierID, PurchaseOrderID, staffID, status, remark)
-                VALUES (@code, @supplierID, @poID, @staffID, @status, @remark)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                (goodsReceivedNoteID, goodsReceivedNoteCode, supplierID, PurchaseOrderID, staffID, status, remark)
+                VALUES (@id, @code, @supplierID, @poID, @staffID, @status, @remark)";
+            DatabaseConnect.ExecuteNonQuery(conn, trans, sql, new[] {
+                new MySqlParameter("@id", nextId),
                 new MySqlParameter("@code", note.GoodsReceivedNoteCode),
                 new MySqlParameter("@supplierID", note.SupplierID),
                 new MySqlParameter("@poID", note.PurchaseOrderID),
@@ -48,6 +60,14 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@status", note.Status),
                 new MySqlParameter("@remark", note.Remark ?? (object)System.DBNull.Value)
             });
+            return nextId;
+        }
+
+        private static long AllocateNextId(MySqlConnection conn, MySqlTransaction trans)
+        {
+            object scalar = DatabaseConnect.ExecuteScalar(conn, trans,
+                "SELECT COALESCE(MAX(goodsReceivedNoteID), 0) + 1 FROM GoodsReceivedNote");
+            return scalar == null || scalar == System.DBNull.Value ? 0 : Convert.ToInt64(scalar);
         }
 
         public void UpdateCodeAfterInsert(long id)
@@ -55,7 +75,7 @@ namespace Sales_user.Controllers
             DatabaseConnect.ExecuteNonQuery(
                 "UPDATE GoodsReceivedNote SET goodsReceivedNoteCode = @code WHERE goodsReceivedNoteID = @id",
                 new[] {
-                    new MySqlParameter("@code", "GRN-" + id),
+                    new MySqlParameter("@code", DocumentCodeHelper.Build("GRN", id)),
                     new MySqlParameter("@id", id)
                 });
         }

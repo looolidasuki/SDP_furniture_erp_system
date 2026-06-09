@@ -153,6 +153,13 @@
     <Compile Include="Helpers\DetailViewHelper.cs" />
     <Compile Include="Helpers\InvoiceConstants.cs" />
     <Compile Include="Helpers\ReceiptVoucherConstants.cs" />
+    <Compile Include="Helpers\DocumentCodeHelper.cs" />
+    <Compile Include="Helpers\WarehouseHelper.cs" />
+    <Compile Include="Helpers\RawMaterialRequestNoteConstants.cs" />
+    <Compile Include="Helpers\FilteredComboBinder.cs" />
+    <Compile Include="Helpers\CustomerComboHelper.cs" />
+    <Compile Include="Helpers\CurrencyPriceHelper.cs" />
+    <Compile Include="Helpers\OrderTotalCalculator.cs" />
     <Compile Include="Helpers\PdfSharpFontResolver.cs" />
     <Compile Include="..\4915M_SDP\Infrastructure\DatabaseConnect.cs">
       <Link>Infrastructure\DatabaseConnect.cs</Link>
@@ -162,6 +169,9 @@
     </Compile>
     <Compile Include="..\4915M_SDP\Infrastructure\SearchQueryHelper.cs">
       <Link>Infrastructure\SearchQueryHelper.cs</Link>
+    </Compile>
+    <Compile Include="..\Controllers\CurrencyController.cs">
+      <Link>Controllers\CurrencyController.cs</Link>
     </Compile>
     <Compile Include="..\Controllers\CustomerController.cs">
       <Link>Controllers\CustomerController.cs</Link>
@@ -232,6 +242,9 @@
     <Compile Include="..\Controllers\ProductionWorkflowService.cs">
       <Link>Controllers\ProductionWorkflowService.cs</Link>
     </Compile>
+    <Compile Include="..\Controllers\ProductionMaterialWorkflowService.cs">
+      <Link>Controllers\ProductionMaterialWorkflowService.cs</Link>
+    </Compile>
     <Compile Include="..\Controllers\FinanceWorkflowService.cs">
       <Link>Controllers\FinanceWorkflowService.cs</Link>
     </Compile>
@@ -261,6 +274,12 @@
     </Compile>
     <Compile Include="..\Models\RawMaterialRequestNote.cs">
       <Link>Models\RawMaterialRequestNote.cs</Link>
+    </Compile>
+    <Compile Include="..\Models\RawMaterialWarehouseSnapshot.cs">
+      <Link>Models\RawMaterialWarehouseSnapshot.cs</Link>
+    </Compile>
+    <Compile Include="..\Models\RawMaterialPreferredSupplier.cs">
+      <Link>Models\RawMaterialPreferredSupplier.cs</Link>
     </Compile>
     <Compile Include="..\Models\DeliveryNote.cs">
       <Link>Models\DeliveryNote.cs</Link>

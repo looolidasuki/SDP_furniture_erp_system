@@ -1,4 +1,5 @@
 using FurnitureERP.Helpers;
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
@@ -142,7 +143,7 @@ namespace Sales_user.Controllers
             long salesOrderId = InternalSampleProductionService.GetOrCreateInternalSampleSalesOrderId(staffId);
             return CreateWithLines(new ProductionOrder
             {
-                ProductionOrderCode = "PO-TEMP",
+                ProductionOrderCode = "PTO-TEMP",
                 SalesOrderID = salesOrderId,
                 StaffID = staffId > 0 ? staffId : 1,
                 EstFinishDate = estFinishDate,
@@ -202,9 +203,9 @@ namespace Sales_user.Controllers
         public long Insert(ProductionOrder order)
         {
             string sql = @"INSERT INTO ProductionOrder
-                (productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
-                VALUES (@code, @soID, @staffID, @finish, @status, @remark)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                (productionOrderID, productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
+                VALUES (@id, @code, @soID, @staffID, @finish, @status, @remark)";
+            return DatabaseConnect.InsertWithAllocatedId("productionorder", "productionOrderID", sql, new[] {
                 new MySqlParameter("@code", order.ProductionOrderCode),
                 new MySqlParameter("@soID", order.SalesOrderID),
                 new MySqlParameter("@staffID", order.StaffID),
@@ -219,7 +220,7 @@ namespace Sales_user.Controllers
             DatabaseConnect.ExecuteNonQuery(
                 "UPDATE ProductionOrder SET productionOrderCode = @code WHERE productionOrderID = @id",
                 new[] {
-                    new MySqlParameter("@code", "PO-" + id),
+                    new MySqlParameter("@code", DocumentCodeHelper.Build("PTO", id)),
                     new MySqlParameter("@id", id)
                 });
         }
@@ -251,13 +252,13 @@ namespace Sales_user.Controllers
 
             return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
             {
-                long poId = DatabaseConnect.ExecuteInsertReturnId(conn, trans,
+                long poId = DatabaseConnect.InsertWithAllocatedId(conn, trans, "productionorder", "productionOrderID",
                     @"INSERT INTO ProductionOrder
-                        (productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
-                      VALUES (@code, @soID, @staffID, @finish, @status, @remark)",
+                        (productionOrderID, productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
+                      VALUES (@id, @code, @soID, @staffID, @finish, @status, @remark)",
                     new[]
                     {
-                        new MySqlParameter("@code", "PO-TEMP"),
+                        new MySqlParameter("@code", "PTO-TEMP"),
                         new MySqlParameter("@soID", salesOrderId),
                         new MySqlParameter("@staffID", staffId),
                         new MySqlParameter("@finish", estFinishDate),
@@ -269,7 +270,7 @@ namespace Sales_user.Controllers
                     "UPDATE ProductionOrder SET productionOrderCode = @code WHERE productionOrderID = @id",
                     new[]
                     {
-                        new MySqlParameter("@code", "PO-" + poId),
+                        new MySqlParameter("@code", DocumentCodeHelper.Build("PTO", poId)),
                         new MySqlParameter("@id", poId)
                     });
 
@@ -299,13 +300,13 @@ namespace Sales_user.Controllers
 
             return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
             {
-                long poId = DatabaseConnect.ExecuteInsertReturnId(conn, trans,
+                long poId = DatabaseConnect.InsertWithAllocatedId(conn, trans, "productionorder", "productionOrderID",
                     @"INSERT INTO ProductionOrder
-                        (productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
-                      VALUES (@code, @soID, @staffID, @finish, @status, @remark)",
+                        (productionOrderID, productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
+                      VALUES (@id, @code, @soID, @staffID, @finish, @status, @remark)",
                     new[]
                     {
-                        new MySqlParameter("@code", order.ProductionOrderCode ?? "PO-TEMP"),
+                        new MySqlParameter("@code", order.ProductionOrderCode ?? "PTO-TEMP"),
                         new MySqlParameter("@soID", order.SalesOrderID),
                         new MySqlParameter("@staffID", order.StaffID),
                         new MySqlParameter("@finish", order.EstFinishDate),
@@ -317,7 +318,7 @@ namespace Sales_user.Controllers
                     "UPDATE ProductionOrder SET productionOrderCode = @code WHERE productionOrderID = @id",
                     new[]
                     {
-                        new MySqlParameter("@code", "PO-" + poId),
+                        new MySqlParameter("@code", DocumentCodeHelper.Build("PTO", poId)),
                         new MySqlParameter("@id", poId)
                     });
 

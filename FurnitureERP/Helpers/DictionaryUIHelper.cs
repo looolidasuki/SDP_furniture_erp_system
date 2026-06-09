@@ -42,11 +42,11 @@ namespace FurnitureERP.Helpers
             return combo.SelectedIndex >= 0 ? combo.SelectedIndex : 0;
         }
 
-        public static void BindPaymentTermCombo(ComboBox combo, string selectedLabel)
+        public static void BindDictionaryCombo(ComboBox combo, string category, string selectedLabel)
         {
             combo.Items.Clear();
             combo.DropDownStyle = ComboBoxStyle.DropDownList;
-            foreach (var item in DictionaryService.GetItems(DictionaryService.Categories.PaymentTerm))
+            foreach (var item in DictionaryService.GetItems(category))
                 combo.Items.Add(item.Value);
 
             selectedLabel = selectedLabel?.Trim();
@@ -67,9 +67,42 @@ namespace FurnitureERP.Helpers
                 combo.SelectedIndex = 0;
         }
 
-        public static string GetSelectedPaymentTerm(ComboBox combo)
+        public static string GetSelectedDictionaryLabel(ComboBox combo)
         {
             return combo.SelectedItem?.ToString()?.Trim() ?? "";
+        }
+
+        public static void BindPaymentTermCombo(ComboBox combo, string selectedLabel)
+        {
+            BindDictionaryCombo(combo, DictionaryService.Categories.PaymentTerm, selectedLabel);
+        }
+
+        public static string GetSelectedPaymentTerm(ComboBox combo)
+        {
+            return GetSelectedDictionaryLabel(combo);
+        }
+
+        public static void BindShipMethodCombo(ComboBox combo, string storedValue = null)
+        {
+            combo.Items.Clear();
+            combo.DropDownStyle = ComboBoxStyle.DropDownList;
+            combo.DisplayMember = "Value";
+            combo.ValueMember = "Key";
+            foreach (var item in DictionaryService.GetItems(DictionaryService.Categories.ShipMethod))
+                combo.Items.Add(new ComboBoxItem(item.Key, item.Value));
+
+            int? code = DictionaryService.ResolveShipMethodCode(storedValue);
+            if (code.HasValue)
+                SelectStatusCombo(combo, code.Value);
+            else if (combo.Items.Count > 0)
+                combo.SelectedIndex = 0;
+        }
+
+        public static string GetSelectedShipMethodStoredValue(ComboBox combo)
+        {
+            if (combo.SelectedItem is ComboBoxItem item)
+                return item.Code.ToString();
+            return "";
         }
 
         public static void BindStatusFilter(ComboBox combo, string category)

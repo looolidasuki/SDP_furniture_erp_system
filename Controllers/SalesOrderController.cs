@@ -12,7 +12,7 @@ namespace Sales_user.Controllers
         public DataTable GetAllSalesOrders()
         {
             string sql = @"SELECT so.salesOrderCode AS 'Order Code',
-                                  so.customerRefNumber AS 'Customer Ref Number',
+                                  so.customerReferenceNumber AS 'Customer Ref Number',
                                   c.customerName AS 'Customer',
                                   so.deliveryAddress AS 'Delivery Address',
                                   so.createDate AS 'Create Date',
@@ -27,14 +27,14 @@ namespace Sales_user.Controllers
 
         public long Insert(SalesOrder order)
         {
-            return DatabaseConnect.ExecuteInsertReturnId(
+            return DatabaseConnect.InsertWithAllocatedId("salesorder", "salesOrderID",
                 BuildInsertHeaderSql(),
                 BuildInsertHeaderParameters(order));
         }
 
         public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, SalesOrder order)
         {
-            return DatabaseConnect.ExecuteInsertReturnId(conn, trans,
+            return DatabaseConnect.InsertWithAllocatedId(conn, trans, "salesorder", "salesOrderID",
                 BuildInsertHeaderSql(),
                 BuildInsertHeaderParameters(order));
         }
@@ -43,10 +43,10 @@ namespace Sales_user.Controllers
         {
             // Use @soStatus — not @status (MySQL treats @status as a user variable, often NULL).
             return @"INSERT INTO SalesOrder
-                (salesOrderCode, customerID, staffID, currencyCurrencyID, deliveryAddress,
-                 requestedDeliveryDate, customerRefNumber, discountType, discount, status, remark)
-                VALUES (@code, @customerID, @staffID, @currencyID, @address,
-                        @requestedDeliveryDate, @customerRefNumber, @discountType, @discount, @soStatus, @remark)";
+                (salesOrderID, salesOrderCode, customerID, staffID, currencyCurrencyID, deliveryAddress,
+                 requestedDeliveryDate, customerReferenceNumber, discountType, discount, status, remark)
+                VALUES (@id, @code, @customerID, @staffID, @currencyID, @address,
+                        @requestedDeliveryDate, @customerReferenceNumber, @discountType, @discount, @soStatus, @remark)";
         }
 
         private static MySqlParameter[] BuildInsertHeaderParameters(SalesOrder order)
@@ -59,7 +59,7 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@currencyID", order.CurrencyCurrencyID),
                 new MySqlParameter("@address", order.DeliveryAddress),
                 new MySqlParameter("@requestedDeliveryDate", order.RequestedDeliveryDate ?? (object)DBNull.Value),
-                new MySqlParameter("@customerRefNumber", string.IsNullOrWhiteSpace(order.CustomerRefNumber) ? (object)DBNull.Value : order.CustomerRefNumber.Trim()),
+                new MySqlParameter("@customerReferenceNumber", string.IsNullOrWhiteSpace(order.CustomerRefNumber) ? (object)DBNull.Value : order.CustomerRefNumber.Trim()),
                 new MySqlParameter("@discountType", order.DiscountType ?? (object)DBNull.Value),
                 new MySqlParameter("@discount", order.Discount),
                 new MySqlParameter("@soStatus", order.Status),
@@ -72,7 +72,7 @@ namespace Sales_user.Controllers
             DatabaseConnect.ExecuteNonQuery(
                 "UPDATE SalesOrder SET salesOrderCode = @code WHERE salesOrderID = @id",
                 new[] {
-                    new MySqlParameter("@code", "SO-" + salesOrderId),
+                    new MySqlParameter("@code", DocumentCodeHelper.Build("SO", salesOrderId)),
                     new MySqlParameter("@id", salesOrderId)
                 });
         }
@@ -81,9 +81,9 @@ namespace Sales_user.Controllers
         {
             string refNo = FormatCustomerRefNumber(salesOrderId);
             DatabaseConnect.ExecuteNonQuery(
-                @"UPDATE SalesOrder SET customerRefNumber = @ref
+                @"UPDATE SalesOrder SET customerReferenceNumber = @ref
                   WHERE salesOrderID = @id
-                    AND (customerRefNumber IS NULL OR TRIM(customerRefNumber) = '')",
+                    AND (customerReferenceNumber IS NULL OR TRIM(customerReferenceNumber) = '')",
                 new[] {
                     new MySqlParameter("@ref", refNo),
                     new MySqlParameter("@id", salesOrderId)
@@ -143,7 +143,7 @@ namespace Sales_user.Controllers
                 "UPDATE SalesOrder SET salesOrderCode = @code WHERE salesOrderID = @id",
                 new[]
                 {
-                    new MySqlParameter("@code", "SO-" + salesOrderId),
+                    new MySqlParameter("@code", DocumentCodeHelper.Build("SO", salesOrderId)),
                     new MySqlParameter("@id", salesOrderId)
                 });
         }
@@ -215,7 +215,7 @@ namespace Sales_user.Controllers
 
         public DataTable GetHeaderDetail(long salesOrderId)
         {
-            string sql = @"SELECT so.customerRefNumber AS 'Customer Ref Number',
+            string sql = @"SELECT so.customerReferenceNumber AS 'Customer Ref Number',
                                   so.salesOrderCode AS 'Order Code',
                                   c.customerName AS 'Customer',
                                   cda.contactPerson AS 'Contact Person',
@@ -262,13 +262,21 @@ namespace Sales_user.Controllers
                 row["Phone"] = parsedPhone;
         }
 
-        public decimal GetTotalAmount(long salesOrderId)
+        public decimal GetLineSubtotal(long salesOrderId)
         {
             object value = DatabaseConnect.ExecuteScalar(
                 @"SELECT COALESCE(SUM(price * orderQuantity - discountAmount), 0)
                   FROM SalesOrderProductLine WHERE salesOrderID = @id",
                 new[] { new MySqlParameter("@id", salesOrderId) });
             return value == null || value == System.DBNull.Value ? 0 : System.Convert.ToDecimal(value);
+        }
+
+        public decimal GetTotalAmount(long salesOrderId)
+        {
+            decimal lineSubtotal = GetLineSubtotal(salesOrderId);
+            var order = GetFullById(salesOrderId);
+            if (order == null) return lineSubtotal;
+            return OrderTotalCalculator.ApplyHeaderDiscount(lineSubtotal, order.DiscountType, order.Discount);
         }
 
         public DataTable GetProductionOrdersBySalesOrder(long salesOrderId)
@@ -279,10 +287,36 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", salesOrderId) });
         }
 
+        public SalesOrder GetByCode(string salesOrderCode)
+        {
+            if (string.IsNullOrWhiteSpace(salesOrderCode)) return null;
+            string sql = @"SELECT salesOrderID, salesOrderCode, customerID, deliveryAddress, requestedDeliveryDate,
+                                  customerReferenceNumber,
+                                  status, discount, remark
+                           FROM SalesOrder WHERE salesOrderCode = @code LIMIT 1";
+            DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] {
+                new MySqlParameter("@code", salesOrderCode.Trim())
+            });
+            if (dt == null || dt.Rows.Count == 0) return null;
+            var row = dt.Rows[0];
+            return new SalesOrder
+            {
+                SalesOrderID = System.Convert.ToInt64(row["salesOrderID"]),
+                SalesOrderCode = row["salesOrderCode"].ToString(),
+                CustomerID = System.Convert.ToInt64(row["customerID"]),
+                DeliveryAddress = row["deliveryAddress"].ToString(),
+                RequestedDeliveryDate = row["requestedDeliveryDate"] == System.DBNull.Value ? (DateTime?)null : System.Convert.ToDateTime(row["requestedDeliveryDate"]),
+                CustomerRefNumber = row["customerReferenceNumber"] == System.DBNull.Value ? null : row["customerReferenceNumber"].ToString(),
+                Status = System.Convert.ToInt32(row["status"]),
+                Discount = System.Convert.ToDecimal(row["discount"]),
+                Remark = row["remark"]?.ToString()
+            };
+        }
+
         public SalesOrder GetById(long salesOrderId)
         {
             string sql = @"SELECT salesOrderID, salesOrderCode, customerID, deliveryAddress, requestedDeliveryDate,
-                                  customerRefNumber,
+                                  customerReferenceNumber,
                                   status, discount, remark
                            FROM SalesOrder WHERE salesOrderID = @id";
             DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", salesOrderId) });
@@ -295,7 +329,7 @@ namespace Sales_user.Controllers
                 CustomerID = System.Convert.ToInt64(row["customerID"]),
                 DeliveryAddress = row["deliveryAddress"].ToString(),
                 RequestedDeliveryDate = row["requestedDeliveryDate"] == System.DBNull.Value ? (DateTime?)null : System.Convert.ToDateTime(row["requestedDeliveryDate"]),
-                CustomerRefNumber = row["customerRefNumber"] == System.DBNull.Value ? null : row["customerRefNumber"].ToString(),
+                CustomerRefNumber = row["customerReferenceNumber"] == System.DBNull.Value ? null : row["customerReferenceNumber"].ToString(),
                 Status = System.Convert.ToInt32(row["status"]),
                 Discount = System.Convert.ToDecimal(row["discount"]),
                 Remark = row["remark"]?.ToString()
@@ -306,7 +340,7 @@ namespace Sales_user.Controllers
         {
             string sql = @"SELECT salesOrderID, salesOrderCode, customerID, staffID, currencyCurrencyID,
                                   deliveryAddress, requestedDeliveryDate,
-                                  customerRefNumber,
+                                  customerReferenceNumber,
                                   status, discount, discountType, remark
                            FROM SalesOrder WHERE salesOrderID = @id";
             DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", salesOrderId) });
@@ -321,7 +355,7 @@ namespace Sales_user.Controllers
                 CurrencyCurrencyID = System.Convert.ToInt64(row["currencyCurrencyID"]),
                 DeliveryAddress = row["deliveryAddress"].ToString(),
                 RequestedDeliveryDate = row["requestedDeliveryDate"] == System.DBNull.Value ? (DateTime?)null : System.Convert.ToDateTime(row["requestedDeliveryDate"]),
-                CustomerRefNumber = row["customerRefNumber"] == System.DBNull.Value ? null : row["customerRefNumber"].ToString(),
+                CustomerRefNumber = row["customerReferenceNumber"] == System.DBNull.Value ? null : row["customerReferenceNumber"].ToString(),
                 Status = System.Convert.ToInt32(row["status"]),
                 Discount = System.Convert.ToDecimal(row["discount"]),
                 DiscountType = row["discountType"] == System.DBNull.Value ? null : row["discountType"].ToString(),
@@ -333,7 +367,7 @@ namespace Sales_user.Controllers
         {
             string sql = @"SELECT so.salesOrderID AS 'Order ID',
                                   so.salesOrderCode AS 'Order Code',
-                                  so.customerRefNumber AS 'Customer Ref',
+                                  so.customerReferenceNumber AS 'Customer Ref',
                                   so.status AS 'Status',
                                   so.createDate AS 'Create Date'
                            FROM SalesOrder so
@@ -353,14 +387,16 @@ namespace Sales_user.Controllers
         {
             string sql = @"UPDATE SalesOrder SET deliveryAddress = @address, status = @soStatus,
                            requestedDeliveryDate = @requestedDeliveryDate,
-                           customerRefNumber = @customerRefNumber,
+                           customerReferenceNumber = @customerReferenceNumber,
+                           currencyCurrencyID = @currencyID,
                            discount = @discount, remark = @remark, lastModifyDate = NOW()
                            WHERE salesOrderID = @id";
             return DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@address", order.DeliveryAddress),
                 new MySqlParameter("@soStatus", order.Status),
                 new MySqlParameter("@requestedDeliveryDate", order.RequestedDeliveryDate ?? (object)System.DBNull.Value),
-                new MySqlParameter("@customerRefNumber", string.IsNullOrWhiteSpace(order.CustomerRefNumber) ? (object)System.DBNull.Value : order.CustomerRefNumber.Trim()),
+                new MySqlParameter("@customerReferenceNumber", string.IsNullOrWhiteSpace(order.CustomerRefNumber) ? (object)System.DBNull.Value : order.CustomerRefNumber.Trim()),
+                new MySqlParameter("@currencyID", order.CurrencyCurrencyID > 0 ? order.CurrencyCurrencyID : 1),
                 new MySqlParameter("@discount", order.Discount),
                 new MySqlParameter("@remark", order.Remark ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", order.SalesOrderID)
@@ -370,7 +406,7 @@ namespace Sales_user.Controllers
         public DataTable Search(SearchFilterCriteria filter)
         {
             string sql = @"SELECT so.salesOrderCode AS 'Order Code',
-                                  so.customerRefNumber AS 'Customer Ref Number',
+                                  so.customerReferenceNumber AS 'Customer Ref Number',
                                   c.customerName AS 'Customer',
                                   so.deliveryAddress AS 'Delivery Address',
                                   so.createDate AS 'Create Date',
@@ -383,7 +419,7 @@ namespace Sales_user.Controllers
             var parameters = new List<MySqlParameter>();
             if (!string.IsNullOrWhiteSpace(filter.Keyword))
             {
-                conditions.Add("(so.salesOrderCode LIKE @kw OR so.customerRefNumber LIKE @kw OR c.customerName LIKE @kw OR so.deliveryAddress LIKE @kw)");
+                conditions.Add("(so.salesOrderCode LIKE @kw OR so.customerReferenceNumber LIKE @kw OR c.customerName LIKE @kw OR so.deliveryAddress LIKE @kw)");
                 parameters.Add(new MySqlParameter("@kw", "%" + filter.Keyword.Trim() + "%"));
             }
             SearchQueryHelper.AddDateFrom(conditions, parameters, "so.createDate", filter.FromDate);
@@ -394,10 +430,10 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql, parameters.ToArray());
         }
 
-        public DataTable GetProductLinesByCustomerRefNumber(string customerRefNumber)
+        public DataTable GetProductLinesByCustomerRefNumber(string customerReferenceNumber)
         {
             string sql = @"SELECT so.salesOrderCode AS 'Order Code',
-                                  so.customerRefNumber AS 'Customer Ref Number',
+                                  so.customerReferenceNumber AS 'Customer Ref Number',
                                   p.productCode AS 'Item',
                                   p.styleNumber AS 'Style',
                                   spl.orderQuantity AS 'Qty',
@@ -407,9 +443,9 @@ namespace Sales_user.Controllers
                            FROM SalesOrder so
                            INNER JOIN SalesOrderProductLine spl ON so.salesOrderID = spl.salesOrderID
                            INNER JOIN Product p ON spl.productID = p.productID
-                           WHERE so.customerRefNumber = @ref
+                           WHERE so.customerReferenceNumber = @ref
                            ORDER BY so.salesOrderID DESC, p.productCode";
-            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@ref", customerRefNumber ?? "") });
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@ref", customerReferenceNumber ?? "") });
         }
 
         public DataTable GetCommonDeliveryAddressesByCustomer(long customerId)
@@ -425,12 +461,12 @@ namespace Sales_user.Controllers
 
         public DataTable GetCommonCustomerRefNumbersByCustomer(long customerId)
         {
-            string sql = @"SELECT DISTINCT customerRefNumber AS 'Customer Ref Number'
+            string sql = @"SELECT DISTINCT customerReferenceNumber AS 'Customer Ref Number'
                            FROM SalesOrder
                            WHERE customerID = @customerID
-                             AND customerRefNumber IS NOT NULL
-                             AND TRIM(customerRefNumber) <> ''
-                           ORDER BY customerRefNumber";
+                             AND customerReferenceNumber IS NOT NULL
+                             AND TRIM(customerReferenceNumber) <> ''
+                           ORDER BY customerReferenceNumber";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@customerID", customerId) });
         }
 

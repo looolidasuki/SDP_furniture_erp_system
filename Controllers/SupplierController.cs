@@ -24,9 +24,9 @@ namespace Sales_user.Controllers
         public long Insert(Supplier supplier)
         {
             string sql = @"INSERT INTO Supplier
-                (supplierName, billingAddress, contactPerson, phone, email, paymentTerm, bankAccount, status)
-                VALUES (@name, @address, @contact, @phone, @email, @term, @bank, @status)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+                (supplierID, supplierName, billingAddress, contactPerson, phone, email, paymentTerm, bankAccount, status)
+                VALUES (@id, @name, @address, @contact, @phone, @email, @term, @bank, @status)";
+            return DatabaseConnect.InsertWithAllocatedId("supplier", "supplierID", sql, new[] {
                 new MySqlParameter("@name", supplier.SupplierName),
                 new MySqlParameter("@address", supplier.BillingAddress ?? (object)System.DBNull.Value),
                 new MySqlParameter("@contact", supplier.ContactPerson ?? (object)System.DBNull.Value),

@@ -1,3 +1,4 @@
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
@@ -113,20 +114,39 @@ namespace Sales_user.Controllers
 
         public long Insert(PurchaseOrder order)
         {
+            return DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, order));
+        }
+
+        public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, PurchaseOrder order)
+        {
+            long nextId = DatabaseConnect.AllocateNextId("purchaseorder", "purchaseOrderID", conn, trans);
+            if (nextId <= 0)
+                throw new InvalidOperationException("Unable to allocate purchase order ID.");
+
             string sql = @"INSERT INTO PurchaseOrder
-                (purchaseOrderCode, supplierID, staffID, relatedShortageReport,
+                (purchaseOrderID, purchaseOrderCode, supplierID, staffID, warehouseID, relatedShortageReport,
                  requestDeliveryDate, status, remark)
-                VALUES (@code, @supplierID, @staffID, @shortageReport,
+                VALUES (@id, @code, @supplierID, @staffID, @warehouseID, @shortageReport,
                         @requestDeliveryDate, @status, @remark)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+            DatabaseConnect.ExecuteNonQuery(conn, trans, sql, new[] {
+                new MySqlParameter("@id", nextId),
                 new MySqlParameter("@code", order.PurchaseOrderCode),
                 new MySqlParameter("@supplierID", order.SupplierID),
                 new MySqlParameter("@staffID", order.StaffID),
+                new MySqlParameter("@warehouseID", order.WarehouseID > 0 ? (object)order.WarehouseID : System.DBNull.Value),
                 new MySqlParameter("@shortageReport", order.RelatedShortageReport ?? (object)System.DBNull.Value),
                 new MySqlParameter("@requestDeliveryDate", order.RequestDeliveryDate),
                 new MySqlParameter("@status", order.Status),
                 new MySqlParameter("@remark", order.Remark ?? (object)System.DBNull.Value)
             });
+            return nextId;
+        }
+
+        private static long AllocateNextId(MySqlConnection conn, MySqlTransaction trans)
+        {
+            object scalar = DatabaseConnect.ExecuteScalar(conn, trans,
+                "SELECT COALESCE(MAX(purchaseOrderID), 0) + 1 FROM PurchaseOrder");
+            return scalar == null || scalar == System.DBNull.Value ? 0 : System.Convert.ToInt64(scalar);
         }
 
         public void UpdateCodeAfterInsert(long id)
@@ -134,7 +154,7 @@ namespace Sales_user.Controllers
             DatabaseConnect.ExecuteNonQuery(
                 "UPDATE PurchaseOrder SET purchaseOrderCode = @code WHERE purchaseOrderID = @id",
                 new[] {
-                    new MySqlParameter("@code", "PO-" + id),
+                    new MySqlParameter("@code", DocumentCodeHelper.Build("PO", id)),
                     new MySqlParameter("@id", id)
                 });
         }
@@ -192,6 +212,7 @@ namespace Sales_user.Controllers
                                   po.requestDeliveryDate AS 'Request Delivery Date'
                            FROM PurchaseOrder po
                            LEFT JOIN Supplier s ON po.supplierID = s.supplierID
+                           WHERE po.purchaseOrderID > 0
                            ORDER BY po.createDate DESC";
             return DatabaseConnect.ExecuteQuery(sql);
         }

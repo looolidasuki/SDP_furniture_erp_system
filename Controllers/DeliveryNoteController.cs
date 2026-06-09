@@ -1,3 +1,4 @@
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
@@ -86,34 +87,24 @@ namespace Sales_user.Controllers
         public const string DepositDeliveryNoteCode = "DN-DEPOSIT";
         public const long DepositDeliveryNoteReservedId = 999999;
 
-        public static string FormatCodeSuffix(long deliveryNoteId, DateTime createDate)
-        {
-            return createDate.ToString("yyyyMMdd") + deliveryNoteId.ToString("D2");
-        }
-
         public static string FormatDeliveryNoteCode(long deliveryNoteId, DateTime? createDate = null)
         {
-            return "DN-" + FormatCodeSuffix(deliveryNoteId, createDate ?? DateTime.Now);
+            return DocumentCodeHelper.Build("DN", deliveryNoteId);
         }
 
         public static string FormatReplySlipCode(long deliveryNoteId, DateTime? createDate = null)
         {
-            return "RS-" + FormatCodeSuffix(deliveryNoteId, createDate ?? DateTime.Now);
+            return DocumentCodeHelper.Build("RS", deliveryNoteId);
         }
 
         public static string FormatReplySlipCodeFromDeliveryNoteCode(string deliveryNoteCode)
         {
-            if (string.IsNullOrWhiteSpace(deliveryNoteCode)) return null;
-            const string prefix = "DN-";
-            if (!deliveryNoteCode.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
-            return "RS-" + deliveryNoteCode.Substring(prefix.Length);
+            return DocumentCodeHelper.FormatReplySlipFromDeliveryNote(deliveryNoteCode);
         }
 
         private static (string DnCode, string RsCode) BuildPairedCodes(long deliveryNoteId, DateTime? createDate = null)
         {
-            DateTime date = createDate ?? DateTime.Now;
-            string suffix = FormatCodeSuffix(deliveryNoteId, date);
-            return ("DN-" + suffix, "RS-" + suffix);
+            return (DocumentCodeHelper.Build("DN", deliveryNoteId), DocumentCodeHelper.Build("RS", deliveryNoteId));
         }
 
         /// <summary>
@@ -186,12 +177,22 @@ namespace Sales_user.Controllers
 
         public long Insert(DeliveryNote note)
         {
+            return DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, note));
+        }
+
+        public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, DeliveryNote note)
+        {
+            long nextId = DatabaseConnect.AllocateNextId("deliverynote", "deliveryNoteID", conn, trans, DepositDeliveryNoteReservedId);
+            if (nextId <= 0)
+                throw new InvalidOperationException("Unable to allocate delivery note ID.");
+
             string sql = @"INSERT INTO DeliveryNote
-                (deliveryNoteCode, customerID, SalesOrderID, staffID, WarehouseID,
+                (deliveryNoteID, deliveryNoteCode, customerID, SalesOrderID, staffID, WarehouseID,
                  shipMethod, trackingNumber, status, remark)
-                VALUES (@code, @customerID, @soID, @staffID, @whID,
+                VALUES (@id, @code, @customerID, @soID, @staffID, @whID,
                         @shipMethod, @tracking, @status, @remark)";
-            return DatabaseConnect.ExecuteInsertReturnId(sql, new[] {
+            DatabaseConnect.ExecuteNonQuery(conn, trans, sql, new[] {
+                new MySqlParameter("@id", nextId),
                 new MySqlParameter("@code", note.DeliveryNoteCode),
                 new MySqlParameter("@customerID", note.CustomerID),
                 new MySqlParameter("@soID", note.SalesOrderID),
@@ -202,6 +203,17 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@status", note.Status),
                 new MySqlParameter("@remark", note.Remark ?? (object)DBNull.Value)
             });
+            return nextId;
+        }
+
+        private static long AllocateNextId(MySqlConnection conn, MySqlTransaction trans)
+        {
+            object scalar = DatabaseConnect.ExecuteScalar(conn, trans,
+                "SELECT COALESCE(MAX(deliveryNoteID), 0) + 1 FROM DeliveryNote");
+            long nextId = scalar == null || scalar == DBNull.Value ? 0 : Convert.ToInt64(scalar);
+            if (nextId == DepositDeliveryNoteReservedId)
+                nextId++;
+            return nextId;
         }
 
         public void UpdateCodeAfterInsert(long id)
@@ -235,24 +247,9 @@ namespace Sales_user.Controllers
         {
             return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
             {
-                long newId = DatabaseConnect.ExecuteInsertReturnId(conn, trans,
-                    @"INSERT INTO DeliveryNote
-                      (deliveryNoteCode, customerID, SalesOrderID, staffID, WarehouseID,
-                       shipMethod, trackingNumber, status, remark)
-                      VALUES (@code, @customerID, @soID, @staffID, @whID,
-                              @shipMethod, @tracking, @status, @remark)",
-                    new[]
-                    {
-                        new MySqlParameter("@code", note.DeliveryNoteCode),
-                        new MySqlParameter("@customerID", note.CustomerID),
-                        new MySqlParameter("@soID", note.SalesOrderID),
-                        new MySqlParameter("@staffID", note.StaffID),
-                        new MySqlParameter("@whID", note.WarehouseID),
-                        new MySqlParameter("@shipMethod", note.ShipMethod ?? ""),
-                        new MySqlParameter("@tracking", note.TrackingNumber ?? ""),
-                        new MySqlParameter("@status", note.Status),
-                        new MySqlParameter("@remark", note.Remark ?? (object)DBNull.Value)
-                    });
+                long newId = InsertInTransaction(conn, trans, note);
+                if (newId <= 0)
+                    throw new InvalidOperationException("Unable to allocate delivery note ID.");
 
                 var codes = BuildPairedCodes(newId);
                 if (HasReplySlipColumns())
@@ -470,7 +467,7 @@ namespace Sales_user.Controllers
             return value == null || value == DBNull.Value ? 0 : Convert.ToInt32(value);
         }
 
-        public DataTable GetLineEditorData(long salesOrderId, long deliveryNoteId = 0)
+        public DataTable GetLineEditorData(long salesOrderId, long deliveryNoteId = 0, long warehouseId = 0)
         {
             string sql = @"SELECT spl.productID AS 'ProductID',
                                   p.productCode AS 'Product',
@@ -478,17 +475,23 @@ namespace Sales_user.Controllers
                                   spl.shippedQuantity AS 'Shipped Qty',
                                   GREATEST(spl.orderQuantity - spl.shippedQuantity
                                       + CASE WHEN @dnId > 0 THEN COALESCE(dpl.shipQuantity, 0) ELSE 0 END, 0) AS 'Remaining Qty',
+                                  COALESCE(wp.physicalQuantity, 0) AS 'Physical Qty',
+                                  COALESCE(wp.reservedQuantity, 0) AS 'Reserved Qty',
+                                  GREATEST(COALESCE(wp.physicalQuantity, 0) - COALESCE(wp.reservedQuantity, 0), 0) AS 'Available Qty',
                                   COALESCE(dpl.shipQuantity, 0) AS 'Ship Qty'
                            FROM SalesOrderProductLine spl
                            INNER JOIN Product p ON spl.productID = p.productID
                            LEFT JOIN DeliveryProductLine dpl
                                 ON dpl.deliveryNoteID = @dnId AND dpl.productID = spl.productID
+                           LEFT JOIN WarehouseProduct wp
+                                ON wp.productID = spl.productID AND wp.warehouseID = @whId
                            WHERE spl.salesOrderID = @soId
                            ORDER BY p.productCode";
             return DatabaseConnect.ExecuteQuery(sql, new[]
             {
                 new MySqlParameter("@soId", salesOrderId),
-                new MySqlParameter("@dnId", deliveryNoteId)
+                new MySqlParameter("@dnId", deliveryNoteId),
+                new MySqlParameter("@whId", warehouseId)
             });
         }
 
@@ -499,7 +502,7 @@ namespace Sales_user.Controllers
                                   {ReplySlipCodeSelect()}
                                   c.customerName AS 'Customer',
                                   so.salesOrderCode AS 'Sales Order',
-                                  so.customerRefNumber AS 'Customer Ref Number',
+                                  so.customerReferenceNumber AS 'Customer Ref Number',
                                   w.warehouseName AS 'Warehouse',
                                   dn.shipMethod AS 'Ship Method',
                                   dn.trackingNumber AS 'Tracking Number',
