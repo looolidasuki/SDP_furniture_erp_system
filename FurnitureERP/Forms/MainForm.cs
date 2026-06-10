@@ -215,15 +215,142 @@ namespace FurnitureERP.Forms
         private void BuildHeader()
         {
             Label moduleTitle = new Label { Name = "lblModuleTitle", Text = "Overview", Font = new Font("Segoe UI", 13, FontStyle.Bold), ForeColor = UITheme.Primary, AutoSize = true, Location = new Point(20, 17) };
+            var txtSearch = new TextBox
+            {
+                Name = "txtGlobalSearch",
+                Width = 220,
+                Font = new Font("Segoe UI", 9f),
+                ForeColor = UITheme.TextGray,
+                Text = "Search document code…"
+            };
+            txtSearch.GotFocus += (s, e) =>
+            {
+                if (txtSearch.ForeColor == UITheme.TextGray)
+                {
+                    txtSearch.Text = "";
+                    txtSearch.ForeColor = UITheme.TextDark;
+                }
+            };
+            txtSearch.LostFocus += (s, e) =>
+            {
+                if (string.IsNullOrWhiteSpace(txtSearch.Text))
+                {
+                    txtSearch.Text = "Search document code…";
+                    txtSearch.ForeColor = UITheme.TextGray;
+                }
+            };
+            txtSearch.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    e.SuppressKeyPress = true;
+                    RunGlobalSearch(txtSearch);
+                }
+            };
+            var btnSearch = UITheme.CreateSecondaryButton("Search");
+            btnSearch.Name = "btnGlobalSearch";
+            btnSearch.Size = new Size(72, 28);
+            btnSearch.Click += (s, e) => RunGlobalSearch(txtSearch);
+
             Label userLabel = new Label { Name = "lblUser", AutoSize = true, ForeColor = UITheme.TextDark, Font = new Font("Segoe UI", 9) };
             var btnChangePassword = UITheme.CreateSecondaryButton("Change Password");
             btnChangePassword.Name = "btnChangePassword";
             btnChangePassword.Size = new Size(130, 30);
             btnChangePassword.Click += (s, e) => ShowChangePasswordDialog();
             _headerPanel.Controls.Add(moduleTitle);
+            _headerPanel.Controls.Add(txtSearch);
+            _headerPanel.Controls.Add(btnSearch);
             _headerPanel.Controls.Add(btnChangePassword);
             _headerPanel.Controls.Add(userLabel);
             _headerPanel.Resize += (s, e) => LayoutHeaderControls();
+        }
+
+        private void RunGlobalSearch(TextBox txtSearch)
+        {
+            string query = (txtSearch.Text ?? "").Trim();
+            if (string.IsNullOrEmpty(query) || txtSearch.ForeColor == UITheme.TextGray)
+            {
+                UITheme.ShowWarning("Enter a document code (e.g. SO-00000001, PV-00000001).");
+                return;
+            }
+
+            var results = GlobalDocumentSearchService.Search(query);
+            if (results == null || results.Count == 0)
+            {
+                UITheme.ShowWarning("No document found for: " + query);
+                return;
+            }
+
+            NavigateToDocument(results[0]);
+        }
+
+        public void NavigateToDocument(DocumentSearchResult hit)
+        {
+            if (hit == null || hit.Id <= 0) return;
+            if (!CanAccessModule(hit.Module))
+            {
+                UITheme.ShowWarning("You do not have permission to open this document.");
+                return;
+            }
+
+            ActivateNavButton(hit.Module);
+            LoadModule(hit.Module);
+            BeginInvoke(new Action(() => OpenDocumentOnCurrentPanel(hit)));
+        }
+
+        private void OpenDocumentOnCurrentPanel(DocumentSearchResult hit)
+        {
+            if (_contentPanel.Controls.Count == 0) return;
+            var control = _contentPanel.Controls[0];
+            string type = hit.DocumentType ?? "";
+
+            if (type.IndexOf("Payment Voucher", StringComparison.OrdinalIgnoreCase) >= 0
+                && control is FinanceDeptPanel financeDept)
+            {
+                financeDept.OpenPaymentVoucherDetail(hit.Id);
+                return;
+            }
+            if (type.IndexOf("Receipt Voucher", StringComparison.OrdinalIgnoreCase) >= 0
+                && control is FinanceDeptPanel financeDeptRv)
+            {
+                financeDeptRv.OpenReceiptVoucherDetail(hit.Id);
+                return;
+            }
+            if (type.IndexOf("Sales Order", StringComparison.OrdinalIgnoreCase) >= 0
+                && control is SalesPanel salesPanel)
+            {
+                salesPanel.OpenSalesOrderViewDetail(hit.Id);
+                return;
+            }
+            if (type.IndexOf("Invoice", StringComparison.OrdinalIgnoreCase) >= 0
+                && control is FinancePanel financePanel)
+            {
+                financePanel.OpenInvoiceViewDetail(hit.Id);
+                return;
+            }
+            if (type.IndexOf("Refund", StringComparison.OrdinalIgnoreCase) >= 0
+                && control is FinancePanel financePanelRf)
+            {
+                financePanelRf.OpenRefundViewDetail(hit.Code);
+                return;
+            }
+            if (type.IndexOf("Purchase Order", StringComparison.OrdinalIgnoreCase) >= 0
+                && control is ProcurementPanel procurementPanel)
+            {
+                procurementPanel.OpenPurchaseOrderDetail(hit.Id);
+                return;
+            }
+            if (type.IndexOf("Production Order", StringComparison.OrdinalIgnoreCase) >= 0
+                && control is ProductionPanel productionPanel)
+            {
+                productionPanel.OpenProductionOrderDetail(hit.Id);
+                return;
+            }
+            if (type.IndexOf("Delivery Note", StringComparison.OrdinalIgnoreCase) >= 0
+                && control is WarehousePanel warehousePanel)
+            {
+                warehousePanel.OpenDeliveryNoteDetail(hit.Id);
+            }
         }
 
         private void LayoutHeaderControls()
@@ -235,7 +362,17 @@ namespace FurnitureERP.Forms
                 right = ul.Left - 12;
             }
             if (_headerPanel.Controls["btnChangePassword"] is Button btn)
+            {
                 btn.Location = new Point(right - btn.Width, (_headerPanel.Height - btn.Height) / 2);
+                right = btn.Left - 12;
+            }
+            if (_headerPanel.Controls["btnGlobalSearch"] is Button btnSearch)
+            {
+                btnSearch.Location = new Point(right - btnSearch.Width, (_headerPanel.Height - btnSearch.Height) / 2);
+                right = btnSearch.Left - 8;
+            }
+            if (_headerPanel.Controls["txtGlobalSearch"] is TextBox txtSearch)
+                txtSearch.Location = new Point(right - txtSearch.Width, (_headerPanel.Height - txtSearch.Height) / 2);
         }
 
         private void ShowChangePasswordDialog()

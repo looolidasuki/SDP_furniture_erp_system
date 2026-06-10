@@ -101,6 +101,9 @@ namespace FurnitureERP.Helpers
             var btnClear = UITheme.CreateSecondaryButton("Clear");
             btnClear.Width = 72;
             btnClear.Height = 28;
+            var btnExport = UITheme.CreateSecondaryButton("Export CSV");
+            btnExport.Width = 96;
+            btnExport.Height = 28;
             var btnApply = UITheme.CreatePrimaryButton("Apply");
             btnApply.Width = 72;
             btnApply.Height = 28;
@@ -109,6 +112,7 @@ namespace FurnitureERP.Helpers
             btnAdd.Height = 28;
 
             actions.Controls.Add(btnClear);
+            actions.Controls.Add(btnExport);
             actions.Controls.Add(btnApply);
             actions.Controls.Add(btnAdd);
 
@@ -156,6 +160,11 @@ namespace FurnitureERP.Helpers
 
             btnAdd.Click += (s, e) => addRow();
             btnApply.Click += (s, e) => ApplyFilter(grid, rowsPanel);
+            btnExport.Click += (s, e) =>
+            {
+                var owner = grid.FindForm();
+                CsvExportHelper.ExportDataGridView(grid, title + "_export", owner);
+            };
             btnClear.Click += (s, e) =>
             {
                 if (grid.DataSource is DataTable table)

@@ -450,5 +450,30 @@ namespace FurnitureERP.Helpers
 
             return 0;
         }
+
+        public static DataTable CopyGridToDataTable(DataGridView grid)
+        {
+            var table = new DataTable();
+            if (grid == null) return table;
+
+            var visibleColumns = new System.Collections.Generic.List<DataGridViewColumn>();
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                if (!col.Visible) continue;
+                visibleColumns.Add(col);
+                table.Columns.Add(string.IsNullOrWhiteSpace(col.HeaderText) ? col.Name : col.HeaderText);
+            }
+
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow) continue;
+                var values = new object[visibleColumns.Count];
+                for (int i = 0; i < visibleColumns.Count; i++)
+                    values[i] = row.Cells[visibleColumns[i].Index].FormattedValue ?? row.Cells[visibleColumns[i].Index].Value ?? DBNull.Value;
+                table.Rows.Add(values);
+            }
+
+            return table;
+        }
     }
 }

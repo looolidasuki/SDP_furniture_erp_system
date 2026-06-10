@@ -335,6 +335,19 @@ namespace Sales_user.Controllers
                     return 0L;
                 });
 
+                try
+                {
+                    var rvCtrl = new ReceiptVoucherController();
+                    var rv = rvCtrl.GetById(receiptVoucherId);
+                    DocumentAuditService.Log(
+                        DocumentAuditService.Types.ReceiptVoucher,
+                        receiptVoucherId,
+                        rv?.ReceiptVoucherCode,
+                        "Verify",
+                        "Receipt verified and allocated to invoices");
+                }
+                catch { }
+
                 return WorkflowResult.Ok(receiptVoucherId, "Receipt voucher verified and invoices updated.");
             }
             catch (Exception ex)

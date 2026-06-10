@@ -158,6 +158,35 @@ namespace FurnitureERP.Forms
 
             try { ReloadPurchaseOrderGrid(grid, _purchaseOrderCtrl); } catch { }
 
+            var btnUnpaid = UITheme.CreateSecondaryButton("Unpaid POs");
+            btnUnpaid.Location = new Point(8, 8);
+            int unpaidX = 8;
+            foreach (Control ctl in toolbar.Controls)
+            {
+                if (ctl.Visible && ctl.Right > unpaidX) unpaidX = ctl.Right;
+            }
+            btnUnpaid.Location = new Point(unpaidX + 10, 8);
+            btnUnpaid.Click += (s, e) =>
+            {
+                try
+                {
+                    var dt = DictionaryUIHelper.LoadWithStatusLabels(
+                        () => DashboardOverviewService.GetUnsettledPurchaseOrders(500),
+                        "Status", DictionaryService.Categories.PurchaseOrder);
+                    GridHelper.BindStatusData(grid, dt, DictionaryService.Categories.PurchaseOrder);
+                    if (grid.Columns.Contains("Purchase Order ID")) grid.Columns["Purchase Order ID"].Visible = false;
+                }
+                catch (Exception ex) { UITheme.ShowError(ex.Message); }
+            };
+            var btnPoShowAll = UITheme.CreateSecondaryButton("Show All");
+            btnPoShowAll.Location = new Point(btnUnpaid.Right + 10, 8);
+            btnPoShowAll.Click += (s, e) =>
+            {
+                try { ReloadPurchaseOrderGrid(grid, _purchaseOrderCtrl); } catch (Exception ex) { UITheme.ShowError(ex.Message); }
+            };
+            toolbar.Controls.Add(btnUnpaid);
+            toolbar.Controls.Add(btnPoShowAll);
+
             tab.Controls.Add(grid);
             tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Purchase Order Filters", DictionaryService.Categories.PurchaseOrder));
             tab.Controls.Add(toolbar);
@@ -1062,6 +1091,8 @@ namespace FurnitureERP.Forms
             dlg.Shown += (s, e) => LayoutSplit();
             split.Resize += (s, e) => LayoutSplit();
         }
+
+        public void OpenPurchaseOrderDetail(long id) => ShowPurchaseOrderDetailDialog(id);
 
         private void ShowGrnDetailDialog(long id)
         {

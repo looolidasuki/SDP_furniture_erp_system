@@ -160,6 +160,12 @@ namespace Sales_user.Controllers
 
             if (id > 0)
                 UpdateCodeAfterInsert(id);
+                DocumentAuditService.Log(
+                    DocumentAuditService.Types.ReceiptVoucher,
+                    id,
+                    DocumentCodeHelper.FormatReceiptVoucherCode(id),
+                    "Create",
+                    "Receipt voucher created");
 
             return id;
 
@@ -192,7 +198,7 @@ namespace Sales_user.Controllers
                                status=@status, paymentReceivedDate=@receivedDate, lastModifyDate=NOW()
                            WHERE receiptVoucherID=@id";
 
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+            bool updated = DatabaseConnect.ExecuteNonQuery(sql, new[] {
 
                 new MySqlParameter("@code", (rv.ReceiptVoucherCode ?? "").Trim()),
 
@@ -218,6 +224,18 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@id", rv.ReceiptVoucherID)
 
             }) > 0;
+
+            if (updated)
+            {
+                DocumentAuditService.Log(
+                    DocumentAuditService.Types.ReceiptVoucher,
+                    rv.ReceiptVoucherID,
+                    rv.ReceiptVoucherCode,
+                    "Update",
+                    "Receipt voucher updated (status " + rv.Status + ")");
+            }
+
+            return updated;
 
         }
 
@@ -594,6 +612,39 @@ namespace Sales_user.Controllers
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Saves a single draft invoice allocation (mirrors PV single-PO link). Skips when voucher is already confirmed.
+        /// </summary>
+        public void SyncDraftInvoiceAllocation(long receiptVoucherId, long invoiceId, decimal amount, int clearingType = 2)
+        {
+            if (receiptVoucherId <= 0) return;
+            var rv = GetById(receiptVoucherId);
+            if (rv == null || rv.Status == 1) return;
+
+            DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            {
+                DatabaseConnect.ExecuteNonQuery(conn, trans,
+                    "DELETE FROM ReceiptVoucherInvoice WHERE receiptVoucherID = @id",
+                    new[] { new MySqlParameter("@id", receiptVoucherId) });
+
+                if (invoiceId > 0 && amount > 0)
+                {
+                    DatabaseConnect.ExecuteNonQuery(conn, trans,
+                        @"INSERT INTO ReceiptVoucherInvoice (receiptVoucherID, lineNo, invoiceID, receivedAmount, type)
+                          VALUES (@rvId, 1, @invId, @amount, @type)",
+                        new[]
+                        {
+                            new MySqlParameter("@rvId", receiptVoucherId),
+                            new MySqlParameter("@invId", invoiceId),
+                            new MySqlParameter("@amount", amount),
+                            new MySqlParameter("@type", clearingType > 0 ? clearingType : 2)
+                        });
+                }
+
+                return 0L;
+            });
         }
     }
 }

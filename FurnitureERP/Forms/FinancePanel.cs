@@ -483,8 +483,13 @@ namespace FurnitureERP.Forms
             string title = string.IsNullOrWhiteSpace(code) ? $"Invoice Detail — ID: {invoiceId}" : $"Invoice Detail — {code}";
 
             DetailViewHelper.ShowDetail(this, title, fields, lines, $"Invoice_{invoiceId}", receipts, null,
-                linesTabTitle, "Receipts & Refunds");
+                linesTabTitle, "Receipts & Refunds", RelatedDocumentsHelper.GetInvoiceRelated(invoiceId),
+                DocumentAuditService.Types.Invoice, invoiceId);
         }
+
+        public void OpenInvoiceViewDetail(long invoiceId) => ShowInvoiceViewDialog(invoiceId, null);
+
+        public void OpenRefundViewDetail(string requestCode) => ShowRefundDetail(requestCode);
 
         private static string GetInvoiceLinesTabTitle(DataTable header)
         {

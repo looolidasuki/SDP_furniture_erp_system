@@ -259,7 +259,7 @@ namespace Sales_user.Controllers
         // 5. 新增付款憑證 (解決第3個錯誤)
         public long Insert(PaymentVoucher pv)
         {
-            return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            long pvId = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
             {
                 ApplyCurrencyAmounts(pv);
 
@@ -268,7 +268,7 @@ namespace Sales_user.Controllers
                      totalAmount, totalAmountBase, paymentMethod, paymentMethodRef, remark, status)
                     VALUES (@id, @code, @supplierID, @staffID, @currencyID, @rate, @amount, @amountBase, @method, @ref, @remark, @status)";
 
-                long pvId = DatabaseConnect.InsertWithAllocatedId(conn, trans, "paymentvoucher", "paymentVoucherID",
+                long id = DatabaseConnect.InsertWithAllocatedId(conn, trans, "paymentvoucher", "paymentVoucherID",
                     sqlMain,
                     new[]
                     {
@@ -286,67 +286,80 @@ namespace Sales_user.Controllers
                         new MySqlParameter("@status", pv.Status)
                     });
 
-                UpdateCodeAfterInsert(conn, trans, pvId);
-                WritePurchaseOrderSettlements(conn, trans, pvId, pv);
-                return pvId;
+                UpdateCodeAfterInsert(conn, trans, id);
+                WritePurchaseOrderSettlements(conn, trans, id, pv);
+                return id;
             });
+
+            if (pvId > 0)
+            {
+                DocumentAuditService.Log(
+                    DocumentAuditService.Types.PaymentVoucher,
+                    pvId,
+                    DocumentCodeHelper.FormatPaymentVoucherCode(pvId),
+                    "Create",
+                    "Payment voucher created");
+            }
+
+            return pvId;
         }
 
         // 6. 更新資料
         public bool Update(PaymentVoucher pv)
         {
-            string connectionString = "Server=localhost;Port=3306;Database=furniture_erp_system;Uid=root;Pwd=;CharSet=utf8mb4;AllowPublicKeyRetrieval=True;SslMode=Disabled;";
-            using (var conn = new MySqlConnection(connectionString))
+            try
             {
-                conn.Open();
-                using (var trans = conn.BeginTransaction())
+                bool updated = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
                 {
-                    try
-                    {
-                        ApplyCurrencyAmounts(pv);
+                    ApplyCurrencyAmounts(pv);
 
-                        string sql = @"UPDATE paymentvoucher
+                    DatabaseConnect.ExecuteNonQuery(conn, trans,
+                        @"UPDATE paymentvoucher
                            SET paymentVoucherCode=@code, supplierID=@supplierID, staffID=@staffID,
                                currencyID=@currencyID, exchangeRate=@rate,
                                totalAmount=@amount, totalAmountBase=@amountBase,
                                paymentMethod=@method, paymentMethodRef=@ref,
                                remark=@remark, status=@status, lastModifyDate=NOW()
-                           WHERE paymentVoucherID=@id";
-                        using (var cmd = new MySqlCommand(sql, conn, trans))
+                           WHERE paymentVoucherID=@id",
+                        new[]
                         {
-                            cmd.Parameters.AddWithValue("@code", (pv.PaymentVoucherCode ?? "").Trim());
-                            cmd.Parameters.AddWithValue("@supplierID", pv.SupplierID);
-                            cmd.Parameters.AddWithValue("@staffID", pv.StaffID);
-                            cmd.Parameters.AddWithValue("@currencyID", pv.CurrencyID > 0 ? pv.CurrencyID : 1);
-                            cmd.Parameters.AddWithValue("@rate", pv.ExchangeRate > 0 ? pv.ExchangeRate : 1m);
-                            cmd.Parameters.AddWithValue("@amount", pv.Amount);
-                            cmd.Parameters.AddWithValue("@amountBase", pv.TotalAmountBase);
-                            cmd.Parameters.AddWithValue("@method", pv.PaymentMethod ?? "");
-                            cmd.Parameters.AddWithValue("@ref", pv.PaymentRef ?? "");
-                            cmd.Parameters.AddWithValue("@remark", pv.Remark ?? (object)DBNull.Value);
-                            cmd.Parameters.AddWithValue("@status", pv.Status);
-                            cmd.Parameters.AddWithValue("@id", pv.PaymentVoucherID);
-                            cmd.ExecuteNonQuery();
-                        }
+                            new MySqlParameter("@code", (pv.PaymentVoucherCode ?? "").Trim()),
+                            new MySqlParameter("@supplierID", pv.SupplierID),
+                            new MySqlParameter("@staffID", pv.StaffID),
+                            new MySqlParameter("@currencyID", pv.CurrencyID > 0 ? pv.CurrencyID : 1),
+                            new MySqlParameter("@rate", pv.ExchangeRate > 0 ? pv.ExchangeRate : 1m),
+                            new MySqlParameter("@amount", pv.Amount),
+                            new MySqlParameter("@amountBase", pv.TotalAmountBase),
+                            new MySqlParameter("@method", pv.PaymentMethod ?? ""),
+                            new MySqlParameter("@ref", pv.PaymentRef ?? ""),
+                            new MySqlParameter("@remark", pv.Remark ?? (object)DBNull.Value),
+                            new MySqlParameter("@status", pv.Status),
+                            new MySqlParameter("@id", pv.PaymentVoucherID)
+                        });
 
-                        using (var cmd = new MySqlCommand(
-                            "DELETE FROM paymentvoucherpurchaseorder WHERE paymentVoucherID = @id", conn, trans))
-                        {
-                            cmd.Parameters.AddWithValue("@id", pv.PaymentVoucherID);
-                            cmd.ExecuteNonQuery();
-                        }
+                    DatabaseConnect.ExecuteNonQuery(conn, trans,
+                        "DELETE FROM paymentvoucherpurchaseorder WHERE paymentVoucherID = @id",
+                        new[] { new MySqlParameter("@id", pv.PaymentVoucherID) });
 
-                        WritePurchaseOrderSettlements(conn, trans, pv.PaymentVoucherID, pv);
+                    WritePurchaseOrderSettlements(conn, trans, pv.PaymentVoucherID, pv);
+                    return 1L;
+                }) > 0;
 
-                        trans.Commit();
-                        return true;
-                    }
-                    catch
-                    {
-                        trans.Rollback();
-                        return false;
-                    }
+                if (updated)
+                {
+                    DocumentAuditService.Log(
+                        DocumentAuditService.Types.PaymentVoucher,
+                        pv.PaymentVoucherID,
+                        pv.PaymentVoucherCode,
+                        "Update",
+                        "Payment voucher updated (status " + pv.Status + ")");
                 }
+
+                return updated;
+            }
+            catch
+            {
+                return false;
             }
         }
 

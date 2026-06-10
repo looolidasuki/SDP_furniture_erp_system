@@ -130,7 +130,7 @@ namespace FurnitureERP.Helpers
             ShowDetail(owner, title, fields, lines, PdfExportHelper.SanitizeFileName(title));
         }
 
-        public static void ShowDetail(Control owner, string title, DataTable fields, DataTable lines, string fileNameHint, DataTable paymentLines = null, DataTable grnLines = null, string linesTabTitle = "Order Lines", string paymentTabTitle = "Payment Vouchers")
+        public static void ShowDetail(Control owner, string title, DataTable fields, DataTable lines, string fileNameHint, DataTable paymentLines = null, DataTable grnLines = null, string linesTabTitle = "Order Lines", string paymentTabTitle = "Payment Vouchers", DataTable relatedDocuments = null, string auditDocumentType = null, long auditDocumentId = 0)
         {
             using (var dlg = new Form())
             {
@@ -229,7 +229,28 @@ namespace FurnitureERP.Helpers
                 }
 
                 content.Dock = DockStyle.Fill;
-                dlg.Controls.Add(content);
+                Control host = content;
+                if (relatedDocuments != null && relatedDocuments.Rows.Count > 0)
+                {
+                    var outerTabs = new TabControl { Dock = DockStyle.Fill, Font = new System.Drawing.Font("Segoe UI", 9f) };
+                    var mainTab = new TabPage("Detail");
+                    mainTab.Controls.Add(content);
+                    outerTabs.TabPages.Add(mainTab);
+                    outerTabs.TabPages.Add(RelatedDocumentsHelper.BuildRelatedDocumentsTab(relatedDocuments, dlg));
+                    if (auditDocumentId > 0 && !string.IsNullOrWhiteSpace(auditDocumentType))
+                        outerTabs.TabPages.Add(DocumentAuditService.BuildActivityTab(auditDocumentType, auditDocumentId));
+                    host = outerTabs;
+                }
+                else if (auditDocumentId > 0 && !string.IsNullOrWhiteSpace(auditDocumentType))
+                {
+                    var outerTabs = new TabControl { Dock = DockStyle.Fill, Font = new System.Drawing.Font("Segoe UI", 9f) };
+                    var mainTab = new TabPage("Detail");
+                    mainTab.Controls.Add(content);
+                    outerTabs.TabPages.Add(mainTab);
+                    outerTabs.TabPages.Add(DocumentAuditService.BuildActivityTab(auditDocumentType, auditDocumentId));
+                    host = outerTabs;
+                }
+                dlg.Controls.Add(host);
 
                 AttachPrintToolbar(dlg, () => new DocumentExportData
                 {

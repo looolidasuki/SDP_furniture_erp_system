@@ -753,8 +753,26 @@ namespace FurnitureERP.Forms
 
             bool suppressRvComboEvents = false;
             long initialCustomerId = existingRv?.CusomerID ?? 0;
-            soBinder.SetSource(BuildSalesOrderPicker(initialCustomerId));
-            invoiceBinder.SetSource(BuildInvoicePickerForRv(initialCustomerId, 0));
+            long initialSoId = 0;
+            long initialInvoiceId = 0;
+            if (existingRv != null && existingRv.ReceiptVoucherID > 0)
+            {
+                try
+                {
+                    var allocs = _rvCtrl.GetInvoiceAllocationsForEditor(existingRv.ReceiptVoucherID);
+                    if (allocs != null && allocs.Rows.Count > 0 && allocs.Rows[0]["Invoice ID"] != DBNull.Value)
+                    {
+                        initialInvoiceId = Convert.ToInt64(allocs.Rows[0]["Invoice ID"]);
+                        var inv = _invoiceCtrl.GetById(initialInvoiceId);
+                        if (inv != null && inv.SalesOrderID > 0)
+                            initialSoId = inv.SalesOrderID;
+                    }
+                }
+                catch { }
+            }
+
+            soBinder.SetSource(BuildSalesOrderPicker(initialCustomerId), initialSoId);
+            invoiceBinder.SetSource(BuildInvoicePickerForRv(initialCustomerId, initialSoId), initialInvoiceId);
 
             long GetRvCustomerId() => CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
 
@@ -896,8 +914,20 @@ namespace FurnitureERP.Forms
                         Remark = txtRemark.Text.Trim(),
                         CurrencyID = GetComboLongId(cmbCurrency) > 0 ? GetComboLongId(cmbCurrency) : 1
                     };
-                    if (isNew) _rvCtrl.Insert(entity);
-                    else _rvCtrl.Update(entity);
+                    long rvId;
+                    if (isNew)
+                        rvId = _rvCtrl.Insert(entity);
+                    else
+                    {
+                        _rvCtrl.Update(entity);
+                        rvId = entity.ReceiptVoucherID;
+                    }
+
+                    long salesOrderId = GetRvSalesOrderId(custId);
+                    long invoiceId = GetRvInvoiceId(custId, salesOrderId);
+                    if (entity.Status != 1)
+                        _rvCtrl.SyncDraftInvoiceAllocation(rvId, invoiceId, amount);
+
                     UITheme.ShowSuccess(isNew ? "Receipt Voucher created." : "Receipt Voucher updated.");
                     dlg.DialogResult = DialogResult.OK;
                     dlg.Close();
@@ -1523,10 +1553,13 @@ namespace FurnitureERP.Forms
                     lines,
                     "PO Settlements",
                     pv?.SupplierID ?? 0,
-                    isPaymentVoucher: true);
+                    isPaymentVoucher: true,
+                    paymentVoucherId);
             }
             catch (Exception ex) { UITheme.ShowError(ex.Message); }
         }
+
+        public void OpenPaymentVoucherDetail(long paymentVoucherId) => ShowPaymentVoucherDetail(paymentVoucherId);
 
         private void ShowSelectedReceiptVoucherDetail()
         {
@@ -1554,12 +1587,15 @@ namespace FurnitureERP.Forms
                     lines,
                     "Invoice Allocations",
                     rv?.CusomerID ?? 0,
-                    isPaymentVoucher: false);
+                    isPaymentVoucher: false,
+                    receiptVoucherId);
             }
             catch (Exception ex) { UITheme.ShowError(ex.Message); }
         }
 
-        private void ShowVoucherDetailDialog(string title, DataTable voucherFields, DataTable lines, string linesTabTitle, long partyId, bool isPaymentVoucher)
+        public void OpenReceiptVoucherDetail(long receiptVoucherId) => ShowReceiptVoucherDetail(receiptVoucherId);
+
+        private void ShowVoucherDetailDialog(string title, DataTable voucherFields, DataTable lines, string linesTabTitle, long partyId, bool isPaymentVoucher, long voucherId)
         {
             using (var dlg = new Form())
             {
@@ -1595,6 +1631,19 @@ namespace FurnitureERP.Forms
                     lineGrid.Dock = DockStyle.Fill;
                     tabLines.Controls.Add(lineGrid);
                     tabs.TabPages.Add(tabLines);
+                }
+
+                if (voucherId > 0)
+                {
+                    DataTable related = isPaymentVoucher
+                        ? RelatedDocumentsHelper.GetPaymentVoucherRelated(voucherId)
+                        : RelatedDocumentsHelper.GetReceiptVoucherRelated(voucherId);
+                    if (related != null && related.Rows.Count > 0)
+                        tabs.TabPages.Add(RelatedDocumentsHelper.BuildRelatedDocumentsTab(related, dlg));
+
+                    tabs.TabPages.Add(DocumentAuditService.BuildActivityTab(
+                        isPaymentVoucher ? DocumentAuditService.Types.PaymentVoucher : DocumentAuditService.Types.ReceiptVoucher,
+                        voucherId));
                 }
 
                 var btnClose = UITheme.CreateSecondaryButton("Close");

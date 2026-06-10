@@ -369,6 +369,8 @@ namespace FurnitureERP.Forms
             ShowDeliveryNoteViewDetailDialog(Convert.ToInt64(row.Cells[0].Value));
         }
 
+        public void OpenDeliveryNoteDetail(long deliveryNoteId) => ShowDeliveryNoteViewDetailDialog(deliveryNoteId);
+
         private void ShowDeliveryNoteViewDetailDialog(long deliveryNoteId)
         {
             var export = BuildDeliveryNoteExportData(deliveryNoteId);

@@ -157,6 +157,13 @@
     <Compile Include="Helpers\WarehouseHelper.cs" />
     <Compile Include="Helpers\RawMaterialRequestNoteConstants.cs" />
     <Compile Include="Helpers\FilteredComboBinder.cs" />
+    <Compile Include="Helpers\GlobalDocumentSearchService.cs" />
+    <Compile Include="Helpers\DocumentNavigationHelper.cs" />
+    <Compile Include="Helpers\RelatedDocumentsHelper.cs" />
+    <Compile Include="Helpers\DashboardOverviewService.cs" />
+    <Compile Include="Helpers\CsvExportHelper.cs" />
+    <Compile Include="Helpers\DocumentAuditMigration.cs" />
+    <Compile Include="Helpers\DocumentAuditService.cs" />
     <Compile Include="Helpers\CustomerComboHelper.cs" />
     <Compile Include="Helpers\SalesOrderComboHelper.cs" />
     <Compile Include="Helpers\StatusStyleHelper.cs" />

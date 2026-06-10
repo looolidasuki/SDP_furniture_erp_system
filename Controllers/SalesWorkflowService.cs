@@ -2,6 +2,7 @@ using System;
 using System.Data;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
+using FurnitureERP.Helpers;
 
 namespace Sales_user.Controllers
 {
@@ -146,6 +147,13 @@ namespace Sales_user.Controllers
                         new[] { new MySqlParameter("@id", salesOrderId) });
                     return 0;
                 });
+
+                DocumentAuditService.Log(
+                    DocumentAuditService.Types.SalesOrder,
+                    salesOrderId,
+                    order.SalesOrderCode,
+                    "Confirm",
+                    "Sales order confirmed");
 
                 return WorkflowResult.Ok(salesOrderId, "Sales order confirmed and warehouse stock reserved where available.");
             }

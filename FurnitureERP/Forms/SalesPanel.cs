@@ -126,7 +126,39 @@ namespace FurnitureERP.Forms
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a sales order first."); return; }
                         CreateProductionFromSalesOrder(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Order ID"));
                     };
-                    var extras = new List<Control> { btnConfirm, btnProduction };
+                    var btnOpen = UITheme.CreateSecondaryButton("Open Orders");
+                    btnOpen.Click += (s, e) =>
+                    {
+                        if (grid.DataSource is DataTable dt)
+                            dt.DefaultView.RowFilter = "[Status] IN (1, 2, 3)";
+                    };
+                    var btnUninvoiced = UITheme.CreateSecondaryButton("Uninvoiced");
+                    btnUninvoiced.Click += (s, e) =>
+                    {
+                        try
+                        {
+                            var dt = DictionaryUIHelper.LoadWithStatusLabels(
+                                () => DashboardOverviewService.GetUnsettledSalesOrders(500),
+                                "Status", DictionaryService.Categories.SalesOrder);
+                            GridHelper.BindStatusData(grid, dt, DictionaryService.Categories.SalesOrder);
+                            if (grid.Columns.Contains("Order ID")) grid.Columns["Order ID"].Visible = false;
+                        }
+                        catch (Exception ex) { UITheme.ShowError(ex.Message); }
+                    };
+                    var btnShowAll = UITheme.CreateSecondaryButton("Show All");
+                    btnShowAll.Click += (s, e) =>
+                    {
+                        try
+                        {
+                            var dt = DictionaryUIHelper.LoadWithStatusLabels(
+                                () => _salesOrderCtrl.GetAllSalesOrders(),
+                                "Status", DictionaryService.Categories.SalesOrder);
+                            GridHelper.BindStatusData(grid, dt, DictionaryService.Categories.SalesOrder);
+                            if (grid.Columns.Contains("Order ID")) grid.Columns["Order ID"].Visible = false;
+                        }
+                        catch (Exception ex) { UITheme.ShowError(ex.Message); }
+                    };
+                    var extras = new List<Control> { btnConfirm, btnProduction, btnOpen, btnUninvoiced, btnShowAll };
                     extras.AddRange(CreateViewProductsToolbarExtras());
                     return extras.ToArray();
                 },
@@ -602,8 +634,13 @@ namespace FurnitureERP.Forms
                 $"SalesOrder_{salesOrderId}",
                 "Order",
                 "Product Lines",
-                string.IsNullOrWhiteSpace(remark) ? "—" : remark);
+                string.IsNullOrWhiteSpace(remark) ? "—" : remark,
+                RelatedDocumentsHelper.GetSalesOrderRelated(salesOrderId),
+                DocumentAuditService.Types.SalesOrder,
+                salesOrderId);
         }
+
+        public void OpenSalesOrderViewDetail(long salesOrderId) => ShowSalesOrderViewDetailDialog(salesOrderId);
 
         private void ShowQuotationViewDetailDialog(long quotationId)
         {
@@ -631,7 +668,7 @@ namespace FurnitureERP.Forms
                 "Product Lines");
         }
 
-        private void ShowDocumentTabbedViewDetail(string title, DataTable fields, DataTable lines, string fileNameHint, string headerTabTitle, string linesTabTitle, string linesRemark = null)
+        private void ShowDocumentTabbedViewDetail(string title, DataTable fields, DataTable lines, string fileNameHint, string headerTabTitle, string linesTabTitle, string linesRemark = null, DataTable relatedDocuments = null, string auditDocumentType = null, long auditDocumentId = 0)
         {
             using (var dlg = new Form())
             {
@@ -693,6 +730,12 @@ namespace FurnitureERP.Forms
                     linesContent.Dock = DockStyle.Fill;
                     tabs.TabPages.Add(tabLines);
                 }
+
+                if (relatedDocuments != null && relatedDocuments.Rows.Count > 0)
+                    tabs.TabPages.Add(RelatedDocumentsHelper.BuildRelatedDocumentsTab(relatedDocuments, dlg));
+
+                if (auditDocumentId > 0 && !string.IsNullOrWhiteSpace(auditDocumentType))
+                    tabs.TabPages.Add(DocumentAuditService.BuildActivityTab(auditDocumentType, auditDocumentId));
 
                 var btnClose = UITheme.CreateSecondaryButton("Close");
                 btnClose.Click += (s, e) => dlg.Close();

@@ -1312,6 +1312,9 @@ namespace FurnitureERP.Forms
             return list;
         }
 
+        public void OpenProductionOrderDetail(long productionOrderId) =>
+            ShowProductionOrderForm(productionOrderId, readOnly: true);
+
         private void ShowProductionOrderForm(long? productionOrderId, bool readOnly)
         {
             bool isEdit = productionOrderId.HasValue;

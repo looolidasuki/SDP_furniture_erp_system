@@ -32,14 +32,30 @@ namespace FurnitureERP.Helpers
             _combo.DropDownClosed += Combo_DropDownClosed;
             _combo.KeyDown += Combo_KeyDown;
             _combo.Enter += Combo_Enter;
+            _combo.MouseDown += Combo_MouseDown;
         }
 
         private void Combo_Enter(object sender, EventArgs e)
         {
             if (_suppressEvents) return;
-            if (!string.IsNullOrWhiteSpace(SafeGetText())) return;
-            BindFullList(0);
-            if (_combo.Items.Count > 0)
+            OpenDropdownForCurrentText();
+        }
+
+        private void Combo_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (_suppressEvents || e.Button != MouseButtons.Left) return;
+            if (!_combo.DroppedDown && GetSelectedId() > 0)
+                OpenDropdownForCurrentText();
+        }
+
+        private void OpenDropdownForCurrentText()
+        {
+            string text = SafeGetText();
+            if (string.IsNullOrWhiteSpace(text))
+                BindFullList(0);
+            else
+                BindFilteredItems(text);
+            if (_combo.Items.Count > 0 && !_combo.DroppedDown)
                 _combo.DroppedDown = true;
         }
 
@@ -58,7 +74,18 @@ namespace FurnitureERP.Helpers
         {
             if (_suppressEvents) return;
 
-            if (GetSelectedId() > 0)
+            long id = 0;
+            if (_itemsMode)
+            {
+                if (_combo.SelectedIndex >= 0)
+                    id = GetSelectedId();
+            }
+            else
+            {
+                id = GetSelectedId();
+            }
+
+            if (id > 0)
             {
                 _lastTypedText = SafeGetText();
                 OnSelectionCommitted();

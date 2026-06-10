@@ -33,59 +33,266 @@ namespace FurnitureERP.Forms
 
         private void Build()
         {
-            // 1. 初始化與佈局參數設定
-            this.SuspendLayout();
-            this.Dock = DockStyle.Fill;
-            this.BackColor = Color.WhiteSmoke;
+            SuspendLayout();
+            Dock = DockStyle.Fill;
+            BackColor = UITheme.Background;
 
-            // 2. 建立 KPI 區域 (Top)
-            Panel cardsRow = new Panel { Dock = DockStyle.Top, Height = 150, BackColor = Color.Transparent };
-
-            // 3. 建立 TableLayout (使用 25% 強制均分)
-            TableLayoutPanel cardTable = new TableLayoutPanel
+            var cardsRow = new Panel { Dock = DockStyle.Top, Height = 150, BackColor = Color.Transparent };
+            var cardTable = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 4,
                 RowCount = 1,
-                Padding = new Padding(0), // 必須為 0 以避免計算偏移
+                Padding = new Padding(0),
                 Margin = new Padding(0)
             };
-
             for (int i = 0; i < 4; i++)
                 cardTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
 
-            // 4. 定義數據 (確保資料完整)
             string[] titles = { "Customers", "Sales Orders", "Invoices", "Products" };
             string[] values = {
-        _customerCtrl.GetCount().ToString(),
-        _salesOrderCtrl.GetCount().ToString(),
-        _invoiceCtrl.GetCount().ToString(),
-        _productCtrl.GetCount().ToString()
-    };
+                _customerCtrl.GetCount().ToString(),
+                _salesOrderCtrl.GetCount().ToString(),
+                _invoiceCtrl.GetCount().ToString(),
+                _productCtrl.GetCount().ToString()
+            };
             string[] icons = { "👥", "📝", "📄", "📦" };
             Color[] colors = { Color.DodgerBlue, Color.Orange, Color.Green, Color.Purple };
-
-            // 5. 強制加入卡片
             for (int i = 0; i < 4; i++)
             {
-                // 直接建立並加入 Table，不使用額外 Container，減少佈局計算誤差
-                Panel kpiCard = CreateKpiCard(titles[i], values[i], icons[i], colors[i]);
+                var kpiCard = CreateKpiCard(titles[i], values[i], icons[i], colors[i]);
                 kpiCard.Dock = DockStyle.Fill;
-                kpiCard.Margin = new Padding(8); // 卡片間距
+                kpiCard.Margin = new Padding(8);
                 cardTable.Controls.Add(kpiCard, i, 0);
             }
-
             cardsRow.Controls.Add(cardTable);
 
-            Panel fillPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(16, 12, 16, 16) };
-            fillPanel.Controls.Add(BuildPermissionOverviewSection());
+            var financeRow = BuildFinanceKpiRow();
+            var tabs = BuildMainTabs();
 
-            this.Controls.Add(cardsRow);
-            this.Controls.Add(fillPanel);
+            Controls.Add(tabs);
+            if (financeRow != null) Controls.Add(financeRow);
+            Controls.Add(cardsRow);
 
-            // 8. 強制 UI 更新計算，修復 "向上移" 或渲染異常
-            this.PerformLayout();
-            this.ResumeLayout(true);
+            PerformLayout();
+            ResumeLayout(true);
+        }
+
+        private Panel BuildFinanceKpiRow()
+        {
+            bool showFinance = AppSession.CanView(PermissionModule.Invoice)
+                || AppSession.CanView(PermissionModule.ReceiptVoucher)
+                || AppSession.CanView(PermissionModule.PaymentVoucher);
+
+            var row = new Panel { Dock = DockStyle.Top, Height = 130, BackColor = Color.Transparent, Padding = new Padding(0, 0, 0, 4) };
+            var table = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 4,
+                RowCount = 1
+            };
+            for (int i = 0; i < 4; i++)
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+
+            if (showFinance)
+            {
+                try
+                {
+                    table.Controls.Add(CreateKpiCard("Month Income (HKD)", DashboardOverviewService.GetMonthReceiptIncomeHkd().ToString("N0"), "💰", Color.FromArgb(34, 139, 34)), 0, 0);
+                    table.Controls.Add(CreateKpiCard("Month Expense (HKD)", DashboardOverviewService.GetMonthPaymentExpenseHkd().ToString("N0"), "💸", Color.FromArgb(220, 53, 69)), 1, 0);
+                    table.Controls.Add(CreateKpiCard("AR Outstanding (HKD)", DashboardOverviewService.GetTotalAccountsReceivableHkd().ToString("N0"), "📥", Color.FromArgb(0, 123, 255)), 2, 0);
+                    table.Controls.Add(CreateKpiCard("AP Outstanding (HKD)", DashboardOverviewService.GetTotalAccountsPayableHkd().ToString("N0"), "📤", Color.FromArgb(255, 140, 0)), 3, 0);
+                }
+                catch
+                {
+                    table.Controls.Add(CreateKpiCard("Month Income (HKD)", "—", "💰", Color.Gray), 0, 0);
+                    table.Controls.Add(CreateKpiCard("Month Expense (HKD)", "—", "💸", Color.Gray), 1, 0);
+                    table.Controls.Add(CreateKpiCard("AR Outstanding (HKD)", "—", "📥", Color.Gray), 2, 0);
+                    table.Controls.Add(CreateKpiCard("AP Outstanding (HKD)", "—", "📤", Color.Gray), 3, 0);
+                }
+            }
+            else
+            {
+                table.Controls.Add(CreateKpiCard("Open Sales Orders", DashboardOverviewService.GetOpenSalesOrderCount().ToString(), "📝", Color.Orange), 0, 0);
+                table.Controls.Add(CreateKpiCard("Open Purchase Orders", DashboardOverviewService.GetOpenPurchaseOrderCount().ToString(), "🛒", Color.FromArgb(255, 140, 0)), 1, 0);
+                table.Controls.Add(CreateKpiCard("Active Production", DashboardOverviewService.GetActiveProductionOrderCount().ToString(), "🏭", Color.FromArgb(102, 16, 242)), 2, 0);
+                table.Controls.Add(CreateKpiCard("Invoices", _invoiceCtrl.GetCount().ToString(), "📄", Color.Green), 3, 0);
+            }
+
+            foreach (Control c in table.Controls)
+            {
+                if (c is Panel p)
+                {
+                    p.Dock = DockStyle.Fill;
+                    p.Margin = new Padding(8, 0, 8, 0);
+                }
+            }
+
+            row.Controls.Add(table);
+            return row;
+        }
+
+        private TabControl BuildMainTabs()
+        {
+            var tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f), Padding = new Point(8, 4) };
+
+            var tabTasks = new TabPage("My Tasks") { BackColor = UITheme.Background };
+            tabTasks.Controls.Add(BuildMyTasksSection());
+
+            var tabAction = new TabPage("Action Items") { BackColor = UITheme.Background };
+            tabAction.Controls.Add(BuildActionItemsSection());
+
+            var tabPermissions = new TabPage("Permissions") { BackColor = UITheme.Background };
+            tabPermissions.Controls.Add(BuildPermissionOverviewSection());
+
+            tabs.TabPages.Add(tabTasks);
+            tabs.TabPages.Add(tabAction);
+            tabs.TabPages.Add(tabPermissions);
+            return tabs;
+        }
+
+        private Control BuildMyTasksSection()
+        {
+            var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
+            var lbl = new Label
+            {
+                Text = "Items needing your action (based on your permissions)",
+                Dock = DockStyle.Top,
+                Height = 28,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                ForeColor = UITheme.TextDark,
+                Padding = new Padding(4, 6, 0, 0)
+            };
+            var grid = GridHelper.CreateStyledGrid();
+            grid.Dock = DockStyle.Fill;
+
+            try
+            {
+                grid.DataSource = DashboardOverviewService.GetMyPendingTasks(50);
+                GridHelper.StyleGrid(grid);
+                if (grid.Columns.Contains("Id")) grid.Columns["Id"].Visible = false;
+                if (grid.Columns.Contains("Module")) grid.Columns["Module"].Visible = false;
+                if (grid.Columns.Contains("Date") && grid.Columns["Date"] is DataGridViewColumn dateCol)
+                    dateCol.DefaultCellStyle.Format = "yyyy-MM-dd";
+            }
+            catch { }
+
+            grid.CellDoubleClick += (s, e) =>
+            {
+                if (e.RowIndex < 0) return;
+                var row = grid.Rows[e.RowIndex];
+                if (row.Cells["Id"].Value == null || row.Cells["Id"].Value == DBNull.Value) return;
+                long id = Convert.ToInt64(row.Cells["Id"].Value);
+                string docType = row.Cells["Document Type"]?.Value?.ToString();
+                string module = row.Cells["Module"]?.Value?.ToString();
+                string code = row.Cells["Code"]?.Value?.ToString();
+                if (id <= 0 || string.IsNullOrWhiteSpace(module)) return;
+                var main = FindForm() as MainForm;
+                main?.NavigateToDocument(new DocumentSearchResult
+                {
+                    DocumentType = docType,
+                    Id = id,
+                    Code = code,
+                    Module = module
+                });
+            };
+
+            panel.Controls.Add(grid);
+            panel.Controls.Add(lbl);
+            return panel;
+        }
+
+        private Control BuildActionItemsSection()
+        {
+            var split = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterDistance = 220
+            };
+
+            var lblSo = new Label
+            {
+                Text = "Sales Orders — Uninvoiced balance",
+                Dock = DockStyle.Top,
+                Height = 28,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                ForeColor = UITheme.TextDark,
+                Padding = new Padding(4, 6, 0, 0)
+            };
+            var soGrid = GridHelper.CreateStyledGrid();
+            soGrid.Dock = DockStyle.Fill;
+            var soPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
+            soPanel.Controls.Add(soGrid);
+            soPanel.Controls.Add(lblSo);
+
+            var lblPo = new Label
+            {
+                Text = "Purchase Orders — Unpaid balance",
+                Dock = DockStyle.Top,
+                Height = 28,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                ForeColor = UITheme.TextDark,
+                Padding = new Padding(4, 6, 0, 0)
+            };
+            var poGrid = GridHelper.CreateStyledGrid();
+            poGrid.Dock = DockStyle.Fill;
+            var poPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
+            poPanel.Controls.Add(poGrid);
+            poPanel.Controls.Add(lblPo);
+
+            split.Panel1.Controls.Add(soPanel);
+            split.Panel2.Controls.Add(poPanel);
+
+            try
+            {
+                var soData = DictionaryUIHelper.LoadWithStatusLabels(
+                    () => DashboardOverviewService.GetUnsettledSalesOrders(30),
+                    "Status", DictionaryService.Categories.SalesOrder);
+                GridHelper.BindStatusData(soGrid, soData, DictionaryService.Categories.SalesOrder);
+                if (soGrid.Columns.Contains("Order ID")) soGrid.Columns["Order ID"].Visible = false;
+            }
+            catch { }
+
+            try
+            {
+                var poData = DictionaryUIHelper.LoadWithStatusLabels(
+                    () => DashboardOverviewService.GetUnsettledPurchaseOrders(30),
+                    "Status", DictionaryService.Categories.PurchaseOrder);
+                GridHelper.BindStatusData(poGrid, poData, DictionaryService.Categories.PurchaseOrder);
+                if (poGrid.Columns.Contains("Purchase Order ID")) poGrid.Columns["Purchase Order ID"].Visible = false;
+            }
+            catch { }
+
+            soGrid.CellDoubleClick += (s, e) =>
+            {
+                if (e.RowIndex < 0) return;
+                long id = GridHelper.TryGetRowLongId(soGrid, soGrid.Rows[e.RowIndex], "Order ID");
+                if (id <= 0) return;
+                var main = FindForm() as MainForm;
+                main?.NavigateToDocument(new DocumentSearchResult
+                {
+                    DocumentType = "Sales Order",
+                    Id = id,
+                    Module = "Sales Orders"
+                });
+            };
+
+            poGrid.CellDoubleClick += (s, e) =>
+            {
+                if (e.RowIndex < 0) return;
+                long id = GridHelper.TryGetRowLongId(poGrid, poGrid.Rows[e.RowIndex], "Purchase Order ID");
+                if (id <= 0) return;
+                var main = FindForm() as MainForm;
+                main?.NavigateToDocument(new DocumentSearchResult
+                {
+                    DocumentType = "Purchase Order",
+                    Id = id,
+                    Module = "Purchase Orders"
+                });
+            };
+
+            return split;
         }
 
         private Control BuildPermissionOverviewSection()
