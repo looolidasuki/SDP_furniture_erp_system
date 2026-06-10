@@ -100,6 +100,10 @@ namespace Sales_user.Controllers
                     return 0L;
                 });
 
+                DocumentAuditService.LogAction(DocumentAuditService.Types.ProductionOrder, productionOrderId,
+                    order.ProductionOrderCode ?? DocumentCodeHelper.Build("PTO", productionOrderId),
+                    DocumentAuditService.Actions.Complete, "Production completed and stocked in");
+
                 bool isSample = InternalSampleProductionService.IsInternalSampleSalesOrder(order.SalesOrderID);
                 return WorkflowResult.Ok(
                     productionOrderId,

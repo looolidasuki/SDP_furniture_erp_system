@@ -53,6 +53,8 @@ namespace Sales_user.Controllers
             ctrl.UpdateCodeAfterInsert(id);
             if (!string.IsNullOrWhiteSpace(slip.SignedBy) || slip.SignedDate.HasValue)
                 ctrl.UpdateSignOff(id, slip.SignedBy, slip.SignedDate);
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.ReplySlip, id, DocumentCodeHelper.Build("RS", id));
             return id;
         }
 
@@ -68,7 +70,7 @@ namespace Sales_user.Controllers
                                signedBy = @signedBy, signedDate = @signedDate,
                                status = @status, remark = @remark, lastModifyDate = NOW()
                            WHERE deliveryNoteID = @id";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[]
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, new[]
             {
                 new MySqlParameter("@soID", slip.SalesOrderID),
                 new MySqlParameter("@customerID", slip.CustomerID),
@@ -78,6 +80,11 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@remark", slip.Remark ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", slip.ReplySlipID)
             }) > 0;
+            if (ok)
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.ReplySlip, slip.ReplySlipID,
+                    slip.ReplySlipCode ?? DocumentCodeHelper.Build("RS", slip.ReplySlipID),
+                    "Status " + slip.Status);
+            return ok;
         }
 
         public bool InsertProductLine(long deliveryNoteId, long productId, decimal price, decimal quantity, decimal discount)

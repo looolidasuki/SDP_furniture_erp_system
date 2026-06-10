@@ -69,6 +69,15 @@ namespace Sales_user.Controllers
                     return soId;
                 });
 
+                if (salesOrderId > 0)
+                {
+                    string soCode = DocumentCodeHelper.Build("SO", salesOrderId);
+                    DocumentAuditService.LogAction(DocumentAuditService.Types.SalesOrder, salesOrderId, soCode,
+                        DocumentAuditService.Actions.Convert, "Converted from " + quotation.QuotationCode);
+                    DocumentAuditService.LogStatus(DocumentAuditService.Types.Quotation, quotationId,
+                        quotation.QuotationCode, 4, "Converted to " + soCode);
+                }
+
                 return WorkflowResult.Ok(salesOrderId, "Sales order SO-" + salesOrderId + " created from quotation.");
             }
             catch (Exception ex)

@@ -105,6 +105,8 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@term", customer.PaymentTerm ?? (object)System.DBNull.Value)
             });
             customer.CustomerCode = DocumentCodeHelper.FormatCustomerCode(id);
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.Customer, id, customer.CustomerCode);
             return id;
         }
 
@@ -127,12 +129,16 @@ namespace Sales_user.Controllers
         {
             string sql = @"UPDATE Customer SET customerName = @name, billingAddress = @address,
                            paymentTerm = @term, lastModifyDate = NOW() WHERE customerID = @id";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@name", customer.CustomerName ?? ""),
                 new MySqlParameter("@address", customer.BillingAddress ?? (object)System.DBNull.Value),
                 new MySqlParameter("@term", customer.PaymentTerm ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", customer.CustomerID)
             }) > 0;
+            if (ok)
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.Customer, customer.CustomerID,
+                    customer.CustomerCode ?? DocumentCodeHelper.FormatCustomerCode(customer.CustomerID));
+            return ok;
         }
 
         public DataTable GetSalesOrdersByCustomer(long customerId)

@@ -9,13 +9,36 @@ namespace FurnitureERP.Helpers
     {
         public static class Types
         {
+            public const string Quotation = "Quotation";
             public const string SalesOrder = "Sales Order";
+            public const string ReplySlip = "Reply Slip";
+            public const string ProductionOrder = "Production Order";
+            public const string RawMaterialRequest = "RM Request Note";
             public const string PurchaseOrder = "Purchase Order";
+            public const string GoodsReceivedNote = "Goods Received Note";
             public const string Invoice = "Invoice";
             public const string PaymentVoucher = "Payment Voucher";
             public const string ReceiptVoucher = "Receipt Voucher";
             public const string Refund = "Refund";
             public const string DeliveryNote = "Delivery Note";
+            public const string Customer = "Customer";
+            public const string Supplier = "Supplier";
+            public const string Product = "Product";
+        }
+
+        public static class Actions
+        {
+            public const string Create = "Create";
+            public const string Update = "Update";
+            public const string Confirm = "Confirm";
+            public const string Verify = "Verify";
+            public const string Complete = "Complete";
+            public const string Convert = "Convert";
+            public const string StatusChange = "StatusChange";
+            public const string Issue = "Issue";
+            public const string Transfer = "Transfer";
+            public const string SignOff = "SignOff";
+            public const string Import = "Import";
         }
 
         public static void Log(string documentType, long documentId, string documentCode, string action, string summary = null)
@@ -50,6 +73,19 @@ namespace FurnitureERP.Helpers
                 // Audit is best-effort; must not break business operations.
             }
         }
+
+        public static void LogCreate(string documentType, long documentId, string documentCode, string summary = null) =>
+            Log(documentType, documentId, documentCode, Actions.Create, summary ?? "Document created");
+
+        public static void LogUpdate(string documentType, long documentId, string documentCode, string summary = null) =>
+            Log(documentType, documentId, documentCode, Actions.Update, summary ?? "Document updated");
+
+        public static void LogStatus(string documentType, long documentId, string documentCode, int newStatus, string summary = null) =>
+            Log(documentType, documentId, documentCode, Actions.StatusChange,
+                summary ?? ("Status changed to " + newStatus));
+
+        public static void LogAction(string documentType, long documentId, string documentCode, string action, string summary) =>
+            Log(documentType, documentId, documentCode, action, summary);
 
         public static DataTable GetForDocument(string documentType, long documentId, int maxRows = 50)
         {
@@ -106,6 +142,12 @@ namespace FurnitureERP.Helpers
             tab.Controls.Add(grid);
             tab.Controls.Add(hint);
             return tab;
+        }
+
+        public static void AppendActivityTab(System.Windows.Forms.TabControl tabs, string documentType, long documentId)
+        {
+            if (tabs == null || documentId <= 0 || string.IsNullOrWhiteSpace(documentType)) return;
+            tabs.TabPages.Add(BuildActivityTab(documentType, documentId));
         }
     }
 }

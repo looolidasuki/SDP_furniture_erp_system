@@ -670,7 +670,8 @@ namespace FurnitureERP.Forms
 
             if (srId <= 0)
             {
-                DetailViewHelper.ShowDetail(this, title, fields, lines, $"PurchaseOrder_{id}", paymentLines, grnLines);
+                DetailViewHelper.ShowDetail(this, title, fields, lines, $"PurchaseOrder_{id}", paymentLines, grnLines,
+                    auditDocumentType: DocumentAuditService.Types.PurchaseOrder, auditDocumentId: id);
                 return;
             }
 
@@ -739,6 +740,7 @@ namespace FurnitureERP.Forms
                     grnGrid.Dock = DockStyle.Fill;
                     tabs.TabPages.Add(tabGrn);
                 }
+                DocumentAuditService.AppendActivityTab(tabs, DocumentAuditService.Types.PurchaseOrder, id);
                 split.Panel2.Controls.Add(tabs);
 
                 dlg.Controls.Add(split);
@@ -791,7 +793,14 @@ namespace FurnitureERP.Forms
                 GridHelper.StyleGrid(lineGrid);
                 split.Panel1.Controls.Add(headGrid);
                 split.Panel2.Controls.Add(lineGrid);
-                dlg.Controls.Add(split);
+
+                var tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+                var tabDetail = new TabPage("Detail");
+                tabDetail.Controls.Add(split);
+                split.Dock = DockStyle.Fill;
+                tabs.TabPages.Add(tabDetail);
+                tabs.TabPages.Add(DocumentAuditService.BuildActivityTab(DocumentAuditService.Types.GoodsReceivedNote, id));
+                dlg.Controls.Add(tabs);
                 DetailViewHelper.AttachPrintToolbar(dlg, () =>
                     DetailViewHelper.FromFieldValueTable(dlg.Text, fields, lines, $"GRN_{id}"));
                 dlg.ShowDialog(this);

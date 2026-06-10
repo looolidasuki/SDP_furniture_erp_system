@@ -1540,7 +1540,21 @@ namespace FurnitureERP.Forms
                 }
                 if (!readOnly) btnPanel.Controls.Add(btnSave);
                 btnPanel.Controls.Add(btnClose);
-                dlg.Controls.Add(root);
+
+                Control mainContent = root;
+                if (readOnly && isEdit && existing != null)
+                {
+                    var outerTabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+                    var detailTab = new TabPage("Detail");
+                    detailTab.Controls.Add(root);
+                    root.Dock = DockStyle.Fill;
+                    outerTabs.TabPages.Add(detailTab);
+                    outerTabs.TabPages.Add(DocumentAuditService.BuildActivityTab(
+                        DocumentAuditService.Types.ProductionOrder, existing.ProductionOrderID));
+                    mainContent = outerTabs;
+                }
+
+                dlg.Controls.Add(mainContent);
                 dlg.Controls.Add(btnPanel);
                 dlg.ShowDialog(this);
             }
@@ -2606,7 +2620,8 @@ namespace FurnitureERP.Forms
                     try { header = _rmrnCtrl.GetHeaderDetail(id); } catch { }
                     try { lines = _rmrnCtrl.GetRequestLines(id); } catch { }
                     var fields = DetailViewHelper.SingleRowToFieldValueTable(header);
-                    DetailViewHelper.ShowDetail(dlg, $"RM Request Note Detail — ID: {id}", fields, lines, $"RMRequest_{id}");
+                    DetailViewHelper.ShowDetail(dlg, $"RM Request Note Detail — ID: {id}", fields, lines, $"RMRequest_{id}",
+                        auditDocumentType: DocumentAuditService.Types.RawMaterialRequest, auditDocumentId: id);
                 };
 
                 var btnIssue = UITheme.CreatePrimaryButton("Issue Materials");

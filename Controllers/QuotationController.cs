@@ -39,7 +39,7 @@ namespace Sales_user.Controllers
                  exchangeRate, totalAmount, totalAmountBase, status, remark)
                 VALUES (@id, @code, @seq, @staffID, @customerID, @currencyID,
                         @rate, @total, @totalBase, @quotationStatus, @remark)";
-            return DatabaseConnect.InsertWithAllocatedId("quotation", "quotationID", sql, new[] {
+            long id = DatabaseConnect.InsertWithAllocatedId("quotation", "quotationID", sql, new[] {
                 new MySqlParameter("@code", quotation.QuotationCode),
                 new MySqlParameter("@seq", quotation.SequenceNumber),
                 new MySqlParameter("@staffID", quotation.StaffID),
@@ -51,6 +51,9 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@quotationStatus", quotation.Status),
                 new MySqlParameter("@remark", quotation.Remark ?? (object)System.DBNull.Value)
             });
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.Quotation, id, DocumentCodeHelper.Build("QT", id));
+            return id;
         }
 
         public void UpdateCodeAfterInsert(long quotationId)
@@ -211,13 +214,17 @@ namespace Sales_user.Controllers
 
         public bool UpdateStatus(long quotationId, int status)
         {
-            return DatabaseConnect.ExecuteNonQuery(
+            bool ok = DatabaseConnect.ExecuteNonQuery(
                 "UPDATE Quotation SET status = @quotationStatus, lastModifyDate = NOW() WHERE quotationID = @id",
                 new[]
                 {
                     new MySqlParameter("@quotationStatus", status),
                     new MySqlParameter("@id", quotationId)
                 }) > 0;
+            if (ok)
+                DocumentAuditService.LogStatus(DocumentAuditService.Types.Quotation, quotationId,
+                    DocumentCodeHelper.Build("QT", quotationId), status);
+            return ok;
         }
 
         public bool UpdateHeader(Quotation quotation)
@@ -241,7 +248,12 @@ namespace Sales_user.Controllers
                     new MySqlParameter("@remark", quotation.Remark ?? (object)System.DBNull.Value),
                     new MySqlParameter("@id", quotation.QuotationID)
                 }) > 0;
-            if (ok) RefreshTotals(quotation.QuotationID);
+            if (ok)
+            {
+                RefreshTotals(quotation.QuotationID);
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.Quotation, quotation.QuotationID,
+                    quotation.QuotationCode ?? DocumentCodeHelper.Build("QT", quotation.QuotationID));
+            }
             return ok;
         }
 

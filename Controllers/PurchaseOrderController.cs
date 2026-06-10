@@ -120,7 +120,10 @@ namespace Sales_user.Controllers
 
         public long Insert(PurchaseOrder order)
         {
-            return DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, order));
+            long id = DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, order));
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.PurchaseOrder, id, DocumentCodeHelper.Build("PO", id));
+            return id;
         }
 
         public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, PurchaseOrder order)
@@ -333,7 +336,7 @@ namespace Sales_user.Controllers
                                status=@status, remark=@remark, relatedShortageReport=@shortage,
                                lastModifyDate=NOW()
                            WHERE purchaseOrderID=@id";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@supplierID", order.SupplierID),
                 new MySqlParameter("@staffID", order.StaffID),
                 new MySqlParameter("@requestDeliveryDate", order.RequestDeliveryDate),
@@ -342,6 +345,11 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@shortage", order.RelatedShortageReport ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", order.PurchaseOrderID)
             }) > 0;
+            if (ok)
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.PurchaseOrder, order.PurchaseOrderID,
+                    order.PurchaseOrderCode ?? DocumentCodeHelper.Build("PO", order.PurchaseOrderID),
+                    "Status " + order.Status);
+            return ok;
         }
     }
 }

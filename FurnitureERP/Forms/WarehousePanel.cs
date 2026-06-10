@@ -404,7 +404,14 @@ namespace FurnitureERP.Forms
 
                 split.Panel1.Controls.Add(headerGrid);
                 split.Panel2.Controls.Add(lineGrid);
-                dlg.Controls.Add(split);
+
+                var tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+                var tabDetail = new TabPage("Detail");
+                tabDetail.Controls.Add(split);
+                split.Dock = DockStyle.Fill;
+                tabs.TabPages.Add(tabDetail);
+                tabs.TabPages.Add(DocumentAuditService.BuildActivityTab(DocumentAuditService.Types.DeliveryNote, deliveryNoteId));
+                dlg.Controls.Add(tabs);
 
                 var toolbar = new Panel
                 {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 
@@ -107,6 +108,10 @@ namespace Sales_user.Controllers
                     return 0L;
                 });
 
+                DocumentAuditService.LogAction(DocumentAuditService.Types.GoodsReceivedNote, grnId,
+                    grn.GoodsReceivedNoteCode ?? DocumentCodeHelper.Build("GRN", grnId),
+                    DocumentAuditService.Actions.Complete, "Goods received and stock updated");
+
                 return WorkflowResult.Ok(grnId, "Goods received and raw material stock updated.");
             }
             catch (Exception ex)
@@ -210,6 +215,10 @@ namespace Sales_user.Controllers
                     UpdateSalesOrderShipStatus(conn, trans, note.SalesOrderID);
                     return 0L;
                 });
+
+                DocumentAuditService.LogAction(DocumentAuditService.Types.DeliveryNote, deliveryNoteId,
+                    note.DeliveryNoteCode ?? DocumentCodeHelper.Build("DN", deliveryNoteId),
+                    DocumentAuditService.Actions.Complete, "Delivery confirmed and inventory updated");
 
                 return WorkflowResult.Ok(deliveryNoteId, "Delivery confirmed and inventory updated.");
             }

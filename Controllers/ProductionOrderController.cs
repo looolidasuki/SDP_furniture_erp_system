@@ -205,7 +205,7 @@ namespace Sales_user.Controllers
             string sql = @"INSERT INTO ProductionOrder
                 (productionOrderID, productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
                 VALUES (@id, @code, @soID, @staffID, @finish, @status, @remark)";
-            return DatabaseConnect.InsertWithAllocatedId("productionorder", "productionOrderID", sql, new[] {
+            long id = DatabaseConnect.InsertWithAllocatedId("productionorder", "productionOrderID", sql, new[] {
                 new MySqlParameter("@code", order.ProductionOrderCode),
                 new MySqlParameter("@soID", order.SalesOrderID),
                 new MySqlParameter("@staffID", order.StaffID),
@@ -213,6 +213,9 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@status", order.Status),
                 new MySqlParameter("@remark", order.Remark ?? (object)DBNull.Value)
             });
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.ProductionOrder, id, DocumentCodeHelper.Build("PTO", id));
+            return id;
         }
 
         public void UpdateCodeAfterInsert(long id)
@@ -250,9 +253,9 @@ namespace Sales_user.Controllers
             if (productionLines.Count == 0)
                 throw new InvalidOperationException("No production quantity required for this sales order.");
 
-            return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            long poId = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
             {
-                long poId = DatabaseConnect.InsertWithAllocatedId(conn, trans, "productionorder", "productionOrderID",
+                long id = DatabaseConnect.InsertWithAllocatedId(conn, trans, "productionorder", "productionOrderID",
                     @"INSERT INTO ProductionOrder
                         (productionOrderID, productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
                       VALUES (@id, @code, @soID, @staffID, @finish, @status, @remark)",
@@ -270,11 +273,11 @@ namespace Sales_user.Controllers
                     "UPDATE ProductionOrder SET productionOrderCode = @code WHERE productionOrderID = @id",
                     new[]
                     {
-                        new MySqlParameter("@code", DocumentCodeHelper.Build("PTO", poId)),
-                        new MySqlParameter("@id", poId)
+                        new MySqlParameter("@code", DocumentCodeHelper.Build("PTO", id)),
+                        new MySqlParameter("@id", id)
                     });
 
-                InsertProductLines(conn, trans, poId, productionLines);
+                InsertProductLines(conn, trans, id, productionLines);
 
                 if (advanceSalesOrderToProcessing)
                 {
@@ -283,8 +286,12 @@ namespace Sales_user.Controllers
                         new[] { new MySqlParameter("@id", salesOrderId) });
                 }
 
-                return poId;
+                return id;
             });
+            if (poId > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.ProductionOrder, poId,
+                    DocumentCodeHelper.Build("PTO", poId), remark);
+            return poId;
         }
 
         public long CreateWithLines(ProductionOrder order, IEnumerable<(long ProductId, int ProductionQty)> lines)
@@ -298,9 +305,9 @@ namespace Sales_user.Controllers
             if (lineList.Count == 0)
                 throw new InvalidOperationException("At least one production line with quantity > 0 is required.");
 
-            return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            long poId = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
             {
-                long poId = DatabaseConnect.InsertWithAllocatedId(conn, trans, "productionorder", "productionOrderID",
+                long id = DatabaseConnect.InsertWithAllocatedId(conn, trans, "productionorder", "productionOrderID",
                     @"INSERT INTO ProductionOrder
                         (productionOrderID, productionOrderCode, salesOrderID, staffID, estFinishDate, status, remark)
                       VALUES (@id, @code, @soID, @staffID, @finish, @status, @remark)",
@@ -318,13 +325,17 @@ namespace Sales_user.Controllers
                     "UPDATE ProductionOrder SET productionOrderCode = @code WHERE productionOrderID = @id",
                     new[]
                     {
-                        new MySqlParameter("@code", DocumentCodeHelper.Build("PTO", poId)),
-                        new MySqlParameter("@id", poId)
+                        new MySqlParameter("@code", DocumentCodeHelper.Build("PTO", id)),
+                        new MySqlParameter("@id", id)
                     });
 
-                InsertProductLines(conn, trans, poId, lineList);
-                return poId;
+                InsertProductLines(conn, trans, id, lineList);
+                return id;
             });
+            if (poId > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.ProductionOrder, poId,
+                    DocumentCodeHelper.Build("PTO", poId));
+            return poId;
         }
 
         public void UpdateWithLines(ProductionOrder order, IEnumerable<(long ProductId, int ProductionQty)> lines)
@@ -358,6 +369,9 @@ namespace Sales_user.Controllers
                     InsertProductLines(conn, trans, order.ProductionOrderID, lineList);
                 return true;
             });
+            DocumentAuditService.LogUpdate(DocumentAuditService.Types.ProductionOrder, order.ProductionOrderID,
+                order.ProductionOrderCode ?? DocumentCodeHelper.Build("PTO", order.ProductionOrderID),
+                "Status " + order.Status);
         }
 
         private static void InsertProductLines(
@@ -401,13 +415,16 @@ namespace Sales_user.Controllers
         public void Update(ProductionOrder order)
         {
             DatabaseConnect.ExecuteNonQuery(
-                "UPDATE ProductionOrder SET estFinishDate=@finish, status=@status, remark=@remark WHERE productionOrderID=@id",
+                "UPDATE ProductionOrder SET estFinishDate=@finish, status=@status, remark=@remark, lastModifyDate=NOW() WHERE productionOrderID=@id",
                 new[] {
                     new MySqlParameter("@finish", order.EstFinishDate),
                     new MySqlParameter("@status", order.Status),
                     new MySqlParameter("@remark", order.Remark ?? (object)DBNull.Value),
                     new MySqlParameter("@id", order.ProductionOrderID)
                 });
+            DocumentAuditService.LogUpdate(DocumentAuditService.Types.ProductionOrder, order.ProductionOrderID,
+                order.ProductionOrderCode ?? DocumentCodeHelper.Build("PTO", order.ProductionOrderID),
+                "Status " + order.Status);
         }
 
         public DataTable Search(SearchFilterCriteria criteria)

@@ -39,7 +39,10 @@ namespace Sales_user.Controllers
 
         public long Insert(GoodsReceivedNote note)
         {
-            return DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, note));
+            long id = DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, note));
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.GoodsReceivedNote, id, DocumentCodeHelper.Build("GRN", id));
+            return id;
         }
 
         public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, GoodsReceivedNote note)
@@ -169,7 +172,7 @@ namespace Sales_user.Controllers
             string sql = @"UPDATE GoodsReceivedNote
                            SET supplierID=@supplierID, purchaseOrderID=@poID, staffID=@staffID, status=@status, remark=@remark, lastModifyDate=NOW()
                            WHERE goodsReceivedNoteID=@id";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@supplierID", note.SupplierID),
                 new MySqlParameter("@poID", note.PurchaseOrderID),
                 new MySqlParameter("@staffID", note.StaffID),
@@ -177,6 +180,11 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@remark", note.Remark ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", note.GoodsReceivedNoteID)
             }) > 0;
+            if (ok)
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.GoodsReceivedNote, note.GoodsReceivedNoteID,
+                    note.GoodsReceivedNoteCode ?? DocumentCodeHelper.Build("GRN", note.GoodsReceivedNoteID),
+                    "Status " + note.Status);
+            return ok;
         }
 
         public bool InsertRawMaterialLine(long grnId, long rawMaterialId, decimal receivedQty)

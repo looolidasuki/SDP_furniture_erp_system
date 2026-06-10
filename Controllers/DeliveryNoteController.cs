@@ -177,7 +177,10 @@ namespace Sales_user.Controllers
 
         public long Insert(DeliveryNote note)
         {
-            return DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, note));
+            long id = DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, note));
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.DeliveryNote, id, DocumentCodeHelper.Build("DN", id));
+            return id;
         }
 
         public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, DeliveryNote note)
@@ -245,7 +248,7 @@ namespace Sales_user.Controllers
 
         public long CreateWithLines(DeliveryNote note, IEnumerable<(long ProductId, int ShipQty)> lines)
         {
-            return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            long id = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
             {
                 long newId = InsertInTransaction(conn, trans, note);
                 if (newId <= 0)
@@ -279,6 +282,9 @@ namespace Sales_user.Controllers
                 ReplaceLines(conn, trans, newId, lines);
                 return newId;
             });
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.DeliveryNote, id, DocumentCodeHelper.Build("DN", id));
+            return id;
         }
 
         public bool UpdateWithLines(DeliveryNote note, IEnumerable<(long ProductId, int ShipQty)> lines)
@@ -323,6 +329,9 @@ namespace Sales_user.Controllers
 
                     return 0L;
                 });
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.DeliveryNote, note.DeliveryNoteID,
+                    note.DeliveryNoteCode ?? DocumentCodeHelper.Build("DN", note.DeliveryNoteID),
+                    "Status " + note.Status);
                 return true;
             }
             catch
@@ -581,14 +590,19 @@ namespace Sales_user.Controllers
                                shipMethod=@shipMethod, trackingNumber=@tracking, status=@status, remark=@remark{signOffSet},
                                lastModifyDate=NOW()
                            WHERE deliveryNoteID=@id";
-            return DatabaseConnect.ExecuteNonQuery(sql, parameters.ToArray()) > 0;
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, parameters.ToArray()) > 0;
+            if (ok)
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.DeliveryNote, note.DeliveryNoteID,
+                    note.DeliveryNoteCode ?? DocumentCodeHelper.Build("DN", note.DeliveryNoteID),
+                    "Status " + note.Status);
+            return ok;
         }
 
         public bool UpdateSignOff(long deliveryNoteId, string signedBy, DateTime? signedDate)
         {
             if (!HasReplySlipColumns()) return false;
 
-            return DatabaseConnect.ExecuteNonQuery(
+            bool ok = DatabaseConnect.ExecuteNonQuery(
                 @"UPDATE DeliveryNote
                   SET signedBy = @signedBy, signedDate = @signedDate, lastModifyDate = NOW()
                   WHERE deliveryNoteID = @id",
@@ -598,6 +612,11 @@ namespace Sales_user.Controllers
                     new MySqlParameter("@signedDate", signedDate.HasValue ? (object)signedDate.Value.Date : DBNull.Value),
                     new MySqlParameter("@id", deliveryNoteId)
                 }) > 0;
+            if (ok)
+                DocumentAuditService.LogAction(DocumentAuditService.Types.DeliveryNote, deliveryNoteId,
+                    DocumentCodeHelper.Build("DN", deliveryNoteId), DocumentAuditService.Actions.SignOff,
+                    "Signed by " + (signedBy ?? "—"));
+            return ok;
         }
 
         public bool InsertProductLine(long deliveryNoteId, long productId, int shipQuantity)

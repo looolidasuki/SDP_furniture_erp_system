@@ -50,7 +50,7 @@ namespace Sales_user.Controllers
                  totalAmount, totalAmountBase, invoiceType, status, remark)
                 VALUES (@id, @code, @customerID, @soID, @staffID, @currencyID, @rate,
                         @total, @totalBase, @type, @status, @remark)";
-            return DatabaseConnect.InsertWithAllocatedId("invoice", "invoiceID", sql, new[] {
+            long id = DatabaseConnect.InsertWithAllocatedId("invoice", "invoiceID", sql, new[] {
                 new MySqlParameter("@code", invoice.InvoiceCode),
                 new MySqlParameter("@customerID", invoice.CustomerID),
                 new MySqlParameter("@soID", invoice.SalesOrderID),
@@ -63,6 +63,9 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@status", invoice.Status),
                 new MySqlParameter("@remark", invoice.Remark ?? (object)System.DBNull.Value)
             });
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.Invoice, id, DocumentCodeHelper.FormatInvoiceCode(id));
+            return id;
         }
 
         public void ApplyCurrencyFromSalesOrder(Invoice invoice)
@@ -457,7 +460,7 @@ namespace Sales_user.Controllers
                                remark = @remark,
                                lastModifyDate = NOW()
                            WHERE invoiceID = @id";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[]
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, new[]
             {
                 new MySqlParameter("@customerID", invoice.CustomerID),
                 new MySqlParameter("@soID", invoice.SalesOrderID),
@@ -467,6 +470,11 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@remark", invoice.Remark ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", invoice.InvoiceID)
             }) > 0;
+            if (ok)
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.Invoice, invoice.InvoiceID,
+                    invoice.InvoiceCode ?? DocumentCodeHelper.FormatInvoiceCode(invoice.InvoiceID),
+                    "Status " + invoice.Status);
+            return ok;
         }
 
         public bool UpdateDepositLineAmount(long invoiceId, long depositProductId, decimal amount)

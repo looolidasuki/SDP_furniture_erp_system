@@ -76,11 +76,15 @@ namespace Sales_user.Controllers
                 }
                 catch (Exception syncEx)
                 {
+                    DocumentAuditService.LogCreate(DocumentAuditService.Types.Invoice, invoiceId,
+                        DocumentCodeHelper.FormatInvoiceCode(invoiceId), "Deposit invoice created");
                     return WorkflowResult.Ok(invoiceId,
                         "Deposit invoice " + DocumentCodeHelper.FormatInvoiceCode(invoiceId) +
                         " created, but currency totals sync failed: " + syncEx.Message);
                 }
 
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.Invoice, invoiceId,
+                    DocumentCodeHelper.FormatInvoiceCode(invoiceId), "Deposit invoice created");
                 return WorkflowResult.Ok(invoiceId, "Deposit invoice " + DocumentCodeHelper.FormatInvoiceCode(invoiceId) + " created.");
             }
             catch (Exception ex)
@@ -242,6 +246,10 @@ namespace Sales_user.Controllers
                 _invoiceCtrl.SyncCurrencyFromSalesOrder(invoiceId, delivery.SalesOrderID);
                 _invoiceCtrl.RefreshTotals(invoiceId);
 
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.Invoice, invoiceId,
+                    DocumentCodeHelper.FormatInvoiceCode(invoiceId),
+                    "Created from delivery " + delivery.DeliveryNoteCode);
+
                 string msg = "Invoice " + DocumentCodeHelper.FormatInvoiceCode(invoiceId) + " created from delivery note.";
                 if (applyDepositOffset)
                     msg += " Deposit offset applied.";
@@ -401,7 +409,14 @@ namespace Sales_user.Controllers
                     "Refund total (" + (refundsPaid + refund.RefundAmount).ToString("N2") +
                     ") exceeds verified receipts on this invoice (" + grossReceived.ToString("N2") + ").");
 
-            return RecalculateInvoicePaymentStatus(refund.InvoiceID.Value);
+            var result = RecalculateInvoicePaymentStatus(refund.InvoiceID.Value);
+            if (result.Success)
+            {
+                DocumentAuditService.LogAction(DocumentAuditService.Types.Refund, refund.RefundRequestID,
+                    refund.RefundRequestCode, DocumentAuditService.Actions.Complete,
+                    "Refund paid settlement applied to invoice");
+            }
+            return result;
         }
 
         private static decimal GetGrossReceivedAmount(long invoiceId)

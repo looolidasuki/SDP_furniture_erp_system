@@ -159,13 +159,14 @@ namespace Sales_user.Controllers
             });
 
             if (id > 0)
+            {
                 UpdateCodeAfterInsert(id);
-                DocumentAuditService.Log(
+                DocumentAuditService.LogCreate(
                     DocumentAuditService.Types.ReceiptVoucher,
                     id,
                     DocumentCodeHelper.FormatReceiptVoucherCode(id),
-                    "Create",
                     "Receipt voucher created");
+            }
 
             return id;
 
@@ -610,6 +611,9 @@ namespace Sales_user.Controllers
                 error = "Update failed.";
                 return false;
             }
+
+            DocumentAuditService.LogStatus(DocumentAuditService.Types.ReceiptVoucher, receiptVoucherId,
+                rv.ReceiptVoucherCode, newStatus);
 
             return true;
         }

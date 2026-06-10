@@ -1,3 +1,4 @@
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
@@ -213,7 +214,7 @@ namespace Sales_user.Controllers
         VALUES (@id, @code, @category, @seq, @style, @size, @color,
                 @price, @currencyID, @staffID, @unit, @status, @remark)";
 
-            return DatabaseConnect.InsertWithAllocatedId("product", "productID", sql, new[] {
+            long id = DatabaseConnect.InsertWithAllocatedId("product", "productID", sql, new[] {
         new MySqlParameter("@code", product.ProductCode),
         new MySqlParameter("@category", product.Category),
         new MySqlParameter("@seq", product.SequenceNumber ?? (object)System.DBNull.Value),
@@ -227,6 +228,9 @@ namespace Sales_user.Controllers
         new MySqlParameter("@status", product.Status),
         new MySqlParameter("@remark", product.Remark ?? (object)System.DBNull.Value)
     });
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.Product, id, product.ProductCode ?? ("PRD-" + id));
+            return id;
         }
 
         public bool Update(Product product)
@@ -234,7 +238,7 @@ namespace Sales_user.Controllers
             string sql = @"UPDATE Product SET productCode=@code, category=@category, styleNumber=@style,
                            size=@size, color=@color, basePriceByCurrency=@price, unit=@unit, status=@status, remark=@remark
                            WHERE productID=@id";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@code", product.ProductCode ?? ""),
                 new MySqlParameter("@category", product.Category ?? (object)System.DBNull.Value),
                 new MySqlParameter("@style", product.StyleNumber ?? (object)System.DBNull.Value),
@@ -246,6 +250,10 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@remark", product.Remark ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", product.ProductID)
             }) > 0;
+            if (ok)
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.Product, product.ProductID,
+                    product.ProductCode ?? ("PRD-" + product.ProductID));
+            return ok;
         }
 
         public DataTable GetBomLines(long productId)

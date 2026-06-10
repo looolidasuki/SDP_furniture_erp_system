@@ -162,6 +162,11 @@
     <Compile Include="Helpers\RelatedDocumentsHelper.cs" />
     <Compile Include="Helpers\DashboardOverviewService.cs" />
     <Compile Include="Helpers\CsvExportHelper.cs" />
+    <Compile Include="Helpers\CsvImportHelper.cs" />
+    <Compile Include="Helpers\MasterDataCsvImportService.cs" />
+    <Compile Include="Forms\MasterDataImportDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Helpers\DocumentAuditMigration.cs" />
     <Compile Include="Helpers\DocumentAuditService.cs" />
     <Compile Include="Helpers\CustomerComboHelper.cs" />
@@ -346,6 +351,18 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+    <Content Include="SampleData\Import\customers_sample.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="SampleData\Import\suppliers_sample.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="SampleData\Import\products_sample.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="SampleData\Import\raw_materials_sample.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

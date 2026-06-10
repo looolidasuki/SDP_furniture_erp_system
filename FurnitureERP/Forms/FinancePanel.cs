@@ -628,6 +628,9 @@ namespace FurnitureERP.Forms
                         && AppSession.CanView(PermissionModule.ReceiptVoucher))
                         tabs.TabPages.Add(BuildRefundReceiptVoucherTab(receiptVoucherId));
 
+                    if (refund != null && refund.RefundRequestID > 0)
+                        tabs.TabPages.Add(DocumentAuditService.BuildActivityTab(DocumentAuditService.Types.Refund, refund.RefundRequestID));
+
                     var btnClose = UITheme.CreateSecondaryButton("Close");
                     btnClose.Click += (s, e) => dlg.Close();
                     var btnPrint = UITheme.CreatePrimaryButton("Print PDF");

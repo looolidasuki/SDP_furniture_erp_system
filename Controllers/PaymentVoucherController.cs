@@ -404,7 +404,7 @@ namespace Sales_user.Controllers
         public bool UpdateStatus(long paymentVoucherId, int status)
         {
             if (status < 0 || status > 3) return false;
-            return DatabaseConnect.ExecuteNonQuery(
+            bool ok = DatabaseConnect.ExecuteNonQuery(
                 @"UPDATE paymentvoucher
                   SET status = @status, lastModifyDate = NOW()
                   WHERE paymentVoucherID = @id",
@@ -413,6 +413,10 @@ namespace Sales_user.Controllers
                     new MySqlParameter("@status", status),
                     new MySqlParameter("@id", paymentVoucherId)
                 }) > 0;
+            if (ok)
+                DocumentAuditService.LogStatus(DocumentAuditService.Types.PaymentVoucher, paymentVoucherId,
+                    DocumentCodeHelper.FormatPaymentVoucherCode(paymentVoucherId), status);
+            return ok;
         }
 
         public void UpdateCodeAfterInsert(long paymentVoucherId)

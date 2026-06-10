@@ -1,0 +1,4 @@
+supplierName,billingAddress,contactPerson,phone,email,paymentTerm,bankAccount,status
+Oak Timber Supply,"18 Industrial Estate, Yuen Long",Mr. Chan,852-2345-6789,chan@oaktimber.hk,Net 30,HSBC 123-456789-001,1
+Metal Works Ltd,"3 Factory Road, Kwai Chung",Ms. Lee,852-2987-6543,lee@metalworks.hk,Net 45,BOC 987-654321-002,1
+Fabric House,"9 Textile Street, Sham Shui Po",Mr. Wong,852-2777-1122,wong@fabrichouse.hk,Net 30,,1

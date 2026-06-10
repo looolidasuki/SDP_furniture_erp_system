@@ -1,0 +1,4 @@
+productCode,category,styleNumber,size,color,basePrice,unit,status,currencyCode,remark
+SOFA-001,Living Room,Modern L-Shape,220x90cm,Grey,12800,SET,1,HKD,Sample sofa for import test
+CHAIR-002,Dining,Scandinavian,D45xH85cm,Natural Oak,1680,PCS,1,HKD,Dining chair sample
+TABLE-003,Dining,Rectangular,160x90cm,White,4200,PCS,1,HKD,

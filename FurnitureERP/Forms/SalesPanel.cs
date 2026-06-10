@@ -228,7 +228,14 @@ namespace FurnitureERP.Forms
 
                 split.Panel1.Controls.Add(headerGrid);
                 split.Panel2.Controls.Add(lineGrid);
-                dlg.Controls.Add(split);
+
+                var tabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+                var tabDetail = new TabPage("Detail");
+                tabDetail.Controls.Add(split);
+                split.Dock = DockStyle.Fill;
+                tabs.TabPages.Add(tabDetail);
+                tabs.TabPages.Add(DocumentAuditService.BuildActivityTab(DocumentAuditService.Types.ReplySlip, replySlipId));
+                dlg.Controls.Add(tabs);
 
                 var toolbar = new Panel
                 {
@@ -665,7 +672,11 @@ namespace FurnitureERP.Forms
                 lines,
                 $"Quotation_{quotationId}",
                 "Quotation",
-                "Product Lines");
+                "Product Lines",
+                null,
+                null,
+                DocumentAuditService.Types.Quotation,
+                quotationId);
         }
 
         private void ShowDocumentTabbedViewDetail(string title, DataTable fields, DataTable lines, string fileNameHint, string headerTabTitle, string linesTabTitle, string linesRemark = null, DataTable relatedDocuments = null, string auditDocumentType = null, long auditDocumentId = 0)

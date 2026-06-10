@@ -1,4 +1,5 @@
 using System;
+using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System.Data;
@@ -26,7 +27,7 @@ namespace Sales_user.Controllers
             string sql = @"INSERT INTO Supplier
                 (supplierID, supplierName, billingAddress, contactPerson, phone, email, paymentTerm, bankAccount, status)
                 VALUES (@id, @name, @address, @contact, @phone, @email, @term, @bank, @status)";
-            return DatabaseConnect.InsertWithAllocatedId("supplier", "supplierID", sql, new[] {
+            long id = DatabaseConnect.InsertWithAllocatedId("supplier", "supplierID", sql, new[] {
                 new MySqlParameter("@name", supplier.SupplierName),
                 new MySqlParameter("@address", supplier.BillingAddress ?? (object)System.DBNull.Value),
                 new MySqlParameter("@contact", supplier.ContactPerson ?? (object)System.DBNull.Value),
@@ -36,6 +37,9 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@bank", supplier.BankAccount ?? (object)System.DBNull.Value),
                 new MySqlParameter("@status", supplier.Status)
             });
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.Supplier, id, "SUP-" + id);
+            return id;
         }
 
         public long FindSupplierIdByName(string supplierName)
@@ -87,6 +91,8 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@status", supplier.Status),
                 new MySqlParameter("@id", supplier.SupplierID)
             });
+            DocumentAuditService.LogUpdate(DocumentAuditService.Types.Supplier, supplier.SupplierID,
+                supplier.SupplierName ?? ("SUP-" + supplier.SupplierID));
         }
 
         public DataTable GetRawMaterialQuotesBySupplier(long supplierId)

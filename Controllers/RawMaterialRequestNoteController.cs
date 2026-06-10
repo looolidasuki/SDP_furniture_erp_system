@@ -107,7 +107,10 @@ namespace Sales_user.Controllers
 
         public long Insert(RawMaterialRequestNote note)
         {
-            return DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, note));
+            long id = DatabaseConnect.ExecuteInTransaction((conn, trans) => InsertInTransaction(conn, trans, note));
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.RawMaterialRequest, id, DocumentCodeHelper.Build("SCR", id));
+            return id;
         }
 
         public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, RawMaterialRequestNote note)
@@ -192,13 +195,17 @@ namespace Sales_user.Controllers
 
         public bool UpdateStatus(long noteId, int status)
         {
-            return DatabaseConnect.ExecuteNonQuery(
+            bool ok = DatabaseConnect.ExecuteNonQuery(
                 "UPDATE RawMaterialRequestNote SET status = @noteStatus WHERE rawMaterialRequestNoteID = @id",
                 new[]
                 {
                     CreateStatusParameter(ResolveStatus(status)),
                     new MySqlParameter("@id", noteId)
                 }) > 0;
+            if (ok)
+                DocumentAuditService.LogStatus(DocumentAuditService.Types.RawMaterialRequest, noteId,
+                    DocumentCodeHelper.Build("SCR", noteId), status);
+            return ok;
         }
 
         public void UpdateCodeAfterInsert(long id)

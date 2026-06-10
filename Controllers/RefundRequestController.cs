@@ -144,6 +144,7 @@ namespace Sales_user.Controllers
                     });
                 refund.RefundRequestCode = code;
                 refund.RefundRequestID = id;
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.Refund, id, code);
             }
             return id;
         }
@@ -160,7 +161,15 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@code", requestCode)
             };
 
-            return DatabaseConnect.ExecuteNonQuery(sql, parameters) > 0;
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, parameters) > 0;
+            if (ok)
+            {
+                var refund = GetByCode(requestCode);
+                if (refund != null)
+                    DocumentAuditService.LogStatus(DocumentAuditService.Types.Refund, refund.RefundRequestID,
+                        requestCode, newStatus);
+            }
+            return ok;
         }
 
         public RefundRequest GetByCode(string requestCode)
@@ -182,7 +191,7 @@ namespace Sales_user.Controllers
                                refundAmount=@amount, refundMethod=@method, refundRef=@ref, refundReason=@reason,
                                status=@status, remark=@remark, lastModifyDate=NOW()
                            WHERE refundRequestID=@id";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@staffID", refund.StaffID),
                 new MySqlParameter("@receiptID", refund.ReceiptVoucherID ?? (object)DBNull.Value),
                 new MySqlParameter("@invoiceID", refund.InvoiceID ?? (object)DBNull.Value),
@@ -194,6 +203,10 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@remark", refund.Remark ?? (object)DBNull.Value),
                 new MySqlParameter("@id", refund.RefundRequestID)
             }) > 0;
+            if (ok)
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.Refund, refund.RefundRequestID,
+                    refund.RefundRequestCode, "Status " + refund.Status);
+            return ok;
         }
 
         private static RefundRequest MapRow(DataRow row)

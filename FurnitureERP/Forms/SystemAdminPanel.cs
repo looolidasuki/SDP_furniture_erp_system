@@ -31,6 +31,12 @@ namespace FurnitureERP.Forms
             this.SuspendLayout();
             try
             {
+                var topBar = new Panel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(10, 8, 10, 0) };
+                var btnImport = UITheme.CreatePrimaryButton("Import CSV...");
+                btnImport.Width = 130;
+                btnImport.Click += (s, e) => MasterDataImportDialog.ShowImportDialog(this);
+                topBar.Controls.Add(btnImport);
+
                 TableLayoutPanel mainLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Padding = new Padding(10) };
                 mainLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
                 mainLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -95,6 +101,7 @@ namespace FurnitureERP.Forms
                 mainLayout.Controls.Add(currencyCard, 1, 1);
 
                 this.Controls.Add(mainLayout);
+                this.Controls.Add(topBar);
             }
             catch (Exception ex)
             {

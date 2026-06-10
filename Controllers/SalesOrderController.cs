@@ -34,9 +34,12 @@ namespace Sales_user.Controllers
 
         public long Insert(SalesOrder order)
         {
-            return DatabaseConnect.InsertWithAllocatedId("salesorder", "salesOrderID",
+            long id = DatabaseConnect.InsertWithAllocatedId("salesorder", "salesOrderID",
                 BuildInsertHeaderSql(),
                 BuildInsertHeaderParameters(order));
+            if (id > 0)
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.SalesOrder, id, DocumentCodeHelper.Build("SO", id));
+            return id;
         }
 
         public long InsertInTransaction(MySqlConnection conn, MySqlTransaction trans, SalesOrder order)
@@ -456,7 +459,13 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@remark", order.Remark ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", order.SalesOrderID)
             }) > 0;
-            if (ok) RefreshTotals(order.SalesOrderID);
+            if (ok)
+            {
+                RefreshTotals(order.SalesOrderID);
+                DocumentAuditService.LogUpdate(DocumentAuditService.Types.SalesOrder, order.SalesOrderID,
+                    order.SalesOrderCode ?? DocumentCodeHelper.Build("SO", order.SalesOrderID),
+                    "Status " + order.Status);
+            }
             return ok;
         }
 

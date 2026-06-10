@@ -119,6 +119,9 @@ namespace Sales_user.Controllers
                     return id;
                 });
 
+                DocumentAuditService.LogCreate(DocumentAuditService.Types.RawMaterialRequest, noteId,
+                    DocumentCodeHelper.Build("SCR", noteId), "Created from production order");
+
                 return WorkflowResult.Ok(noteId, "RM request note " + DocumentCodeHelper.Build("SCR", noteId) + " created.");
             }
             catch (Exception ex)
@@ -266,6 +269,10 @@ namespace Sales_user.Controllers
 
                     return 0L;
                 });
+
+                DocumentAuditService.LogAction(DocumentAuditService.Types.RawMaterialRequest, requestNoteId,
+                    note.RawMaterialRequestNoteCode ?? DocumentCodeHelper.Build("SCR", requestNoteId),
+                    DocumentAuditService.Actions.Issue, "Materials issued to production warehouse");
 
                 return WorkflowResult.Ok(requestNoteId, "Materials issued to production warehouse. Request note completed.");
             }
