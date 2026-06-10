@@ -25,8 +25,8 @@ namespace Sales_user.Controllers
             if (quotation.Status == 4)
                 return WorkflowResult.Fail("Quotation has already been converted to a sales order.");
 
-            if (quotation.Status == 3)
-                return WorkflowResult.Fail("Rejected quotations cannot be converted.");
+            if (quotation.Status == 3 || quotation.Status == 5)
+                return WorkflowResult.Fail("Cancelled or rejected quotations cannot be converted.");
 
             var lines = _quotationCtrl.GetProductLinesInternal(quotationId);
             if (lines == null || lines.Rows.Count == 0)

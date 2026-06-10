@@ -53,6 +53,17 @@ INSERT INTO `systemdictionary` (`dictionaryID`, `category`, `codeValue`, `displa
 SELECT 117, 'REPLY_SLIP_STATUS', 3, 'Rejected', NULL, 4 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'REPLY_SLIP_STATUS' AND `codeValue` = 3);
 
+-- 3b) Quotation status dictionary gaps (seed data uses status 2/4/5; base seed only had 0/1/3)
+INSERT INTO `systemdictionary` (`dictionaryID`, `category`, `codeValue`, `displayNameEnglish`, `codePrefix`, `sortOrder`)
+SELECT 118, 'QUOTATION_STATUS', 2, 'Accepted', NULL, 4 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'QUOTATION_STATUS' AND `codeValue` = 2);
+INSERT INTO `systemdictionary` (`dictionaryID`, `category`, `codeValue`, `displayNameEnglish`, `codePrefix`, `sortOrder`)
+SELECT 119, 'QUOTATION_STATUS', 4, 'Converted', NULL, 5 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'QUOTATION_STATUS' AND `codeValue` = 4);
+INSERT INTO `systemdictionary` (`dictionaryID`, `category`, `codeValue`, `displayNameEnglish`, `codePrefix`, `sortOrder`)
+SELECT 120, 'QUOTATION_STATUS', 5, 'Cancelled', NULL, 6 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'QUOTATION_STATUS' AND `codeValue` = 5);
+
 -- 4) Admin account: Super User department (password hashed on app startup via StaffPasswordMigration)
 UPDATE `staff`
 SET `title` = 'Super User',

@@ -92,11 +92,12 @@ namespace FurnitureERP.Helpers
                 },
                 [Categories.Quotation] = new[]
                 {
-                    new[] { 0, 1, 3 },
-                    new[] { 1, 2, 3, 4 },
+                    new[] { 0, 1, 3, 5 },
+                    new[] { 1, 2, 3, 4, 5 },
                     new[] { 2, 4 },
                     new[] { 3 },
-                    new[] { 4 }
+                    new[] { 4 },
+                    new[] { 5 }
                 },
                 [Categories.ReplySlip] = new[]
                 {
@@ -113,7 +114,8 @@ namespace FurnitureERP.Helpers
             [1] = "Sent",
             [2] = "Accepted",
             [3] = "Rejected",
-            [4] = "Converted"
+            [4] = "Converted",
+            [5] = "Cancelled"
         };
         private static readonly Dictionary<int, string> _replySlipFallback = new Dictionary<int, string>
         {

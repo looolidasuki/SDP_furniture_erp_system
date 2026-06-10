@@ -256,6 +256,8 @@ namespace FurnitureERP.Helpers
 
                 [Key(DictionaryService.Categories.Quotation, 4)] = LabelPalette["Converted"],
 
+                [Key(DictionaryService.Categories.Quotation, 5)] = LabelPalette["Cancelled"],
+
 
 
                 [Key(DictionaryService.Categories.RefundStatus, 0)] = LabelPalette["Draft"],
