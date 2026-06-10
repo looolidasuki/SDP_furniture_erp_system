@@ -266,7 +266,11 @@ namespace FurnitureERP.Helpers
             if (remaining <= 0) return 0;
             try
             {
-                var dt = DatabaseConnect.ExecuteQuery(sql + " LIMIT " + remaining);
+                int limit = SqlGuard.ClampLimit(remaining);
+                var dt = DatabaseConnect.ExecuteQuery(sql + " LIMIT @lim", new[]
+                {
+                    new MySqlParameter("@lim", limit)
+                });
                 if (dt == null) return remaining;
                 foreach (DataRow row in dt.Rows)
                 {

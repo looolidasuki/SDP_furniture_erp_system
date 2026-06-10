@@ -53,12 +53,12 @@ INSERT INTO `systemdictionary` (`dictionaryID`, `category`, `codeValue`, `displa
 SELECT 117, 'REPLY_SLIP_STATUS', 3, 'Rejected', NULL, 4 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'REPLY_SLIP_STATUS' AND `codeValue` = 3);
 
--- 4) Admin account: Super User department, plain password for dev login
+-- 4) Admin account: Super User department (password hashed on app startup via StaffPasswordMigration)
 UPDATE `staff`
 SET `title` = 'Super User',
-    `department` = 'Super User',
-    `password` = '123456'
+    `department` = 'Super User'
 WHERE `username` = 'admin';
+-- If admin password is still plain text, launch the ERP once; PBKDF2 migration runs automatically.
 
 -- 5) Normalize INV / PV / RV codes to 8-digit zero-padded IDs
 UPDATE `invoice`

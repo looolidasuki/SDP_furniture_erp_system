@@ -158,7 +158,9 @@ namespace Sales_user.Controllers
             if (string.IsNullOrWhiteSpace(tableName) || string.IsNullOrWhiteSpace(idColumnName))
                 return 0;
 
-            string sql = $"SELECT COALESCE(MAX(`{idColumnName}`), 0) + 1 FROM `{tableName}`";
+            string safeTable = SqlGuard.ValidateIdentifier(tableName, nameof(tableName));
+            string safeColumn = SqlGuard.ValidateIdentifier(idColumnName, nameof(idColumnName));
+            string sql = $"SELECT COALESCE(MAX(`{safeColumn}`), 0) + 1 FROM `{safeTable}`";
             object scalar = trans != null
                 ? ExecuteScalar(conn, trans, sql)
                 : ExecuteScalar(conn, sql);

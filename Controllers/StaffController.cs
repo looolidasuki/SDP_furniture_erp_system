@@ -41,9 +41,12 @@ namespace Sales_user.Controllers
 
         public Staff Login(string usernameOrEmail, string password)
         {
-            if (string.IsNullOrWhiteSpace(usernameOrEmail) || string.IsNullOrEmpty(password))
+            string login = SqlGuard.SanitizeLoginCredential(usernameOrEmail);
+            string pass = SqlGuard.SanitizeLoginCredential(password, SqlGuard.MaxLoginCredentialLength);
+            if (string.IsNullOrEmpty(login) || string.IsNullOrEmpty(pass))
                 return null;
 
+            // Parameterized query only — never concatenate user input into SQL.
             string sql = @"SELECT staffID, username, password, firstName, lastName, title, department, email, status
                            FROM Staff
                            WHERE (username = @login OR email = @login)
@@ -51,7 +54,7 @@ namespace Sales_user.Controllers
 
             DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[]
             {
-                new MySqlParameter("@login", usernameOrEmail.Trim())
+                new MySqlParameter("@login", login)
             });
 
             if (dt == null || dt.Rows.Count == 0)
@@ -59,12 +62,8 @@ namespace Sales_user.Controllers
 
             DataRow row = dt.Rows[0];
             string storedPassword = row["password"]?.ToString() ?? string.Empty;
-            if (!VerifyPassword(password, storedPassword))
+            if (!VerifyPassword(pass, storedPassword))
                 return null;
-
-            long staffId = Convert.ToInt64(row["staffID"]);
-            if (!PasswordHasher.IsHashed(storedPassword))
-                UpgradePasswordHash(staffId, password);
 
             return MapStaff(row);
         }
@@ -218,19 +217,5 @@ namespace Sales_user.Controllers
             return PasswordHasher.Verify(password, storedPassword);
         }
 
-        private static void UpgradePasswordHash(long staffId, string plainPassword)
-        {
-            try
-            {
-                DatabaseConnect.ExecuteNonQuery(
-                    "UPDATE Staff SET password = @pass WHERE staffID = @id",
-                    new[]
-                    {
-                        new MySqlParameter("@pass", HashPassword(plainPassword)),
-                        new MySqlParameter("@id", staffId)
-                    });
-            }
-            catch { }
-        }
     }
 }

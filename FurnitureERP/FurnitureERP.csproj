@@ -134,6 +134,7 @@
     <Compile Include="Helpers\DictionaryService.cs" />
     <Compile Include="Helpers\DictionaryUIHelper.cs" />
     <Compile Include="Helpers\PasswordHasher.cs" />
+    <Compile Include="Helpers\StaffPasswordMigration.cs" />
     <Compile Include="Helpers\StockAlertHelper.cs" />
     <Compile Include="Helpers\ProductImageHelper.cs" />
     <Compile Include="Helpers\UITheme.cs" />
@@ -185,6 +186,9 @@
     </Compile>
     <Compile Include="..\4915M_SDP\Infrastructure\SearchQueryHelper.cs">
       <Link>Infrastructure\SearchQueryHelper.cs</Link>
+    </Compile>
+    <Compile Include="..\4915M_SDP\Infrastructure\SqlGuard.cs">
+      <Link>Infrastructure\SqlGuard.cs</Link>
     </Compile>
     <Compile Include="..\Controllers\CurrencyController.cs">
       <Link>Controllers\CurrencyController.cs</Link>

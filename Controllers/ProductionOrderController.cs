@@ -437,11 +437,12 @@ namespace Sales_user.Controllers
                                   po.productionOrderID AS 'Production Order ID'
                            FROM ProductionOrder po
                            LEFT JOIN SalesOrder so ON po.salesOrderID = so.salesOrderID
-                           WHERE po.productionOrderCode LIKE @kw
-                              OR so.salesOrderCode LIKE @kw
-                              OR CAST(po.salesOrderID AS CHAR) LIKE @kw
+                           WHERE po.productionOrderCode LIKE @kw ESCAPE '\\\\'
+                              OR so.salesOrderCode LIKE @kw ESCAPE '\\\\'
+                              OR CAST(po.salesOrderID AS CHAR) LIKE @kw ESCAPE '\\\\'
                            ORDER BY po.createDate DESC";
-            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@kw", "%" + (criteria.Keyword ?? "") + "%") });
+            string kw = SqlGuard.EscapeLikeValue((criteria.Keyword ?? "").Trim());
+            return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@kw", "%" + kw + "%") });
         }
 
         public bool InsertProductLine(long productionOrderId, long productId, int productionQty)

@@ -31,11 +31,11 @@ namespace FurnitureERP.Helpers
 
         public static bool Verify(string password, string stored)
         {
-            if (string.IsNullOrEmpty(stored))
+            if (string.IsNullOrEmpty(stored) || string.IsNullOrEmpty(password))
                 return false;
 
             if (!IsHashed(stored))
-                return string.Equals(password, stored, StringComparison.Ordinal);
+                return false;
 
             var parts = stored.Substring(Prefix.Length).Split(':');
             if (parts.Length != 3)

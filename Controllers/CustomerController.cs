@@ -62,10 +62,10 @@ namespace Sales_user.Controllers
             if (byName != null && byName.Rows.Count > 0)
                 return System.Convert.ToInt64(byName.Rows[0]["customerID"]);
 
-            string like = "%" + text.Replace("%", "").Replace("_", "") + "%";
+            string like = "%" + SqlGuard.EscapeLikeValue(text) + "%";
             string sqlLike = $@"SELECT customerID FROM Customer
-                                WHERE customerName LIKE @like
-                                   OR {CustomerCodeSql} LIKE @like
+                                WHERE customerName LIKE @like ESCAPE '\\\\'
+                                   OR {CustomerCodeSql} LIKE @like ESCAPE '\\\\'
                                 ORDER BY customerID LIMIT 1";
             var byLike = DatabaseConnect.ExecuteQuery(sqlLike, new[] { new MySqlParameter("@like", like) });
             if (byLike != null && byLike.Rows.Count > 0)

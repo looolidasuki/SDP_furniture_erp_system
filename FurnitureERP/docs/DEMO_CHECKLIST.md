@@ -12,7 +12,7 @@
 - [ ] 已导入 `furniture_erp_system_New.sql`
 - [ ] 已执行 `docs/scripts/verify_demo_data.sql`，第 1–3 节为 OK
 - [ ] （若演示 GRN 收货）已执行 `Scripts/seed_supplier_raw_material_quotes.sql`
-- [ ] `FurnitureERP.exe` 可正常启动，分辨率 ≥ 1366×768
+- [ ] `FurnitureERP.exe` 可正常启动，分辨率 ≥ 1366×768（首次启动会将 staff 明文密码迁移为 PBKDF2 哈希）
 
 ---
 

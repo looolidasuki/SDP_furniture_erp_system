@@ -485,8 +485,8 @@ namespace Sales_user.Controllers
             var parameters = new List<MySqlParameter>();
             if (!string.IsNullOrWhiteSpace(filter.Keyword))
             {
-                conditions.Add("(so.salesOrderCode LIKE @kw OR so.customerReferenceNumber LIKE @kw OR c.customerName LIKE @kw OR so.deliveryAddress LIKE @kw)");
-                parameters.Add(new MySqlParameter("@kw", "%" + filter.Keyword.Trim() + "%"));
+                conditions.Add("(so.salesOrderCode LIKE @kw ESCAPE '\\\\' OR so.customerReferenceNumber LIKE @kw ESCAPE '\\\\' OR c.customerName LIKE @kw ESCAPE '\\\\' OR so.deliveryAddress LIKE @kw ESCAPE '\\\\')");
+                parameters.Add(new MySqlParameter("@kw", "%" + SqlGuard.EscapeLikeValue(filter.Keyword.Trim()) + "%"));
             }
             SearchQueryHelper.AddDateFrom(conditions, parameters, "so.createDate", filter.FromDate);
             SearchQueryHelper.AddDateTo(conditions, parameters, "so.createDate", filter.ToDate);

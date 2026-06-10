@@ -10,8 +10,8 @@ namespace Sales_user.Controllers
         {
             if (!string.IsNullOrWhiteSpace(value))
             {
-                conditions.Add($"{column} LIKE {paramName}");
-                parameters.Add(new MySqlParameter(paramName, "%" + value.Trim() + "%"));
+                conditions.Add($"{column} LIKE {paramName} ESCAPE '\\\\'");
+                parameters.Add(new MySqlParameter(paramName, "%" + SqlGuard.EscapeLikeValue(value.Trim()) + "%"));
             }
         }
 
