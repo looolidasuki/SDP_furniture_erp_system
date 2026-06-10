@@ -23,10 +23,6 @@ namespace FurnitureERP.Forms
         private readonly CustomerController _customerCtrl = new CustomerController();
         private readonly SalesOrderController _salesOrderCtrl = new SalesOrderController();
 
-        private TextBox _warehouseSearchBox;
-        private ComboBox _warehouseStatusFilter;
-        private TextBox _deliverySearchBox;
-        private ComboBox _deliveryStatusFilter;
         private SplitContainer _warehouseSplit;
         private DataGridView _productStockGrid;
         private DataGridView _rmStockGrid;
@@ -73,24 +69,10 @@ namespace FurnitureERP.Forms
             };
             PermissionGuard.ApplyEditButton(btnEditWarehouse, PermissionModule.Warehouse);
 
-            _warehouseSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnEditWarehouse.Right + 10, 10) };
-            _warehouseSearchBox.TextChanged += (s, e) => LoadData();
-            _warehouseStatusFilter = new ComboBox
-            {
-                Width = 140,
-                Height = 28,
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Location = new Point(_warehouseSearchBox.Right + 10, 10)
-            };
-            _warehouseStatusFilter.Items.AddRange(new object[] { "All Status", "Inactive", "Active" });
-            _warehouseStatusFilter.SelectedIndex = 0;
-            _warehouseStatusFilter.SelectedIndexChanged += (s, e) => LoadData();
             toolbar.Controls.Add(btnNew);
             toolbar.Controls.Add(btnRefresh);
             toolbar.Controls.Add(btnDetailWarehouse);
             toolbar.Controls.Add(btnEditWarehouse);
-            toolbar.Controls.Add(_warehouseSearchBox);
-            toolbar.Controls.Add(_warehouseStatusFilter);
 
             _grid = GridHelper.CreateStyledGrid();
             _grid.SelectionChanged += (s, e) => LoadSelectedWarehouseStock();
@@ -105,7 +87,7 @@ namespace FurnitureERP.Forms
 
             var listPanel = new Panel { Dock = DockStyle.Fill };
             listPanel.Controls.Add(_grid);
-            listPanel.Controls.Add(FilterBlockHelper.CreateFilterBlock(_grid, "Warehouse Filters"));
+            listPanel.Controls.Add(FilterBlockHelper.CreateFilterBlock(_grid, "Warehouse Filters", null));
             _warehouseSplit.Panel1.Controls.Add(listPanel);
 
             _lblSelectedWarehouse = new Label
@@ -204,17 +186,6 @@ namespace FurnitureERP.Forms
                 }
                 PrintReplySlipPdf(Convert.ToInt64(_deliveryGrid.CurrentRow.Cells[0].Value));
             };
-            _deliverySearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnPrintReplySlip.Right + 10, 10) };
-            _deliverySearchBox.TextChanged += (s, e) => LoadDeliveryNotes();
-            _deliveryStatusFilter = new ComboBox
-            {
-                Width = 140,
-                Height = 28,
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Location = new Point(_deliverySearchBox.Right + 10, 10)
-            };
-            DictionaryUIHelper.BindStatusFilter(_deliveryStatusFilter, DictionaryService.Categories.Delivery);
-            _deliveryStatusFilter.SelectedIndexChanged += (s, e) => LoadDeliveryNotes();
             deliveryToolbar.Controls.Add(btnNewDelivery);
             deliveryToolbar.Controls.Add(btnRefreshDelivery);
             deliveryToolbar.Controls.Add(btnDetailDelivery);
@@ -222,15 +193,13 @@ namespace FurnitureERP.Forms
             deliveryToolbar.Controls.Add(btnEditDelivery);
             deliveryToolbar.Controls.Add(btnPrintDelivery);
             deliveryToolbar.Controls.Add(btnPrintReplySlip);
-            deliveryToolbar.Controls.Add(_deliverySearchBox);
-            deliveryToolbar.Controls.Add(_deliveryStatusFilter);
 
             _deliveryGrid = GridHelper.CreateStyledGrid();
             _deliveryGrid.CellDoubleClick += DeliveryGrid_CellDoubleClick;
 
             var deliveryContent = new Panel { Dock = DockStyle.Fill };
             deliveryContent.Controls.Add(_deliveryGrid);
-            deliveryContent.Controls.Add(FilterBlockHelper.CreateFilterBlock(_deliveryGrid, "Delivery Note Filters"));
+            deliveryContent.Controls.Add(FilterBlockHelper.CreateFilterBlock(_deliveryGrid, "Delivery Note Filters", DictionaryService.Categories.Delivery));
             deliveryContent.Controls.Add(deliveryToolbar);
             deliveryTab.Controls.Add(deliveryContent);
 
@@ -251,25 +220,7 @@ namespace FurnitureERP.Forms
         {
             try
             {
-                var dt = _warehouseCtrl.GetAllWarehouses();
-                if (dt == null) return;
-
-                string keyword = _warehouseSearchBox?.Text?.Trim();
-                if (!string.IsNullOrWhiteSpace(keyword))
-                {
-                    string escaped = keyword.Replace("'", "''");
-                    dt.DefaultView.RowFilter = $"[Warehouse Name] LIKE '%{escaped}%' OR [Address] LIKE '%{escaped}%'";
-                    dt = dt.DefaultView.ToTable();
-                }
-
-                if (_warehouseStatusFilter != null && _warehouseStatusFilter.SelectedIndex > 0 && dt.Columns.Contains("Status"))
-                {
-                    int status = _warehouseStatusFilter.SelectedIndex - 1;
-                    dt.DefaultView.RowFilter = "[Status] = " + status;
-                    dt = dt.DefaultView.ToTable();
-                }
-
-                _grid.DataSource = dt;
+                _grid.DataSource = _warehouseCtrl.GetAllWarehouses();
                 GridHelper.StyleGrid(_grid);
                 LoadSelectedWarehouseStock();
             }
@@ -281,57 +232,16 @@ namespace FurnitureERP.Forms
             try
             {
                 var dt = DictionaryService.DecorateShipMethodColumn(
-                    DictionaryService.DecorateStatusColumn(_deliveryCtrl.GetAllDeliveryNotes(), "Status", DictionaryService.Categories.Delivery));
-                if (dt == null) return;
-
-                var filters = new List<string>();
-                string keyword = _deliverySearchBox?.Text?.Trim();
-                if (!string.IsNullOrWhiteSpace(keyword))
-                {
-                    string escaped = keyword.Replace("'", "''");
-                    var parts = new List<string>
-                    {
-                        $"[Delivery Note Code] LIKE '%{escaped}%'",
-                        $"[Customer] LIKE '%{escaped}%'",
-                        $"[Sales Order] LIKE '%{escaped}%'",
-                        $"[Ship Method] LIKE '%{escaped}%'",
-                        $"[Tracking Number] LIKE '%{escaped}%'"
-                    };
-                    if (dt.Columns.Contains("Status Label"))
-                        parts.Add($"[Status Label] LIKE '%{escaped}%'");
-                    filters.Add("(" + string.Join(" OR ", parts) + ")");
-                }
-
-                if (_deliveryStatusFilter != null && _deliveryStatusFilter.SelectedIndex > 0)
-                {
-                    int? status = DictionaryUIHelper.GetFilterStatusCode(_deliveryStatusFilter);
-                    if (status.HasValue)
-                        filters.Add("[Status] = " + status.Value);
-                }
-
-                if (filters.Count > 0)
-                {
-                    dt.DefaultView.RowFilter = string.Join(" AND ", filters);
-                    dt = dt.DefaultView.ToTable();
-                }
-
-                _deliveryGrid.DataSource = dt;
-                GridHelper.StyleGrid(_deliveryGrid);
-                HideDeliveryGridIdColumns();
+                    _deliveryCtrl.GetAllDeliveryNotes());
+                dt = GridHelper.DecorateStatusTable(dt, "Status", DictionaryService.Categories.Delivery);
+                GridHelper.BindStatusData(_deliveryGrid, dt, DictionaryService.Categories.Delivery);
+                if (_deliveryGrid.Columns.Contains("Delivery Note ID"))
+                    _deliveryGrid.Columns["Delivery Note ID"].Visible = false;
             }
             catch (Exception ex)
             {
                 UITheme.ShowError("Failed to load delivery notes: " + ex.Message);
             }
-        }
-
-        private void HideDeliveryGridIdColumns()
-        {
-            if (_deliveryGrid == null) return;
-            if (_deliveryGrid.Columns.Contains("Delivery Note ID"))
-                _deliveryGrid.Columns["Delivery Note ID"].Visible = false;
-            if (_deliveryGrid.Columns.Contains("Status"))
-                _deliveryGrid.Columns["Status"].Visible = false;
         }
 
         private long? GetSelectedWarehouseId()
@@ -1004,7 +914,7 @@ namespace FurnitureERP.Forms
                 CustomerComboHelper.WireCustomerChanged(cmbCustomer, _customerCtrl, customerId =>
                 {
                     if (confirmed) return;
-                    BindSalesOrderCombo(cmbSalesOrder, customerId, 0);
+                    SalesOrderComboHelper.Rebind(cmbSalesOrder, _salesOrderCtrl, customerId, 0);
                     reloadLines();
                 });
                 cmbSalesOrder.SelectedIndexChanged += (s, e) => reloadLines();
@@ -1061,7 +971,7 @@ namespace FurnitureERP.Forms
                     if (!PermissionGuard.Ensure(PermissionModule.DeliveryNote, action, dlg)) return;
 
                     long customerId = CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
-                    long salesOrderId = GetComboLongId(cmbSalesOrder);
+                    long salesOrderId = SalesOrderComboHelper.ResolveSalesOrderId(cmbSalesOrder, _salesOrderCtrl);
                     long warehouseId = GetComboLongId(cmbWarehouse);
                     if (customerId <= 0 || salesOrderId <= 0)
                     {
@@ -1171,45 +1081,9 @@ namespace FurnitureERP.Forms
 
         private ComboBox BuildSalesOrderCombo(long customerId, long selectedSalesOrderId)
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
-            BindSalesOrderCombo(cmb, customerId, selectedSalesOrderId);
+            var cmb = new ComboBox { Width = 340 };
+            SalesOrderComboHelper.Attach(cmb, _salesOrderCtrl, customerId, selectedSalesOrderId);
             return cmb;
-        }
-
-        private void BindSalesOrderCombo(ComboBox cmb, long customerId, long selectedSalesOrderId)
-        {
-            try
-            {
-                DataTable dt;
-                if (customerId > 0)
-                    dt = _salesOrderCtrl.GetSalesOrdersPickerByCustomer(customerId);
-                else
-                {
-                    dt = new DataTable();
-                    dt.Columns.Add("Order ID", typeof(long));
-                    dt.Columns.Add("DisplayText", typeof(string));
-                }
-                if (dt != null && !dt.Columns.Contains("DisplayText"))
-                    dt.Columns.Add("DisplayText", typeof(string));
-                if (dt != null)
-                {
-                    foreach (DataRow row in dt.Rows)
-                    {
-                        string code = row.Table.Columns.Contains("Order Code") ? row["Order Code"]?.ToString() : "";
-                        string cref = row.Table.Columns.Contains("Customer Ref") ? row["Customer Ref"]?.ToString() : "";
-                        row["DisplayText"] = string.IsNullOrWhiteSpace(cref) ? code : $"{code} ({cref})";
-                    }
-                }
-                cmb.DataSource = dt;
-                cmb.DisplayMember = "DisplayText";
-                cmb.ValueMember = "Order ID";
-                if (selectedSalesOrderId > 0) SetComboLongValue(cmb, selectedSalesOrderId);
-                else if (cmb.Items.Count > 0) cmb.SelectedIndex = 0;
-            }
-            catch (Exception ex)
-            {
-                UITheme.ShowError("Failed to load sales orders: " + ex.Message);
-            }
         }
 
         private ComboBox BuildWarehouseCombo(long selectedWarehouseId = 0)

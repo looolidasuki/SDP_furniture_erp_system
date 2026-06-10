@@ -21,6 +21,7 @@ namespace Sales_user.Controllers
     {
 
         private static readonly string[] StatusLabels = { "Draft", "Confirmed", "Cancelled" };
+        private readonly CurrencyController _currencyCtrl = new CurrencyController();
 
 
 
@@ -39,6 +40,9 @@ namespace Sales_user.Controllers
                                   CONCAT(COALESCE(st.firstName, ''), ' ', COALESCE(st.lastName, '')) AS 'Staff',
 
                                   rv.paymentAmount AS 'Amount',
+                                  cur.currencyCode AS 'Currency',
+                                  rv.paymentAmountBase AS 'Amount (HKD)',
+                                  rv.exchangeRate AS 'Rate',
 
                                   rv.paymentMethod AS 'Method',
 
@@ -55,6 +59,7 @@ namespace Sales_user.Controllers
                            LEFT JOIN Customer c ON rv.cusomerID = c.customerID
 
                            LEFT JOIN Staff st ON rv.staffID = st.staffID
+                           LEFT JOIN Currency cur ON rv.currencyID = cur.currencyID
 
                            ORDER BY rv.createDate DESC";
 
@@ -116,13 +121,14 @@ namespace Sales_user.Controllers
 
         {
 
+            ApplyCurrencyAmounts(rv);
+
             string sql = @"INSERT INTO receiptvoucher
 
-                (receiptVoucherID, receiptVoucherCode, cusomerID, staffID, paymentAmount, paymentMethod, paymentMethodRef,
+                (receiptVoucherID, receiptVoucherCode, cusomerID, staffID, paymentAmount, paymentAmountBase,
+                 paymentMethod, paymentMethodRef, remark, status, currencyID, exchangeRate, paymentReceivedDate, createDate)
 
-                 remark, status, currencyID, paymentReceivedDate, createDate)
-
-                VALUES (@id, @code, @cusomerID, @staffID, @amount, @method, @ref, @remark, @status, @currencyID, @receivedDate, NOW())";
+                VALUES (@id, @code, @cusomerID, @staffID, @amount, @amountBase, @method, @ref, @remark, @status, @currencyID, @rate, @receivedDate, NOW())";
 
 
 
@@ -135,6 +141,7 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@staffID", rv.StaffID),
 
                 new MySqlParameter("@amount", rv.PaymentAmount),
+                new MySqlParameter("@amountBase", rv.PaymentAmountBase),
 
                 new MySqlParameter("@method", ResolvePaymentMethod(rv)),
 
@@ -145,6 +152,7 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@status", rv.Status),
 
                 new MySqlParameter("@currencyID", rv.CurrencyID == 0 ? 1 : rv.CurrencyID),
+                new MySqlParameter("@rate", rv.ExchangeRate > 0 ? rv.ExchangeRate : 1m),
 
                 new MySqlParameter("@receivedDate", rv.PaymentReceivedDate == default ? DateTime.Today : rv.PaymentReceivedDate)
 
@@ -174,14 +182,14 @@ namespace Sales_user.Controllers
 
         {
 
+            ApplyCurrencyAmounts(rv);
+
             string sql = @"UPDATE receiptvoucher
 
                            SET receiptVoucherCode=@code, cusomerID=@cusomerID, staffID=@staffID, paymentAmount=@amount,
-
+                               paymentAmountBase=@amountBase, currencyID=@currencyID, exchangeRate=@rate,
                                paymentMethod=@method, paymentMethodRef=@ref, remark=@remark,
-
                                status=@status, paymentReceivedDate=@receivedDate, lastModifyDate=NOW()
-
                            WHERE receiptVoucherID=@id";
 
             return DatabaseConnect.ExecuteNonQuery(sql, new[] {
@@ -193,6 +201,9 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@staffID", rv.StaffID),
 
                 new MySqlParameter("@amount", rv.PaymentAmount),
+                new MySqlParameter("@amountBase", rv.PaymentAmountBase),
+                new MySqlParameter("@currencyID", rv.CurrencyID == 0 ? 1 : rv.CurrencyID),
+                new MySqlParameter("@rate", rv.ExchangeRate > 0 ? rv.ExchangeRate : 1m),
 
                 new MySqlParameter("@method", ResolvePaymentMethod(rv)),
 
@@ -208,6 +219,17 @@ namespace Sales_user.Controllers
 
             }) > 0;
 
+        }
+
+        private void ApplyCurrencyAmounts(ReceiptVoucher rv)
+        {
+            if (rv.CurrencyID <= 0) rv.CurrencyID = 1;
+            var existing = rv.ReceiptVoucherID > 0 ? GetById(rv.ReceiptVoucherID) : null;
+            if (existing != null && existing.CurrencyID == rv.CurrencyID && existing.ExchangeRate > 0)
+                rv.ExchangeRate = existing.ExchangeRate;
+            else if (rv.ExchangeRate <= 0)
+                rv.ExchangeRate = _currencyCtrl.LockRateForCurrency(rv.CurrencyID);
+            rv.PaymentAmountBase = CurrencyConversionService.ToBaseAmount(rv.PaymentAmount, rv.ExchangeRate);
         }
 
 
@@ -243,29 +265,41 @@ namespace Sales_user.Controllers
                            ORDER BY createDate DESC";
 
             var dt = DatabaseConnect.ExecuteQuery(sql);
-
-            if (dt != null && !dt.Columns.Contains("DisplayText"))
-
-            {
-
-                dt.Columns.Add("DisplayText", typeof(string));
-
-                foreach (DataRow row in dt.Rows)
-
-                {
-
-                    string code = row["Voucher Code"]?.ToString();
-
-                    string reference = row["Reference"]?.ToString();
-
-                    row["DisplayText"] = string.IsNullOrWhiteSpace(reference) ? code : $"{code} ({reference})";
-
-                }
-
-            }
-
+            DecorateReceiptPickerRows(dt);
             return dt;
 
+        }
+
+        public DataTable GetReceiptVouchersForInvoicePicker(long invoiceId)
+        {
+            if (invoiceId <= 0)
+                return GetReceiptVouchersForPicker();
+
+            string sql = @"SELECT rv.receiptVoucherID AS 'Receipt Voucher ID',
+                                  rv.receiptVoucherCode AS 'Voucher Code',
+                                  rv.paymentAmount AS 'Amount',
+                                  rv.paymentMethodRef AS 'Reference',
+                                  rv.status AS 'Status'
+                           FROM receiptvoucher rv
+                           INNER JOIN receiptvoucherinvoice rvi ON rv.receiptVoucherID = rvi.receiptVoucherID
+                           WHERE rvi.invoiceID = @id
+                           ORDER BY rv.createDate DESC";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", invoiceId) });
+            DecorateReceiptPickerRows(dt);
+            return dt;
+        }
+
+        private static void DecorateReceiptPickerRows(DataTable dt)
+        {
+            if (dt == null) return;
+            if (!dt.Columns.Contains("DisplayText"))
+                dt.Columns.Add("DisplayText", typeof(string));
+            foreach (DataRow row in dt.Rows)
+            {
+                string code = row["Voucher Code"]?.ToString();
+                string reference = row["Reference"]?.ToString();
+                row["DisplayText"] = string.IsNullOrWhiteSpace(reference) ? code : $"{code} ({reference})";
+            }
         }
 
 
@@ -304,13 +338,9 @@ namespace Sales_user.Controllers
         {
 
             string sql = @"SELECT receiptVoucherID, receiptVoucherCode, cusomerID, staffID,
-
-                                  paymentAmount, paymentMethod, paymentMethodRef, remark, status, currencyID,
-
-                                  paymentReceivedDate
-
+                                  paymentAmount, paymentAmountBase, paymentMethod, paymentMethodRef, remark, status,
+                                  currencyID, exchangeRate, paymentReceivedDate
                            FROM receiptvoucher
-
                            WHERE receiptVoucherID = @id";
 
 
@@ -352,6 +382,10 @@ namespace Sales_user.Controllers
                 Status = Convert.ToInt32(row["status"]),
 
                 CurrencyID = Convert.ToInt64(row["currencyID"]),
+                ExchangeRate = row.Table.Columns.Contains("exchangeRate") && row["exchangeRate"] != DBNull.Value
+                    ? Convert.ToDecimal(row["exchangeRate"]) : 1m,
+                PaymentAmountBase = row.Table.Columns.Contains("paymentAmountBase") && row["paymentAmountBase"] != DBNull.Value
+                    ? Convert.ToDecimal(row["paymentAmountBase"]) : 0m,
 
                 PaymentReceivedDate = row["paymentReceivedDate"] == DBNull.Value
 
@@ -425,17 +459,11 @@ namespace Sales_user.Controllers
         {
 
             string sql = @"SELECT DATE_FORMAT(createDate, '%Y-%m') AS 'Month',
-
-                          SUM(paymentAmount) AS 'Total'
-
+                          SUM(paymentAmountBase) AS 'Total'
                    FROM receiptvoucher
-
                    WHERE status != 2
-
                    GROUP BY DATE_FORMAT(createDate, '%Y-%m')
-
                    ORDER BY 'Month' ASC
-
                    LIMIT 6";
 
             return DatabaseConnect.ExecuteQuery(sql);
@@ -449,13 +477,9 @@ namespace Sales_user.Controllers
         {
 
             string sql = @"SELECT paymentMethod AS 'Method',
-
-                          SUM(paymentAmount) AS 'Total'
-
+                          SUM(paymentAmountBase) AS 'Total'
                    FROM receiptvoucher
-
                    WHERE status != 2
-
                    GROUP BY paymentMethod";
 
             return DatabaseConnect.ExecuteQuery(sql);
@@ -463,6 +487,21 @@ namespace Sales_user.Controllers
         }
 
 
+
+        public DataTable GetIncomeByCurrency()
+        {
+            string sql = @"SELECT c.currencyCode AS 'Currency',
+                                  SUM(rv.paymentAmount) AS 'Foreign Total',
+                                  ROUND(SUM(rv.paymentAmountBase) / NULLIF(SUM(rv.paymentAmount), 0), 4) AS 'Weighted Rate',
+                                  SUM(rv.paymentAmountBase) AS 'HKD Total',
+                                  COUNT(*) AS 'Count'
+                           FROM receiptvoucher rv
+                           INNER JOIN currency c ON rv.currencyID = c.currencyID
+                           WHERE rv.status != 2
+                           GROUP BY c.currencyCode, c.currencyID
+                           ORDER BY c.currencyID";
+            return DatabaseConnect.ExecuteQuery(sql);
+        }
 
         public DataTable GetInvoiceAllocations(long receiptVoucherId)
 

@@ -24,11 +24,6 @@ namespace FurnitureERP.Forms
         private TabControl _tabControl;
         private DataGridView _invoiceGrid;
         private DataGridView _refundGrid;
-        private TextBox _invoiceSearchBox;
-        private ComboBox _invoiceStatusFilter;
-        private TextBox _refundSearchBox;
-        private ComboBox _refundStatusFilter;
-
         public FinancePanel(string module = "Invoices")
         {
             Dock = DockStyle.Fill;
@@ -72,29 +67,19 @@ namespace FurnitureERP.Forms
             btnInvoiceFromDelivery.Location = new Point(btnPrintInvoice.Right + 10, 8);
             btnInvoiceFromDelivery.Click += (s, e) => CreateInvoiceFromDelivery();
             PermissionGuard.ApplyCreateButton(btnInvoiceFromDelivery, PermissionModule.Invoice);
-            _invoiceSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnInvoiceFromDelivery.Right + 10, 10) };
-            _invoiceSearchBox.TextChanged += (s, e) => ApplyInvoiceTableFilter(_invoiceSearchBox?.Text);
-            _invoiceStatusFilter = new ComboBox { Width = 160, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(_invoiceSearchBox.Right + 10, 10) };
-            PopulateInvoiceStatusFilter();
-            _invoiceStatusFilter.SelectedIndexChanged += (s, e) =>
-            {
-                ApplyInvoiceTableFilter(_invoiceSearchBox?.Text);
-            };
             invoiceToolbar.Controls.Add(btnNewInvoice);
             invoiceToolbar.Controls.Add(btnRefreshInvoice);
             invoiceToolbar.Controls.Add(btnDetailInvoice);
             invoiceToolbar.Controls.Add(btnEditInvoice);
             invoiceToolbar.Controls.Add(btnPrintInvoice);
             invoiceToolbar.Controls.Add(btnInvoiceFromDelivery);
-            invoiceToolbar.Controls.Add(_invoiceSearchBox);
-            invoiceToolbar.Controls.Add(_invoiceStatusFilter);
 
             _invoiceGrid = GridHelper.CreateStyledGrid();
             _invoiceGrid.CellDoubleClick += InvoiceGrid_CellDoubleClick;
 
             Panel invoicePanel = new Panel { Dock = DockStyle.Fill };
             invoicePanel.Controls.Add(_invoiceGrid);
-            invoicePanel.Controls.Add(FilterBlockHelper.CreateFilterBlock(_invoiceGrid, "Invoice Filters"));
+            invoicePanel.Controls.Add(FilterBlockHelper.CreateFilterBlock(_invoiceGrid, "Invoice Filters", DictionaryService.Categories.Invoice));
             invoicePanel.Controls.Add(invoiceToolbar);
             invoiceTab.Controls.Add(invoicePanel);
 
@@ -132,26 +117,19 @@ namespace FurnitureERP.Forms
                 if (_refundGrid?.CurrentRow == null) { UITheme.ShowWarning("Please select a refund request first."); return; }
                 PrintRefundRow(_refundGrid.CurrentRow);
             };
-            _refundSearchBox = new TextBox { Width = 180, Height = 28, Location = new Point(btnPrintRefund.Right + 10, 10) };
-            _refundSearchBox.TextChanged += (s, e) => LoadRefunds();
-            _refundStatusFilter = new ComboBox { Width = 140, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(_refundSearchBox.Right + 10, 10) };
-            DictionaryUIHelper.BindStatusFilter(_refundStatusFilter, DictionaryService.Categories.RefundStatus);
-            _refundStatusFilter.SelectedIndexChanged += (s, e) => LoadRefunds();
             refundToolbar.Controls.Add(btnNewRefund);
             refundToolbar.Controls.Add(btnRefreshRefund);
             refundToolbar.Controls.Add(btnDetailRefund);
             refundToolbar.Controls.Add(btnUpdateRefundStatus);
             refundToolbar.Controls.Add(btnEditRefund);
             refundToolbar.Controls.Add(btnPrintRefund);
-            refundToolbar.Controls.Add(_refundSearchBox);
-            refundToolbar.Controls.Add(_refundStatusFilter);
 
             _refundGrid = GridHelper.CreateStyledGrid();
             _refundGrid.CellDoubleClick += RefundGrid_CellDoubleClick;
 
             Panel refundPanel = new Panel { Dock = DockStyle.Fill };
             refundPanel.Controls.Add(_refundGrid);
-            refundPanel.Controls.Add(FilterBlockHelper.CreateFilterBlock(_refundGrid, "Refund Filters"));
+            refundPanel.Controls.Add(FilterBlockHelper.CreateFilterBlock(_refundGrid, "Refund Filters", DictionaryService.Categories.RefundStatus));
             refundPanel.Controls.Add(refundToolbar);
             refundTab.Controls.Add(refundPanel);
 
@@ -173,7 +151,7 @@ namespace FurnitureERP.Forms
             try
             {
                 var dt = _invoiceCtrl.GetAllInvoices();
-                dt = DictionaryService.DecorateStatusColumn(dt, "Status", DictionaryService.Categories.Invoice);
+                dt = GridHelper.DecorateStatusTable(dt, "Status", DictionaryService.Categories.Invoice);
                 if (dt != null && dt.Columns.Contains("Invoice Type"))
                 {
                     if (!dt.Columns.Contains("Type Label"))
@@ -185,22 +163,13 @@ namespace FurnitureERP.Forms
                         row["Type Label"] = DictionaryService.GetDisplayName(DictionaryService.Categories.InvoiceType, t);
                     }
                 }
-                _invoiceGrid.DataSource = dt;
-                ApplyInvoiceTableFilter(_invoiceSearchBox?.Text);
-                GridHelper.StyleGrid(_invoiceGrid);
+                GridHelper.BindStatusData(_invoiceGrid, dt, DictionaryService.Categories.Invoice);
                 HideInvoiceGridCodeColumns();
             }
-            catch { }
-        }
-
-        private void PopulateInvoiceStatusFilter()
-        {
-            if (_invoiceStatusFilter == null) return;
-            _invoiceStatusFilter.Items.Clear();
-            _invoiceStatusFilter.Items.Add("All Status");
-            foreach (var item in DictionaryService.GetItems(DictionaryService.Categories.Invoice))
-                _invoiceStatusFilter.Items.Add(new ComboBoxItem(item.Key, item.Value));
-            _invoiceStatusFilter.SelectedIndex = 0;
+            catch (Exception ex)
+            {
+                UITheme.ShowWarning("Failed to load invoices: " + ex.Message);
+            }
         }
 
         private void HideInvoiceGridCodeColumns()
@@ -211,33 +180,6 @@ namespace FurnitureERP.Forms
                 if (_invoiceGrid.Columns.Contains(col))
                     _invoiceGrid.Columns[col].Visible = false;
             }
-        }
-
-        private void ApplyInvoiceTableFilter(string keyword)
-        {
-            if (!(_invoiceGrid.DataSource is DataTable dt)) return;
-            keyword = (keyword ?? "").Trim().Replace("'", "''");
-            var conditions = new System.Collections.Generic.List<string>();
-
-            if (!string.IsNullOrWhiteSpace(keyword))
-            {
-                var textConditions = new System.Collections.Generic.List<string>();
-                foreach (DataColumn col in dt.Columns)
-                {
-                    if (col.DataType == typeof(string))
-                        textConditions.Add($"[{col.ColumnName}] LIKE '%{keyword}%'");
-                }
-                if (textConditions.Count > 0)
-                    conditions.Add("(" + string.Join(" OR ", textConditions) + ")");
-            }
-
-            if (_invoiceStatusFilter != null && _invoiceStatusFilter.SelectedIndex > 0 &&
-                _invoiceStatusFilter.SelectedItem is ComboBoxItem statusItem && dt.Columns.Contains("Status"))
-            {
-                conditions.Add("[Status] = " + statusItem.Code);
-            }
-
-            dt.DefaultView.RowFilter = string.Join(" AND ", conditions);
         }
 
         private long DepositProductId
@@ -254,39 +196,14 @@ namespace FurnitureERP.Forms
         {
             try
             {
-                _refundGrid.DataSource = _refundCtrl.GetAllRefundRequests();
-                ApplyRefundTableFilter();
-                GridHelper.StyleGrid(_refundGrid);
+                GridHelper.BindStatusData(
+                    _refundGrid,
+                    _refundCtrl.GetAllRefundRequests(),
+                    "Status",
+                    DictionaryService.Categories.RefundStatus);
                 HideRefundGridInternalColumns();
             }
             catch { }
-        }
-
-        private void ApplyRefundTableFilter()
-        {
-            if (!(_refundGrid.DataSource is DataTable dt)) return;
-            var filters = new List<string>();
-            string keyword = (_refundSearchBox?.Text ?? "").Trim().Replace("'", "''");
-            if (!string.IsNullOrWhiteSpace(keyword))
-            {
-                var parts = new List<string>();
-                foreach (DataColumn col in dt.Columns)
-                {
-                    if (col.DataType == typeof(string))
-                        parts.Add($"[{col.ColumnName}] LIKE '%{keyword}%'");
-                }
-                if (parts.Count > 0)
-                    filters.Add("(" + string.Join(" OR ", parts) + ")");
-            }
-
-            if (_refundStatusFilter != null && _refundStatusFilter.SelectedIndex > 0)
-            {
-                int? status = DictionaryUIHelper.GetFilterStatusCode(_refundStatusFilter);
-                if (status.HasValue && dt.Columns.Contains("Status"))
-                    filters.Add("[Status] = " + status.Value);
-            }
-
-            dt.DefaultView.RowFilter = filters.Count > 0 ? string.Join(" AND ", filters) : "";
         }
 
         private void HideRefundGridInternalColumns()
@@ -1036,18 +953,24 @@ namespace FurnitureERP.Forms
             using (var dlg = new Form())
             {
                 dlg.Text = "New Invoice";
-                dlg.Size = new Size(560, 480);
+                dlg.Size = new Size(580, 520);
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.BackColor = UITheme.Background;
 
-                var layout = new TableLayoutPanel { ColumnCount = 2, RowCount = 7, Padding = new Padding(16) };
+                var layout = new TableLayoutPanel { ColumnCount = 2, RowCount = 8, Padding = new Padding(16) };
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
                 layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
                 var cmbCustomer = BuildCustomerCombo();
                 var cmbSalesOrder = BuildSalesOrderCombo(0, 0);
+                var lblSoTotal = new Label
+                {
+                    AutoSize = true,
+                    ForeColor = UITheme.TextDark,
+                    Text = "—"
+                };
                 var cmbType = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
                 cmbType.Items.Add("1 - Deposit (prepayment invoice)");
                 cmbType.Items.Add("2 - Normal (use Invoice from Delivery for shipped goods)");
@@ -1081,11 +1004,39 @@ namespace FurnitureERP.Forms
 
                 UITheme.AddFormField(layout, 0, "Customer *", cmbCustomer);
                 UITheme.AddFormField(layout, 1, "Sales Order *", cmbSalesOrder);
-                UITheme.AddFormField(layout, 2, "Invoice Type *", cmbType);
-                UITheme.AddFormField(layout, 3, "Amount / Note", pnlTypeDetail);
-                UITheme.AddFormField(layout, 4, "Staff", lblStaff);
-                UITheme.AddFormField(layout, 5, "Status", cmbStatus);
-                UITheme.AddFormField(layout, 6, "Remark", txtRemark);
+                UITheme.AddFormField(layout, 2, "Total Amount", lblSoTotal);
+                UITheme.AddFormField(layout, 3, "Invoice Type *", cmbType);
+                UITheme.AddFormField(layout, 4, "Amount / Note", pnlTypeDetail);
+                UITheme.AddFormField(layout, 5, "Staff", lblStaff);
+                UITheme.AddFormField(layout, 6, "Status", cmbStatus);
+                UITheme.AddFormField(layout, 7, "Remark", txtRemark);
+
+                void RefreshSoTotal()
+                {
+                    try
+                    {
+                        long soId = SalesOrderComboHelper.ResolveSalesOrderId(cmbSalesOrder, _salesOrderCtrl);
+                        if (soId <= 0)
+                        {
+                            lblSoTotal.Text = "—";
+                            return;
+                        }
+                        var so = _salesOrderCtrl.GetFullById(soId);
+                        if (so == null)
+                        {
+                            lblSoTotal.Text = "—";
+                            return;
+                        }
+                        if (so.TotalAmount > 0)
+                            lblSoTotal.Text = $"{so.TotalAmount:N2} (HKD {so.TotalAmountBase:N2})";
+                        else
+                            lblSoTotal.Text = "—";
+                    }
+                    catch
+                    {
+                        lblSoTotal.Text = "—";
+                    }
+                }
 
                 void RefreshTypeUi()
                 {
@@ -1095,7 +1046,14 @@ namespace FurnitureERP.Forms
                 }
                 cmbType.SelectedIndexChanged += (s, e) => RefreshTypeUi();
                 CustomerComboHelper.WireCustomerChanged(cmbCustomer, _customerCtrl, customerId =>
-                    BindSalesOrderCombo(cmbSalesOrder, customerId, 0));
+                {
+                    BindSalesOrderCombo(cmbSalesOrder, customerId, 0);
+                    lblSoTotal.Text = "—";
+                });
+                var soBinder = SalesOrderComboHelper.GetBinder(cmbSalesOrder);
+                if (soBinder != null)
+                    soBinder.SelectionCommitted += (s, e) => RefreshSoTotal();
+                cmbSalesOrder.Leave += (s, e) => RefreshSoTotal();
                 RefreshTypeUi();
 
                 layout.Dock = DockStyle.Fill;
@@ -1111,13 +1069,22 @@ namespace FurnitureERP.Forms
                         return;
                     }
                     long customerId = CustomerComboHelper.ResolveCustomerId(cmbCustomer, _customerCtrl);
-                    long salesOrderId = GetComboLongId(cmbSalesOrder);
+                    long salesOrderId = SalesOrderComboHelper.ResolveSalesOrderId(cmbSalesOrder, _salesOrderCtrl);
                     if (customerId <= 0 || salesOrderId <= 0)
                     {
                         UITheme.ShowWarning("Please select or type a valid customer and sales order.");
                         return;
                     }
-                    var so = _salesOrderCtrl.GetFullById(salesOrderId);
+                    SalesOrder so;
+                    try
+                    {
+                        so = _salesOrderCtrl.GetFullById(salesOrderId);
+                    }
+                    catch (Exception ex)
+                    {
+                        UITheme.ShowWarning("Unable to load sales order: " + ex.Message);
+                        return;
+                    }
                     if (so == null || so.CustomerID != customerId)
                     {
                         UITheme.ShowWarning("Selected sales order does not belong to the selected customer.");
@@ -1170,7 +1137,7 @@ namespace FurnitureERP.Forms
             using (var dlg = new Form())
             {
                 dlg.Text = isNew ? "New Refund Request" : $"Edit Refund — {existing.RefundRequestCode}";
-                dlg.Size = new Size(560, 520);
+                dlg.Size = new Size(580, 560);
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
@@ -1194,8 +1161,16 @@ namespace FurnitureERP.Forms
                         new Label { Text = existing.RefundRequestCode, AutoSize = true, ForeColor = UITheme.TextDark });
                 }
 
-                var cmbInvoice = BuildInvoicePickerCombo(isNew ? 0 : existing.InvoiceID ?? 0);
-                var cmbReceipt = BuildReceiptPickerCombo(isNew ? 0 : existing.ReceiptVoucherID ?? 0);
+                long initialInvoiceId = isNew ? 0 : existing.InvoiceID ?? 0;
+                long initialReceiptId = isNew ? 0 : existing.ReceiptVoucherID ?? 0;
+                var cmbInvoice = BuildInvoicePickerCombo(initialInvoiceId);
+                var cmbReceipt = BuildReceiptPickerCombo(initialReceiptId, initialInvoiceId);
+                var lblInvoiceTotal = new Label
+                {
+                    AutoSize = true,
+                    ForeColor = UITheme.TextDark,
+                    Text = "—"
+                };
                 var txtAmount = new TextBox { Text = isNew ? "" : existing.RefundAmount.ToString("0.00") };
                 var cmbMethod = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320 };
                 DictionaryUIHelper.BindStatusCombo(cmbMethod, DictionaryService.Categories.RefundMethod,
@@ -1223,9 +1198,34 @@ namespace FurnitureERP.Forms
                     : (isNew ? "—" : existing.StaffID.ToString());
 
                 UITheme.AddFormField(layout, row++, "Invoice *", cmbInvoice);
+                UITheme.AddFormField(layout, row++, "Invoice Total", lblInvoiceTotal);
                 UITheme.AddFormField(layout, row++, "Receipt Voucher", cmbReceipt);
                 UITheme.AddFormField(layout, row++, "Staff", new Label { Text = staffLabel, AutoSize = true, ForeColor = UITheme.TextDark });
                 UITheme.AddFormField(layout, row++, "Refund Amount *", txtAmount);
+
+                FilteredComboBinder receiptBinder = GetComboBinder(cmbReceipt);
+                Action refreshInvoiceContext = () =>
+                {
+                    long invoiceId = GetComboLongId(cmbInvoice);
+                    decimal total = invoiceId > 0 ? _invoiceCtrl.GetInvoiceTotal(invoiceId) : 0m;
+                    lblInvoiceTotal.Text = invoiceId > 0 ? $"{total:N2}" : "—";
+                    if (isNew && invoiceId > 0 && total > 0)
+                        txtAmount.Text = total.ToString("0.00");
+
+                    if (receiptBinder != null)
+                    {
+                        long keepReceiptId = receiptBinder.GetSelectedId();
+                        if (keepReceiptId <= 0 && initialInvoiceId == invoiceId)
+                            keepReceiptId = initialReceiptId;
+                        receiptBinder.SetSource(BuildReceiptPickerTable(invoiceId), keepReceiptId);
+                    }
+                };
+                var invoiceBinder = GetComboBinder(cmbInvoice);
+                if (invoiceBinder != null)
+                    invoiceBinder.SelectionCommitted += (s, e) => refreshInvoiceContext();
+                cmbInvoice.Leave += (s, e) => refreshInvoiceContext();
+                if (initialInvoiceId > 0)
+                    refreshInvoiceContext();
                 UITheme.AddFormField(layout, row++, "Refund Method *", cmbMethod);
                 UITheme.AddFormField(layout, row++, "Refund Reason *", cmbReason);
                 UITheme.AddFormField(layout, row++, "Refund Transaction Ref", txtRefundRef);
@@ -1359,39 +1359,59 @@ namespace FurnitureERP.Forms
 
         private ComboBox BuildInvoicePickerCombo(long selectedInvoiceId)
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320 };
-            var dt = _invoiceCtrl.GetInvoicesForPicker();
-            cmb.DataSource = dt;
-            cmb.DisplayMember = "DisplayText";
-            cmb.ValueMember = "Invoice ID";
-            if (selectedInvoiceId > 0) SetComboLongValue(cmb, selectedInvoiceId);
-            else if (cmb.Items.Count > 0) cmb.SelectedIndex = 0;
+            var cmb = new ComboBox { Width = 320 };
+            var binder = new FilteredComboBinder(cmb, "Invoice ID", "DisplayText");
+            binder.SetSource(_invoiceCtrl.GetInvoicesForPicker() ?? EmptyInvoicePickerTable(), selectedInvoiceId);
+            cmb.Tag = binder;
             return cmb;
         }
 
-        private ComboBox BuildReceiptPickerCombo(long selectedReceiptId)
+        private ComboBox BuildReceiptPickerCombo(long selectedReceiptId, long invoiceId = 0)
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320 };
-            var dt = _receiptCtrl.GetReceiptVouchersForPicker();
-            if (dt != null)
-            {
-                if (!dt.Columns.Contains("DisplayText"))
-                    dt.Columns.Add("DisplayText", typeof(string));
-                var withNone = dt.Clone();
-                var none = withNone.NewRow();
-                none["Receipt Voucher ID"] = 0L;
-                none["Voucher Code"] = "";
-                none["DisplayText"] = "(None)";
-                withNone.Rows.Add(none);
-                foreach (DataRow row in dt.Rows)
-                    withNone.ImportRow(row);
-                cmb.DataSource = withNone;
-            }
-            cmb.DisplayMember = "DisplayText";
-            cmb.ValueMember = "Receipt Voucher ID";
-            SetComboLongValue(cmb, selectedReceiptId);
+            var cmb = new ComboBox { Width = 320 };
+            var binder = new FilteredComboBinder(cmb, "Receipt Voucher ID", "DisplayText");
+            binder.SetSource(BuildReceiptPickerTable(invoiceId), selectedReceiptId);
+            cmb.Tag = binder;
             return cmb;
         }
+
+        private DataTable BuildReceiptPickerTable(long invoiceId = 0)
+        {
+            DataTable dt = invoiceId > 0
+                ? _receiptCtrl.GetReceiptVouchersForInvoicePicker(invoiceId)
+                : _receiptCtrl.GetReceiptVouchersForPicker();
+
+            DataTable withNone = dt?.Clone();
+            if (withNone == null)
+            {
+                withNone = new DataTable();
+                withNone.Columns.Add("Receipt Voucher ID", typeof(long));
+                withNone.Columns.Add("DisplayText", typeof(string));
+            }
+
+            var none = withNone.NewRow();
+            none["Receipt Voucher ID"] = 0L;
+            if (withNone.Columns.Contains("Voucher Code"))
+                none["Voucher Code"] = "";
+            none["DisplayText"] = "(None)";
+            withNone.Rows.Add(none);
+            if (dt != null)
+            {
+                foreach (DataRow row in dt.Rows)
+                    withNone.ImportRow(row);
+            }
+            return withNone;
+        }
+
+        private static DataTable EmptyInvoicePickerTable()
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Invoice ID", typeof(long));
+            dt.Columns.Add("DisplayText", typeof(string));
+            return dt;
+        }
+
+        private static FilteredComboBinder GetComboBinder(ComboBox cmb) => cmb?.Tag as FilteredComboBinder;
 
         private ComboBox BuildDeliveryNotePickerCombo(long selectedDeliveryNoteId = 0)
         {
@@ -1624,38 +1644,14 @@ namespace FurnitureERP.Forms
 
         private ComboBox BuildSalesOrderCombo(long customerId, long selectedSalesOrderId)
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
-            BindSalesOrderCombo(cmb, customerId, selectedSalesOrderId);
+            var cmb = new ComboBox { Width = 340 };
+            SalesOrderComboHelper.Attach(cmb, _salesOrderCtrl, customerId, selectedSalesOrderId);
             return cmb;
         }
 
         private void BindSalesOrderCombo(ComboBox cmb, long customerId, long selectedSalesOrderId)
         {
-            DataTable dt;
-            if (customerId > 0)
-                dt = _salesOrderCtrl.GetSalesOrdersPickerByCustomer(customerId);
-            else
-            {
-                dt = new DataTable();
-                dt.Columns.Add("Order ID", typeof(long));
-                dt.Columns.Add("DisplayText", typeof(string));
-            }
-            if (dt != null && !dt.Columns.Contains("DisplayText"))
-                dt.Columns.Add("DisplayText", typeof(string));
-            if (dt != null)
-            {
-                foreach (DataRow row in dt.Rows)
-                {
-                    string code = row.Table.Columns.Contains("Order Code") ? row["Order Code"]?.ToString() : "";
-                    string cref = row.Table.Columns.Contains("Customer Ref") ? row["Customer Ref"]?.ToString() : "";
-                    row["DisplayText"] = string.IsNullOrWhiteSpace(cref) ? code : $"{code} ({cref})";
-                }
-            }
-            cmb.DataSource = dt;
-            cmb.DisplayMember = "DisplayText";
-            cmb.ValueMember = "Order ID";
-            if (selectedSalesOrderId > 0) SetComboLongValue(cmb, selectedSalesOrderId);
-            else if (cmb.Items.Count > 0) cmb.SelectedIndex = 0;
+            SalesOrderComboHelper.Rebind(cmb, _salesOrderCtrl, customerId, selectedSalesOrderId);
         }
 
         private static ComboBox BuildInvoiceStatusCombo(int selectedStatus)
@@ -1688,6 +1684,11 @@ namespace FurnitureERP.Forms
 
         private static long GetComboLongId(ComboBox cmb)
         {
+            if (cmb?.Tag is FilteredComboBinder binder)
+            {
+                long binderId = binder.GetSelectedId();
+                if (binderId > 0) return binderId;
+            }
             if (cmb?.SelectedValue == null) return 0;
             long.TryParse(cmb.SelectedValue.ToString(), out long id);
             return id;

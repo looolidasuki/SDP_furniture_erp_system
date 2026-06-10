@@ -76,8 +76,11 @@ namespace FurnitureERP.Helpers
                 }
             }
 
-            int barW = Math.Max(10, chartW / (_labels.Length * 2));
-            int gap = chartW / _labels.Length;
+            int gap = Math.Max(1, chartW / _labels.Length);
+            int barW = Math.Max(12, gap / 2);
+            int maxBarW = Math.Max(48, chartW / 5);
+            if (_labels.Length <= 2)
+                barW = Math.Min(barW, maxBarW);
 
             Color[] colors = {
                 Color.FromArgb(63, 118, 210), Color.FromArgb(0, 168, 120),
@@ -155,7 +158,8 @@ namespace FurnitureERP.Helpers
             foreach (var v in _values) total += v;
 
             var area = e.ClipRectangle;
-            int size = Math.Min(area.Width - 120, area.Height - 30);
+            int legendReserve = Math.Max(110, Math.Min(150, area.Width / 3));
+            int size = Math.Min(area.Width - legendReserve - 16, area.Height - 24);
             size = Math.Max(size, 60);
             var rect = new Rectangle(10, area.Top + (area.Height - size) / 2, size, size);
 
@@ -170,7 +174,7 @@ namespace FurnitureERP.Helpers
             }
 
             // Legend
-            int legendX = size + 20;
+            int legendX = rect.Right + 12;
             int legendY = area.Top + (area.Height - _labels.Length * 20) / 2;
             for (int i = 0; i < _labels.Length; i++)
             {

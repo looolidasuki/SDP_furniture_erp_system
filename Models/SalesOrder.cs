@@ -9,6 +9,9 @@ namespace Sales_user.Models
         public long CustomerID { get; set; }
         public long StaffID { get; set; }
         public long CurrencyCurrencyID { get; set; }
+        public decimal ExchangeRate { get; set; } = 1m;
+        public decimal TotalAmount { get; set; }
+        public decimal TotalAmountBase { get; set; }
         public string DeliveryAddress { get; set; }
         public DateTime? RequestedDeliveryDate { get; set; }
         public string CustomerRefNumber { get; set; }

@@ -10,6 +10,9 @@ namespace Sales_user.Models
         public long StaffID { get; set; }
         public long CustomerID { get; set; }
         public long CurrencyID { get; set; }
+        public decimal ExchangeRate { get; set; } = 1m;
+        public decimal TotalAmount { get; set; }
+        public decimal TotalAmountBase { get; set; }
         public DateTime CreateDate { get; set; }
         public DateTime LastModifyDate { get; set; }
         public int Status { get; set; }

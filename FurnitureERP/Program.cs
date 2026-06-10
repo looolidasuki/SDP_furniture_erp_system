@@ -23,6 +23,20 @@ namespace FurnitureERP
                 return;
             }
 
+            try
+            {
+                CurrencyDualAmountMigration.EnsureApplied();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Database schema update failed.\n" + ex.Message +
+                    "\n\nPlease run Scripts/migrate_currency_dual_amount.sql in MySQL, then restart.",
+                    "Schema Migration Warning",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+
             EnsureDiagnosticAccount();
 
             Application.Run(new LoginForm());

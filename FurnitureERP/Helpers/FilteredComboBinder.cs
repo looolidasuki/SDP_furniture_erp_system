@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Windows.Forms;
 
 namespace FurnitureERP.Helpers
 {
     /// <summary>
-    /// Filters a ComboBox DataSource as the user types. Selection is committed on DropDownClosed.
+    /// Filters a ComboBox as the user types. Selection is committed on DropDownClosed.
+    /// Uses plain Items while typing to avoid WinForms DataSource auto-select behaviour.
     /// </summary>
     public sealed class FilteredComboBinder
     {
@@ -13,7 +15,9 @@ namespace FurnitureERP.Helpers
         private readonly string _valueMember;
         private readonly string _displayMember;
         private DataTable _fullSource;
+        private readonly List<long> _filteredIds = new List<long>();
         private bool _suppressEvents;
+        private bool _itemsMode;
         private string _lastTypedText = "";
 
         public FilteredComboBinder(ComboBox combo, string valueMember, string displayMember)
@@ -34,7 +38,7 @@ namespace FurnitureERP.Helpers
         {
             if (_suppressEvents) return;
             if (!string.IsNullOrWhiteSpace(SafeGetText())) return;
-            ApplyFilter("", 0);
+            BindFullList(0);
             if (_combo.Items.Count > 0)
                 _combo.DroppedDown = true;
         }
@@ -43,11 +47,17 @@ namespace FurnitureERP.Helpers
         {
             if (e.KeyCode == Keys.Down && _combo.Items.Count > 0 && !_combo.DroppedDown)
                 _combo.DroppedDown = true;
+            else if (e.KeyCode == Keys.Escape && _combo.DroppedDown)
+            {
+                _combo.DroppedDown = false;
+                e.Handled = true;
+            }
         }
 
         private void Combo_DropDownClosed(object sender, EventArgs e)
         {
             if (_suppressEvents) return;
+
             if (GetSelectedId() > 0)
             {
                 _lastTypedText = SafeGetText();
@@ -66,7 +76,10 @@ namespace FurnitureERP.Helpers
             if (_suppressEvents || _combo.IsDisposed) return;
             string text = SafeGetText();
             _lastTypedText = text;
-            ApplyFilter(text, 0);
+            if (string.IsNullOrEmpty(text))
+                BindFullList(0);
+            else
+                BindFilteredItems(text);
         }
 
         public bool SuppressEvents
@@ -90,11 +103,32 @@ namespace FurnitureERP.Helpers
         private void LoadSource(DataTable source, long selectedId)
         {
             _fullSource = source?.Copy();
-            ApplyFilter("", selectedId);
+            if (selectedId > 0)
+                BindFullList(selectedId);
+            else
+                BindFullList(0);
         }
 
         public long GetSelectedId()
         {
+            if (_itemsMode)
+            {
+                if (_combo.SelectedIndex >= 0 && _combo.SelectedIndex < _filteredIds.Count)
+                    return _filteredIds[_combo.SelectedIndex];
+
+                string text = SafeGetText();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    for (int i = 0; i < _combo.Items.Count; i++)
+                    {
+                        if (string.Equals(_combo.Items[i]?.ToString(), text, StringComparison.OrdinalIgnoreCase)
+                            && i < _filteredIds.Count)
+                            return _filteredIds[i];
+                    }
+                }
+                return 0;
+            }
+
             try
             {
                 if (_combo.SelectedValue != null && _combo.SelectedValue != DBNull.Value
@@ -103,7 +137,7 @@ namespace FurnitureERP.Helpers
             }
             catch { }
 
-            if (_combo.DataSource is DataTable dt && _combo.SelectedIndex >= 0 && _combo.SelectedIndex < _combo.Items.Count)
+            if (_combo.DataSource is DataTable && _combo.SelectedIndex >= 0 && _combo.SelectedIndex < _combo.Items.Count)
             {
                 if (_combo.Items[_combo.SelectedIndex] is DataRowView drv
                     && drv.Row.Table.Columns.Contains(_valueMember)
@@ -116,12 +150,12 @@ namespace FurnitureERP.Helpers
 
         public void SelectById(long id)
         {
-            ApplyFilter("", id);
+            BindFullList(id);
         }
 
         public void ClearSelection()
         {
-            ApplyFilter("", 0);
+            BindFullList(0);
         }
 
         private string SafeGetText()
@@ -136,7 +170,47 @@ namespace FurnitureERP.Helpers
             }
         }
 
-        private void ApplyFilter(string filterText, long selectId)
+        private void BindFullList(long selectId)
+        {
+            _suppressEvents = true;
+            try
+            {
+                _itemsMode = false;
+                _filteredIds.Clear();
+                _combo.DataSource = null;
+                _combo.Items.Clear();
+
+                DataTable source = _fullSource?.Copy();
+                if (source == null)
+                {
+                    _combo.Text = "";
+                    _lastTypedText = "";
+                    return;
+                }
+
+                _combo.DataSource = source;
+                _combo.DisplayMember = _displayMember;
+                _combo.ValueMember = _valueMember;
+
+                if (selectId > 0)
+                {
+                    SetComboLongValue(selectId);
+                    _lastTypedText = SafeGetText();
+                }
+                else
+                {
+                    _combo.SelectedIndex = -1;
+                    _combo.Text = "";
+                    _lastTypedText = "";
+                }
+            }
+            finally
+            {
+                _suppressEvents = false;
+            }
+        }
+
+        private void BindFilteredItems(string filterText)
         {
             _suppressEvents = true;
             try
@@ -146,38 +220,31 @@ namespace FurnitureERP.Helpers
                 try { caret = _combo.SelectionStart; } catch { caret = filterText.Length; }
 
                 DataTable filtered = FilterDataTable(_fullSource, filterText, _displayMember);
+                _itemsMode = true;
+                _filteredIds.Clear();
                 _combo.DataSource = null;
-                _combo.DataSource = filtered;
-                _combo.DisplayMember = _displayMember;
-                _combo.ValueMember = _valueMember;
+                _combo.Items.Clear();
 
-                if (selectId > 0)
+                foreach (DataRow row in filtered.Rows)
                 {
-                    SetComboLongValue(selectId);
-                    _lastTypedText = SafeGetText();
-                    _combo.DroppedDown = false;
+                    if (!filtered.Columns.Contains(_displayMember) || !filtered.Columns.Contains(_valueMember))
+                        continue;
+                    if (row[_valueMember] == DBNull.Value) continue;
+                    _combo.Items.Add(row[_displayMember]?.ToString() ?? "");
+                    _filteredIds.Add(Convert.ToInt64(row[_valueMember]));
                 }
-                else if (string.IsNullOrEmpty(filterText))
-                {
-                    _combo.SelectedIndex = -1;
-                    _combo.Text = "";
-                    _lastTypedText = "";
-                    _combo.DroppedDown = false;
-                }
-                else
-                {
-                    _combo.SelectedIndex = -1;
-                    _combo.Text = filterText;
-                    _lastTypedText = filterText;
-                    try
-                    {
-                        _combo.SelectionStart = Math.Min(caret, filterText.Length);
-                        _combo.SelectionLength = 0;
-                    }
-                    catch { }
 
-                    _combo.DroppedDown = filtered.Rows.Count > 0;
+                _combo.SelectedIndex = -1;
+                _combo.Text = filterText;
+                _lastTypedText = filterText;
+                try
+                {
+                    _combo.SelectionStart = Math.Min(caret, filterText.Length);
+                    _combo.SelectionLength = 0;
                 }
+                catch { }
+
+                _combo.DroppedDown = filtered.Rows.Count > 0;
             }
             finally
             {
@@ -197,7 +264,7 @@ namespace FurnitureERP.Helpers
             }
             catch { }
 
-            if (_combo.DataSource is DataTable dt)
+            if (_combo.DataSource is DataTable)
             {
                 for (int i = 0; i < _combo.Items.Count; i++)
                 {

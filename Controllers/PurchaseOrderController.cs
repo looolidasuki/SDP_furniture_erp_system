@@ -8,16 +8,22 @@ namespace Sales_user.Controllers
 {
     public class PurchaseOrderController
     {
+        private readonly CurrencyController _currencyCtrl = new CurrencyController();
+
         public DataTable GetAllPurchaseOrders()
         {
             string sql = @"SELECT po.purchaseOrderCode AS 'Purchase Order Code',
                                   s.supplierName AS 'Supplier',
+                                  cur.currencyCode AS 'Currency',
+                                  po.totalAmount AS 'Total',
+                                  po.totalAmountBase AS 'Total (HKD)',
                                   po.createDate AS 'Create Date',
                                   po.requestDeliveryDate AS 'Request Delivery Date',
                                   po.status AS 'Status',
                                   po.purchaseOrderID AS 'Purchase Order ID'
                            FROM PurchaseOrder po
                            LEFT JOIN Supplier s ON po.supplierID = s.supplierID
+                           LEFT JOIN Currency cur ON po.currencyID = cur.currencyID
                            ORDER BY po.createDate DESC";
             return DatabaseConnect.ExecuteQuery(sql);
         }
@@ -123,10 +129,16 @@ namespace Sales_user.Controllers
             if (nextId <= 0)
                 throw new InvalidOperationException("Unable to allocate purchase order ID.");
 
+            if (order.CurrencyID <= 0) order.CurrencyID = 1;
+            if (order.ExchangeRate <= 0)
+                order.ExchangeRate = _currencyCtrl.LockRateForCurrency(order.CurrencyID);
+
             string sql = @"INSERT INTO PurchaseOrder
                 (purchaseOrderID, purchaseOrderCode, supplierID, staffID, warehouseID, relatedShortageReport,
+                 currencyID, exchangeRate, totalAmount, totalAmountBase,
                  requestDeliveryDate, status, remark)
                 VALUES (@id, @code, @supplierID, @staffID, @warehouseID, @shortageReport,
+                        @currencyID, @rate, @total, @totalBase,
                         @requestDeliveryDate, @status, @remark)";
             DatabaseConnect.ExecuteNonQuery(conn, trans, sql, new[] {
                 new MySqlParameter("@id", nextId),
@@ -135,6 +147,10 @@ namespace Sales_user.Controllers
                 new MySqlParameter("@staffID", order.StaffID),
                 new MySqlParameter("@warehouseID", order.WarehouseID > 0 ? (object)order.WarehouseID : System.DBNull.Value),
                 new MySqlParameter("@shortageReport", order.RelatedShortageReport ?? (object)System.DBNull.Value),
+                new MySqlParameter("@currencyID", order.CurrencyID),
+                new MySqlParameter("@rate", order.ExchangeRate),
+                new MySqlParameter("@total", order.TotalAmount),
+                new MySqlParameter("@totalBase", order.TotalAmountBase),
                 new MySqlParameter("@requestDeliveryDate", order.RequestDeliveryDate),
                 new MySqlParameter("@status", order.Status),
                 new MySqlParameter("@remark", order.Remark ?? (object)System.DBNull.Value)
@@ -200,7 +216,30 @@ namespace Sales_user.Controllers
                 });
                 hasAny = true;
             }
+            if (hasAny) RefreshTotals(purchaseOrderId);
             return hasAny;
+        }
+
+        public void RefreshTotals(long purchaseOrderId)
+        {
+            decimal total = GetTotalAmount(purchaseOrderId);
+            object rateObj = DatabaseConnect.ExecuteScalar(
+                "SELECT exchangeRate FROM PurchaseOrder WHERE purchaseOrderID = @id",
+                new[] { new MySqlParameter("@id", purchaseOrderId) });
+            decimal rate = rateObj == null || rateObj == System.DBNull.Value ? 1m : System.Convert.ToDecimal(rateObj);
+            if (rate <= 0) rate = 1m;
+            decimal baseTotal = CurrencyConversionService.ToBaseAmount(total, rate);
+
+            DatabaseConnect.ExecuteNonQuery(
+                @"UPDATE PurchaseOrder
+                  SET totalAmount = @total, totalAmountBase = @base, lastModifyDate = NOW()
+                  WHERE purchaseOrderID = @id",
+                new[]
+                {
+                    new MySqlParameter("@total", total),
+                    new MySqlParameter("@base", baseTotal),
+                    new MySqlParameter("@id", purchaseOrderId)
+                });
         }
 
         public DataTable GetPurchaseOrdersForPicker()

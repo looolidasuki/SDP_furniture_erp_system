@@ -23,7 +23,10 @@ namespace Sales_user.Models
         // 保留：對應關聯表中的採購單 ID
         public long? PurchaseOrderID { get; set; }
         public long StaffID { get; set; }
+        public long CurrencyID { get; set; } = 1;
+        public decimal ExchangeRate { get; set; } = 1m;
         public decimal Amount { get; set; }
+        public decimal TotalAmountBase { get; set; }
 
         // ⚠️ 修改：配合資料庫中的類型，將 int 改為 string 
         // 這樣才能正常讀取與寫入資料庫的字串型態

@@ -19,6 +19,7 @@ namespace FurnitureERP.Forms
         private readonly ShortageReportController _shortageCtrl = new ShortageReportController();
         private readonly WarehouseController _warehouseCtrl = new WarehouseController();
         private readonly PaymentVoucherController _paymentVoucherCtrl = new PaymentVoucherController();
+        private readonly CurrencyController _currencyCtrl = new CurrencyController();
 
         private TabControl _tabs;
 
@@ -60,24 +61,56 @@ namespace FurnitureERP.Forms
             Controls.Add(_tabs);
         }
 
+        private static void ReloadRawMaterialGrid(DataGridView grid, RawMaterialController ctrl)
+        {
+            GridHelper.BindStatusWithStockAlert(
+                grid,
+                ctrl.GetAllRawMaterialsWithStock(),
+                "Status",
+                DictionaryService.Categories.RawMaterial,
+                "Current Stock",
+                "Min Stock");
+        }
+
+        private static void ReloadPurchaseOrderGrid(DataGridView grid, PurchaseOrderController ctrl)
+        {
+            GridHelper.BindStatusData(
+                grid,
+                ctrl.GetAllPurchaseOrders(),
+                "Status",
+                DictionaryService.Categories.PurchaseOrder);
+        }
+
+        private static void ReloadGrnGrid(DataGridView grid, GoodsReceivedNoteController ctrl)
+        {
+            GridHelper.BindStatusData(
+                grid,
+                ctrl.GetAllGoodsReceivedNotes(),
+                "Status",
+                DictionaryService.Categories.PurchaseOrder);
+        }
+
+        private static void ReloadSupplierGrid(DataGridView grid, SupplierController ctrl)
+        {
+            GridHelper.BindStatusData(
+                grid,
+                ctrl.GetAllSuppliers(),
+                "Status",
+                DictionaryService.Categories.Supplier);
+        }
+
         private TabPage BuildRawMaterialsTab()
         {
             var tab = new TabPage("Raw Materials") { BackColor = UITheme.Background, Padding = new Padding(8) };
             var grid = GridHelper.CreateStyledGrid();
 
             var toolbar = BuildToolbar("+ New Raw Material", PermissionModule.RawMaterial, () => ShowRawMaterialDialog(), grid, () => {
-                try
-                {
-                    grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock();
-                    GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock");
-                }
-                catch { }
+                try { ReloadRawMaterialGrid(grid, _rawMaterialCtrl); } catch { }
             }, () =>
             {
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Raw Material ID") <= 0) { UITheme.ShowWarning("Please select a raw material first."); return; }
                 ShowRowDetail(grid.CurrentRow, "Raw Material Details");
             });
-            AttachSearchAndFilter(toolbar, grid);
             grid.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
@@ -88,15 +121,10 @@ namespace FurnitureERP.Forms
                 else ShowRowDetail(grid.Rows[e.RowIndex], "Raw Material Details");
             };
 
-            try
-            {
-                grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock();
-                GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock");
-            }
-            catch { }
+            try { ReloadRawMaterialGrid(grid, _rawMaterialCtrl); } catch { }
 
             tab.Controls.Add(grid);
-            tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Raw Material Filters"));
+            tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Raw Material Filters", DictionaryService.Categories.RawMaterial));
             tab.Controls.Add(toolbar);
             return tab;
         }
@@ -107,7 +135,7 @@ namespace FurnitureERP.Forms
             var grid = GridHelper.CreateStyledGrid();
 
             var toolbar = BuildToolbar("+ New Purchase Order", PermissionModule.PurchaseOrder, () => ShowPurchaseOrderDialog(), grid, () => {
-                try { grid.DataSource = _purchaseOrderCtrl.GetAllPurchaseOrders(); GridHelper.ApplyStyle(grid); } catch { }
+                try { ReloadPurchaseOrderGrid(grid, _purchaseOrderCtrl); } catch { }
             }, () =>
             {
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Purchase Order ID") <= 0) { UITheme.ShowWarning("Please select a purchase order first."); return; }
@@ -117,7 +145,6 @@ namespace FurnitureERP.Forms
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Purchase Order ID") <= 0) { UITheme.ShowWarning("Please select a purchase order first."); return; }
                 ShowPurchaseOrderDetailDialog(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Purchase Order ID"));
             });
-            AttachSearchAndFilter(toolbar, grid);
             grid.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
@@ -129,10 +156,10 @@ namespace FurnitureERP.Forms
                     ShowPurchaseOrderTableDialog(purchaseOrderId, grid.Rows[e.RowIndex]);
             };
 
-            try { grid.DataSource = _purchaseOrderCtrl.GetAllPurchaseOrders(); GridHelper.ApplyStyle(grid); } catch { }
+            try { ReloadPurchaseOrderGrid(grid, _purchaseOrderCtrl); } catch { }
 
             tab.Controls.Add(grid);
-            tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Purchase Order Filters"));
+            tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Purchase Order Filters", DictionaryService.Categories.PurchaseOrder));
             tab.Controls.Add(toolbar);
             return tab;
         }
@@ -143,12 +170,7 @@ namespace FurnitureERP.Forms
             var grid = GridHelper.CreateStyledGrid();
 
             var toolbar = BuildToolbar("+ New GRN", PermissionModule.GoodsReceivedNote, () => ShowGrnDialog(), grid, () => {
-                try
-                {
-                    grid.DataSource = DictionaryService.DecorateStatusColumn(_grnCtrl.GetAllGoodsReceivedNotes(), "Status", DictionaryService.Categories.PurchaseOrder);
-                    GridHelper.ApplyStyle(grid);
-                }
-                catch { }
+                try { ReloadGrnGrid(grid, _grnCtrl); } catch { }
             }, () =>
             {
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID") <= 0) { UITheme.ShowWarning("Please select a GRN first."); return; }
@@ -158,8 +180,6 @@ namespace FurnitureERP.Forms
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID") <= 0) { UITheme.ShowWarning("Please select a GRN first."); return; }
                 ShowGrnDetailDialog(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID"));
             });
-
-            AttachSearchAndFilter(toolbar, grid);
 
             var btnConfirm = UITheme.CreateSecondaryButton("Confirm Receipt");
             int confirmX = 8;
@@ -175,13 +195,7 @@ namespace FurnitureERP.Forms
                 long grnId = GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "GRN ID");
                 ShowConfirmGrnDialog(grnId, () =>
                 {
-                    try
-                    {
-                        grid.DataSource = DictionaryService.DecorateStatusColumn(
-                            _grnCtrl.GetAllGoodsReceivedNotes(), "Status", DictionaryService.Categories.PurchaseOrder);
-                        GridHelper.ApplyStyle(grid);
-                    }
-                    catch { }
+                    try { ReloadGrnGrid(grid, _grnCtrl); } catch { }
                 });
             };
             PermissionGuard.ApplyEditButton(btnConfirm, PermissionModule.GoodsReceivedNote);
@@ -197,10 +211,10 @@ namespace FurnitureERP.Forms
                     ShowGrnTableDialog(grnId, grid.Rows[e.RowIndex]);
             };
 
-            try { grid.DataSource = _grnCtrl.GetAllGoodsReceivedNotes(); GridHelper.ApplyStyle(grid); } catch { }
+            try { ReloadGrnGrid(grid, _grnCtrl); } catch { }
 
             tab.Controls.Add(grid);
-            tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "GRN Filters"));
+            tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "GRN Filters", DictionaryService.Categories.PurchaseOrder));
             tab.Controls.Add(toolbar);
             return tab;
         }
@@ -211,7 +225,7 @@ namespace FurnitureERP.Forms
             var grid = GridHelper.CreateStyledGrid();
 
             var toolbar = BuildToolbar("+ New Supplier", PermissionModule.Supplier, () => ShowSupplierDialog(), grid, () => {
-                try { grid.DataSource = _supplierCtrl.GetAllSuppliers(); GridHelper.ApplyStyle(grid); } catch { }
+                try { ReloadSupplierGrid(grid, _supplierCtrl); } catch { }
             }, () =>
             {
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Supplier ID") <= 0) { UITheme.ShowWarning("Please select a supplier first."); return; }
@@ -223,7 +237,6 @@ namespace FurnitureERP.Forms
                 var entity = _supplierCtrl.GetById(supplierId);
                 if (entity != null) ShowSupplierDialog(entity);
             });
-            AttachSearchAndFilter(toolbar, grid);
             grid.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
@@ -234,10 +247,10 @@ namespace FurnitureERP.Forms
                 else ShowSupplierTableDialog(supplierId, grid.Rows[e.RowIndex]);
             };
 
-            try { grid.DataSource = _supplierCtrl.GetAllSuppliers(); GridHelper.ApplyStyle(grid); } catch { }
+            try { ReloadSupplierGrid(grid, _supplierCtrl); } catch { }
 
             tab.Controls.Add(grid);
-            tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Supplier Filters"));
+            tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Supplier Filters", DictionaryService.Categories.Supplier));
             tab.Controls.Add(toolbar);
             return tab;
         }
@@ -275,56 +288,6 @@ namespace FurnitureERP.Forms
                 toolbar.Controls.Add(btnEdit);
             }
             return toolbar;
-        }
-
-        private void AttachSearchAndFilter(Panel toolbar, DataGridView grid)
-        {
-            int startX = 8;
-            foreach (Control ctl in toolbar.Controls)
-            {
-                if (ctl.Visible && ctl.Right > startX) startX = ctl.Right;
-            }
-            startX += 12;
-
-            var txtSearch = new TextBox { Width = 180, Height = 28, Location = new Point(startX, 10) };
-            var cmbStatus = new ComboBox
-            {
-                Width = 120,
-                Height = 28,
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Location = new Point(txtSearch.Right + 10, 10)
-            };
-            cmbStatus.Items.AddRange(new object[] { "All Status", "0", "1", "2", "3", "4" });
-            cmbStatus.SelectedIndex = 0;
-
-            Action applyFilter = () =>
-            {
-                if (!(grid.DataSource is DataTable dt)) return;
-                string keyword = txtSearch.Text.Trim().Replace("'", "''");
-                var view = dt.DefaultView;
-                var conditions = new System.Collections.Generic.List<string>();
-
-                if (!string.IsNullOrWhiteSpace(keyword))
-                {
-                    var textColumns = dt.Columns.Cast<DataColumn>()
-                        .Where(c => c.DataType == typeof(string))
-                        .Select(c => $"[{c.ColumnName}] LIKE '%{keyword}%'");
-                    string textFilter = string.Join(" OR ", textColumns);
-                    if (!string.IsNullOrWhiteSpace(textFilter)) conditions.Add("(" + textFilter + ")");
-                }
-
-                if (cmbStatus.SelectedIndex > 0 && dt.Columns.Contains("Status"))
-                {
-                    conditions.Add("[Status] = " + (cmbStatus.SelectedIndex - 1));
-                }
-
-                view.RowFilter = string.Join(" AND ", conditions);
-            };
-
-            txtSearch.TextChanged += (s, e) => applyFilter();
-            cmbStatus.SelectedIndexChanged += (s, e) => applyFilter();
-            toolbar.Controls.Add(txtSearch);
-            toolbar.Controls.Add(cmbStatus);
         }
 
         private void ShowRowDetail(DataGridViewRow row, string title)
@@ -1335,6 +1298,7 @@ namespace FurnitureERP.Forms
                     ForeColor = UITheme.TextDark
                 };
                 var dtpDelivery = new DateTimePicker { Format = DateTimePickerFormat.Short, Value = DateTime.Today.AddDays(14) };
+                var cmbCurrency = BuildCurrencyCombo(1);
                 var cmbStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
                 cmbStatus.Items.AddRange(new object[] { "0 - Draft", "1 - Sent", "2 - Received", "3 - Cancelled" });
                 cmbStatus.SelectedIndex = 0;
@@ -1346,9 +1310,11 @@ namespace FurnitureERP.Forms
                 UITheme.AddFormField(layout, 3, "Ship-To Address *", txtShipTo);
                 UITheme.AddFormField(layout, 4, "Bill-To Address", billToPanel);
                 UITheme.AddFormField(layout, 5, "Buyer (Staff)", lblStaff);
-                UITheme.AddFormField(layout, 6, "Request Delivery Date *", dtpDelivery);
-                UITheme.AddFormField(layout, 7, "Status", cmbStatus);
-                UITheme.AddFormField(layout, 8, "Remark", txtRemark);
+                UITheme.AddFormField(layout, 6, "Currency *", cmbCurrency);
+                UITheme.AddFormField(layout, 7, "Request Delivery Date *", dtpDelivery);
+                UITheme.AddFormField(layout, 8, "Status", cmbStatus);
+                UITheme.AddFormField(layout, 9, "Remark", txtRemark);
+                layout.RowCount = 10;
 
                 var lineGrid = CreatePurchaseOrderLineGrid();
                 WirePurchaseOrderLineGrid(lineGrid, cmbSupplier, clearLinesOnSupplierChange: true);
@@ -1384,12 +1350,15 @@ namespace FurnitureERP.Forms
                     }
                     try
                     {
+                        long currencyId = GetComboLongId(cmbCurrency) > 0 ? GetComboLongId(cmbCurrency) : 1;
                         var po = new PurchaseOrder
                         {
                             PurchaseOrderCode = "PO-TEMP",
                             SupplierID = supplierId,
                             StaffID = staffId,
                             WarehouseID = GetComboLongId(cmbReceivingWarehouse),
+                            CurrencyID = currencyId,
+                            ExchangeRate = _currencyCtrl.LockRateForCurrency(currencyId),
                             RequestDeliveryDate = dtpDelivery.Value,
                             Status = cmbStatus.SelectedIndex,
                             Remark = remark
@@ -2127,9 +2096,7 @@ namespace FurnitureERP.Forms
             if (grid == null) return;
             try
             {
-                grid.DataSource = DictionaryService.DecorateStatusColumn(
-                    _grnCtrl.GetAllGoodsReceivedNotes(), "Status", DictionaryService.Categories.PurchaseOrder);
-                GridHelper.ApplyStyle(grid);
+                ReloadGrnGrid(grid, _grnCtrl);
             }
             catch { }
         }
@@ -2164,6 +2131,17 @@ namespace FurnitureERP.Forms
             cmb.DisplayMember = "DisplayText";
             cmb.ValueMember = "Purchase Order ID";
             if (selectedPoId > 0) SetComboLongValue(cmb, selectedPoId);
+            return cmb;
+        }
+
+        private ComboBox BuildCurrencyCombo(long selectedCurrencyId = 1)
+        {
+            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 340 };
+            var dt = _currencyCtrl.GetAllForCombo();
+            cmb.DataSource = dt;
+            cmb.DisplayMember = "Code";
+            cmb.ValueMember = "Currency ID";
+            if (selectedCurrencyId > 0) SetComboLongValue(cmb, selectedCurrencyId);
             return cmb;
         }
 

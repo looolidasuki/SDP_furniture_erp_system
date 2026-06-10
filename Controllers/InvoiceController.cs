@@ -16,6 +16,8 @@ namespace Sales_user.Controllers
         public const long DepositDeliveryNoteId = 999999;
 
         private readonly DeliveryNoteController _deliveryNoteCtrl = new DeliveryNoteController();
+        private readonly CurrencyController _currencyCtrl = new CurrencyController();
+        private readonly SalesOrderController _salesOrderCtrl = new SalesOrderController();
 
         private long ResolveDepositDeliveryNoteId() => _deliveryNoteCtrl.EnsureDepositDeliveryNoteId();
 
@@ -25,6 +27,9 @@ namespace Sales_user.Controllers
                                   i.invoiceCode AS 'Invoice Code',
                                   c.customerName AS 'Customer',
                                   so.salesOrderCode AS 'Sales Order',
+                                  cur.currencyCode AS 'Currency',
+                                  i.totalAmount AS 'Total',
+                                  i.totalAmountBase AS 'Total (HKD)',
                                   i.invoiceType AS 'Invoice Type',
                                   i.createDate AS 'Create Date',
                                   i.status AS 'Status',
@@ -32,24 +37,81 @@ namespace Sales_user.Controllers
                            FROM Invoice i
                            LEFT JOIN Customer c ON i.customerID = c.customerID
                            LEFT JOIN SalesOrder so ON i.salesOrderID = so.salesOrderID
+                           LEFT JOIN Currency cur ON i.currencyID = cur.currencyID
                            ORDER BY i.createDate DESC";
             return DatabaseConnect.ExecuteQuery(sql);
         }
 
         public long Insert(Invoice invoice)
         {
+            ApplyCurrencyFromSalesOrder(invoice);
             string sql = @"INSERT INTO Invoice
-                (invoiceID, invoiceCode, customerID, salesOrderID, staffID, invoiceType, status, remark)
-                VALUES (@id, @code, @customerID, @soID, @staffID, @type, @status, @remark)";
+                (invoiceID, invoiceCode, customerID, salesOrderID, staffID, currencyID, exchangeRate,
+                 totalAmount, totalAmountBase, invoiceType, status, remark)
+                VALUES (@id, @code, @customerID, @soID, @staffID, @currencyID, @rate,
+                        @total, @totalBase, @type, @status, @remark)";
             return DatabaseConnect.InsertWithAllocatedId("invoice", "invoiceID", sql, new[] {
                 new MySqlParameter("@code", invoice.InvoiceCode),
                 new MySqlParameter("@customerID", invoice.CustomerID),
                 new MySqlParameter("@soID", invoice.SalesOrderID),
                 new MySqlParameter("@staffID", invoice.StaffID),
+                new MySqlParameter("@currencyID", invoice.CurrencyID > 0 ? invoice.CurrencyID : 1),
+                new MySqlParameter("@rate", invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1m),
+                new MySqlParameter("@total", invoice.TotalAmount),
+                new MySqlParameter("@totalBase", invoice.TotalAmountBase),
                 new MySqlParameter("@type", invoice.InvoiceType),
                 new MySqlParameter("@status", invoice.Status),
                 new MySqlParameter("@remark", invoice.Remark ?? (object)System.DBNull.Value)
             });
+        }
+
+        public void ApplyCurrencyFromSalesOrder(Invoice invoice)
+        {
+            if (invoice == null || invoice.SalesOrderID <= 0) return;
+            var so = _salesOrderCtrl.GetFullById(invoice.SalesOrderID);
+            if (so == null) return;
+            invoice.CurrencyID = so.CurrencyCurrencyID > 0 ? so.CurrencyCurrencyID : 1;
+            invoice.ExchangeRate = so.ExchangeRate > 0
+                ? so.ExchangeRate
+                : _currencyCtrl.LockRateForCurrency(invoice.CurrencyID);
+        }
+
+        public void SyncCurrencyFromSalesOrder(long invoiceId, long salesOrderId)
+        {
+            var invoice = new Invoice { SalesOrderID = salesOrderId };
+            ApplyCurrencyFromSalesOrder(invoice);
+            DatabaseConnect.ExecuteNonQuery(
+                @"UPDATE Invoice SET currencyID = @cid, exchangeRate = @rate, lastModifyDate = NOW() WHERE invoiceID = @id",
+                new[]
+                {
+                    new MySqlParameter("@cid", invoice.CurrencyID > 0 ? invoice.CurrencyID : 1),
+                    new MySqlParameter("@rate", invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1m),
+                    new MySqlParameter("@id", invoiceId)
+                });
+        }
+
+        public void RefreshTotals(long invoiceId)
+        {
+            var invoice = GetById(invoiceId);
+            if (invoice == null) return;
+
+            decimal total = GetInvoiceTotal(invoiceId);
+            decimal rate = invoice.ExchangeRate > 0
+                ? invoice.ExchangeRate
+                : _currencyCtrl.LockRateForCurrency(invoice.CurrencyID > 0 ? invoice.CurrencyID : 1);
+            decimal baseTotal = CurrencyConversionService.ToBaseAmount(total, rate);
+
+            DatabaseConnect.ExecuteNonQuery(
+                @"UPDATE Invoice
+                  SET totalAmount = @total, totalAmountBase = @base, exchangeRate = @rate, lastModifyDate = NOW()
+                  WHERE invoiceID = @id",
+                new[]
+                {
+                    new MySqlParameter("@total", total),
+                    new MySqlParameter("@base", baseTotal),
+                    new MySqlParameter("@rate", rate),
+                    new MySqlParameter("@id", invoiceId)
+                });
         }
 
         public void UpdateCodeAfterInsert(long invoiceId)
@@ -343,7 +405,12 @@ namespace Sales_user.Controllers
                 {
                     string code = row["Invoice Code"]?.ToString();
                     string customer = row["Customer"]?.ToString();
-                    row["DisplayText"] = string.IsNullOrWhiteSpace(customer) ? code : $"{code} — {customer}";
+                    decimal total = row.Table.Columns.Contains("Total") && row["Total"] != DBNull.Value
+                        ? Convert.ToDecimal(row["Total"]) : 0m;
+                    string amountPart = total > 0 ? $" — {total:N2}" : "";
+                    row["DisplayText"] = string.IsNullOrWhiteSpace(customer)
+                        ? $"{code}{amountPart}"
+                        : $"{code} — {customer}{amountPart}";
                 }
             }
             return dt;
@@ -351,7 +418,9 @@ namespace Sales_user.Controllers
 
         public Invoice GetById(long invoiceId)
         {
-            string sql = @"SELECT invoiceID, invoiceCode, customerID, salesOrderID, staffID, invoiceType, status, remark
+            string sql = @"SELECT invoiceID, invoiceCode, customerID, salesOrderID, staffID,
+                                  currencyID, exchangeRate, totalAmount, totalAmountBase,
+                                  invoiceType, status, remark
                            FROM Invoice WHERE invoiceID = @id";
             DataTable dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", invoiceId) });
             if (dt == null || dt.Rows.Count == 0) return null;
@@ -363,6 +432,14 @@ namespace Sales_user.Controllers
                 CustomerID = System.Convert.ToInt64(row["customerID"]),
                 SalesOrderID = System.Convert.ToInt64(row["salesOrderID"]),
                 StaffID = System.Convert.ToInt64(row["staffID"]),
+                CurrencyID = row.Table.Columns.Contains("currencyID") && row["currencyID"] != System.DBNull.Value
+                    ? System.Convert.ToInt64(row["currencyID"]) : 1,
+                ExchangeRate = row.Table.Columns.Contains("exchangeRate") && row["exchangeRate"] != System.DBNull.Value
+                    ? System.Convert.ToDecimal(row["exchangeRate"]) : 1m,
+                TotalAmount = row.Table.Columns.Contains("totalAmount") && row["totalAmount"] != System.DBNull.Value
+                    ? System.Convert.ToDecimal(row["totalAmount"]) : 0m,
+                TotalAmountBase = row.Table.Columns.Contains("totalAmountBase") && row["totalAmountBase"] != System.DBNull.Value
+                    ? System.Convert.ToDecimal(row["totalAmountBase"]) : 0m,
                 InvoiceType = System.Convert.ToInt32(row["invoiceType"]),
                 Status = System.Convert.ToInt32(row["status"]),
                 Remark = row["remark"] == System.DBNull.Value ? null : row["remark"].ToString()
@@ -394,7 +471,7 @@ namespace Sales_user.Controllers
 
         public bool UpdateDepositLineAmount(long invoiceId, long depositProductId, decimal amount)
         {
-            return DatabaseConnect.ExecuteNonQuery(
+            bool ok = DatabaseConnect.ExecuteNonQuery(
                 @"UPDATE InvoiceLine SET amount = @amount, invoiceQuantity = 1
                   WHERE invoiceID = @invId AND productID = @pid AND deliveryNoteID = @dnId",
                 new[]
@@ -404,6 +481,8 @@ namespace Sales_user.Controllers
                     new MySqlParameter("@pid", depositProductId),
                     new MySqlParameter("@dnId", ResolveDepositDeliveryNoteId())
                 }) > 0;
+            if (ok) RefreshTotals(invoiceId);
+            return ok;
         }
 
         public DataTable GetOpenInvoicesByCustomer(long customerId)

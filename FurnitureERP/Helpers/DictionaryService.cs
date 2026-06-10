@@ -198,6 +198,19 @@ namespace FurnitureERP.Helpers
             [4] = "Rail Freight",
             [5] = "In-house Delivery"
         };
+        private static readonly Dictionary<int, string> _paymentVoucherFallback = new Dictionary<int, string>
+        {
+            [0] = "Draft",
+            [1] = "Approved",
+            [2] = "Paid",
+            [3] = "Cancelled"
+        };
+        private static readonly Dictionary<int, string> _receiptVoucherFallback = new Dictionary<int, string>
+        {
+            [0] = "Draft",
+            [1] = "Confirmed",
+            [2] = "Cancelled"
+        };
         private static readonly Dictionary<string, int> _shipMethodLegacyLookup =
             new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
             {
@@ -247,6 +260,12 @@ namespace FurnitureERP.Helpers
             if (string.Equals(category, Categories.ShipMethod, StringComparison.OrdinalIgnoreCase)
                 && _shipMethodFallback.TryGetValue(codeValue, out var shipMethodName))
                 return shipMethodName;
+            if (string.Equals(category, Categories.PaymentVoucher, StringComparison.OrdinalIgnoreCase)
+                && _paymentVoucherFallback.TryGetValue(codeValue, out var pvName))
+                return pvName;
+            if (string.Equals(category, Categories.ReceiptVoucher, StringComparison.OrdinalIgnoreCase)
+                && _receiptVoucherFallback.TryGetValue(codeValue, out var rvName))
+                return rvName;
             return codeValue.ToString();
         }
 

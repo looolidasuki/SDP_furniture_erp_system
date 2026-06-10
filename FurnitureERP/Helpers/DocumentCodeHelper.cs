@@ -21,6 +21,8 @@ namespace FurnitureERP.Helpers
 
         public static string FormatReceiptVoucherCode(long receiptVoucherId) => Build("RV", receiptVoucherId);
 
+        public static string FormatRefundRequestCode(long refundRequestId) => Build("RF", refundRequestId);
+
         public static string FormatReplySlipFromDeliveryNote(string deliveryNoteCode)
         {
             if (string.IsNullOrWhiteSpace(deliveryNoteCode)) return null;

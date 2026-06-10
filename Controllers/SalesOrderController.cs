@@ -9,11 +9,17 @@ namespace Sales_user.Controllers
 {
     public class SalesOrderController
     {
+        private readonly CurrencyController _currencyCtrl = new CurrencyController();
+
         public DataTable GetAllSalesOrders()
         {
             string sql = @"SELECT so.salesOrderCode AS 'Order Code',
                                   so.customerReferenceNumber AS 'Customer Ref Number',
                                   c.customerName AS 'Customer',
+                                  cur.currencyCode AS 'Currency',
+                                  so.totalAmount AS 'Total',
+                                  so.totalAmountBase AS 'Total (HKD)',
+                                  so.exchangeRate AS 'Rate',
                                   so.deliveryAddress AS 'Delivery Address',
                                   so.createDate AS 'Create Date',
                                   so.status AS 'Status',
@@ -21,6 +27,7 @@ namespace Sales_user.Controllers
                                   so.customerID AS 'Customer ID'
                            FROM SalesOrder so
                            LEFT JOIN Customer c ON so.customerID = c.customerID
+                           LEFT JOIN Currency cur ON so.currencyCurrencyID = cur.currencyID
                            ORDER BY so.createDate DESC";
             return DatabaseConnect.ExecuteQuery(sql);
         }
@@ -43,20 +50,29 @@ namespace Sales_user.Controllers
         {
             // Use @soStatus — not @status (MySQL treats @status as a user variable, often NULL).
             return @"INSERT INTO SalesOrder
-                (salesOrderID, salesOrderCode, customerID, staffID, currencyCurrencyID, deliveryAddress,
+                (salesOrderID, salesOrderCode, customerID, staffID, currencyCurrencyID, exchangeRate,
+                 totalAmount, totalAmountBase, deliveryAddress,
                  requestedDeliveryDate, customerReferenceNumber, discountType, discount, status, remark)
-                VALUES (@id, @code, @customerID, @staffID, @currencyID, @address,
+                VALUES (@id, @code, @customerID, @staffID, @currencyID, @rate,
+                        @total, @totalBase, @address,
                         @requestedDeliveryDate, @customerReferenceNumber, @discountType, @discount, @soStatus, @remark)";
         }
 
-        private static MySqlParameter[] BuildInsertHeaderParameters(SalesOrder order)
+        private MySqlParameter[] BuildInsertHeaderParameters(SalesOrder order)
         {
+            if (order.CurrencyCurrencyID <= 0) order.CurrencyCurrencyID = 1;
+            if (order.ExchangeRate <= 0)
+                order.ExchangeRate = _currencyCtrl.LockRateForCurrency(order.CurrencyCurrencyID);
+
             return new[]
             {
                 new MySqlParameter("@code", order.SalesOrderCode),
                 new MySqlParameter("@customerID", order.CustomerID),
                 new MySqlParameter("@staffID", order.StaffID),
                 new MySqlParameter("@currencyID", order.CurrencyCurrencyID),
+                new MySqlParameter("@rate", order.ExchangeRate),
+                new MySqlParameter("@total", order.TotalAmount),
+                new MySqlParameter("@totalBase", order.TotalAmountBase),
                 new MySqlParameter("@address", order.DeliveryAddress),
                 new MySqlParameter("@requestedDeliveryDate", order.RequestedDeliveryDate ?? (object)DBNull.Value),
                 new MySqlParameter("@customerReferenceNumber", string.IsNullOrWhiteSpace(order.CustomerRefNumber) ? (object)DBNull.Value : order.CustomerRefNumber.Trim()),
@@ -167,7 +183,32 @@ namespace Sales_user.Controllers
                 InsertProductLine(salesOrderId, line.ProductID, line.Price, line.Quantity, line.Discount);
                 hasAny = true;
             }
+            if (hasAny) RefreshTotals(salesOrderId);
             return hasAny;
+        }
+
+        public void RefreshTotals(long salesOrderId)
+        {
+            var order = GetFullById(salesOrderId);
+            if (order == null) return;
+
+            decimal total = GetTotalAmount(salesOrderId);
+            decimal rate = order.ExchangeRate > 0
+                ? order.ExchangeRate
+                : _currencyCtrl.LockRateForCurrency(order.CurrencyCurrencyID);
+            decimal baseTotal = CurrencyConversionService.ToBaseAmount(total, rate);
+
+            DatabaseConnect.ExecuteNonQuery(
+                @"UPDATE SalesOrder
+                  SET totalAmount = @total, totalAmountBase = @base, exchangeRate = @rate, lastModifyDate = NOW()
+                  WHERE salesOrderID = @id",
+                new[]
+                {
+                    new MySqlParameter("@total", total),
+                    new MySqlParameter("@base", baseTotal),
+                    new MySqlParameter("@rate", rate),
+                    new MySqlParameter("@id", salesOrderId)
+                });
         }
 
         public DataTable GetProductLines(long salesOrderId)
@@ -339,6 +380,7 @@ namespace Sales_user.Controllers
         public SalesOrder GetFullById(long salesOrderId)
         {
             string sql = @"SELECT salesOrderID, salesOrderCode, customerID, staffID, currencyCurrencyID,
+                                  exchangeRate, totalAmount, totalAmountBase,
                                   deliveryAddress, requestedDeliveryDate,
                                   customerReferenceNumber,
                                   status, discount, discountType, remark
@@ -353,6 +395,12 @@ namespace Sales_user.Controllers
                 CustomerID = System.Convert.ToInt64(row["customerID"]),
                 StaffID = System.Convert.ToInt64(row["staffID"]),
                 CurrencyCurrencyID = System.Convert.ToInt64(row["currencyCurrencyID"]),
+                ExchangeRate = row.Table.Columns.Contains("exchangeRate") && row["exchangeRate"] != System.DBNull.Value
+                    ? System.Convert.ToDecimal(row["exchangeRate"]) : 1m,
+                TotalAmount = row.Table.Columns.Contains("totalAmount") && row["totalAmount"] != System.DBNull.Value
+                    ? System.Convert.ToDecimal(row["totalAmount"]) : 0m,
+                TotalAmountBase = row.Table.Columns.Contains("totalAmountBase") && row["totalAmountBase"] != System.DBNull.Value
+                    ? System.Convert.ToDecimal(row["totalAmountBase"]) : 0m,
                 DeliveryAddress = row["deliveryAddress"].ToString(),
                 RequestedDeliveryDate = row["requestedDeliveryDate"] == System.DBNull.Value ? (DateTime?)null : System.Convert.ToDateTime(row["requestedDeliveryDate"]),
                 CustomerRefNumber = row["customerReferenceNumber"] == System.DBNull.Value ? null : row["customerReferenceNumber"].ToString(),
@@ -385,22 +433,31 @@ namespace Sales_user.Controllers
 
         public bool Update(SalesOrder order)
         {
+            var existing = GetFullById(order.SalesOrderID);
+            long currencyId = order.CurrencyCurrencyID > 0 ? order.CurrencyCurrencyID : 1;
+            decimal rate = existing != null && existing.CurrencyCurrencyID == currencyId && existing.ExchangeRate > 0
+                ? existing.ExchangeRate
+                : _currencyCtrl.LockRateForCurrency(currencyId);
+
             string sql = @"UPDATE SalesOrder SET deliveryAddress = @address, status = @soStatus,
                            requestedDeliveryDate = @requestedDeliveryDate,
                            customerReferenceNumber = @customerReferenceNumber,
-                           currencyCurrencyID = @currencyID,
+                           currencyCurrencyID = @currencyID, exchangeRate = @rate,
                            discount = @discount, remark = @remark, lastModifyDate = NOW()
                            WHERE salesOrderID = @id";
-            return DatabaseConnect.ExecuteNonQuery(sql, new[] {
+            bool ok = DatabaseConnect.ExecuteNonQuery(sql, new[] {
                 new MySqlParameter("@address", order.DeliveryAddress),
                 new MySqlParameter("@soStatus", order.Status),
                 new MySqlParameter("@requestedDeliveryDate", order.RequestedDeliveryDate ?? (object)System.DBNull.Value),
                 new MySqlParameter("@customerReferenceNumber", string.IsNullOrWhiteSpace(order.CustomerRefNumber) ? (object)System.DBNull.Value : order.CustomerRefNumber.Trim()),
-                new MySqlParameter("@currencyID", order.CurrencyCurrencyID > 0 ? order.CurrencyCurrencyID : 1),
+                new MySqlParameter("@currencyID", currencyId),
+                new MySqlParameter("@rate", rate),
                 new MySqlParameter("@discount", order.Discount),
                 new MySqlParameter("@remark", order.Remark ?? (object)System.DBNull.Value),
                 new MySqlParameter("@id", order.SalesOrderID)
             }) > 0;
+            if (ok) RefreshTotals(order.SalesOrderID);
+            return ok;
         }
 
         public DataTable Search(SearchFilterCriteria filter)

@@ -16,6 +16,8 @@ namespace FurnitureERP.Helpers
     {
         public string Title { get; set; }
         public Image Image { get; set; }
+        /// <summary>When true, PDF frame uses a square plot area (better for pie charts).</summary>
+        public bool PreferSquareFrame { get; set; }
     }
 
     public class DocumentExportData
@@ -32,7 +34,10 @@ namespace FurnitureERP.Helpers
     {
         private const double Margin = 40;
         private const double LineHeight = 16;
-        private const double TableHeaderHeight = 20;
+        private const double TableHeaderHeight = 22;
+        private const double TableCellPadding = 5;
+        private const double SectionTitleHeight = 22;
+        private const double SectionGap = 20;
 
         public static bool ExportToPdf(DocumentExportData data, IWin32Window owner = null)
         {
@@ -88,9 +93,8 @@ namespace FurnitureERP.Helpers
 
             if (data.Fields != null && data.Fields.Rows.Count > 0)
             {
-                y = EnsureSpace(doc, ref page, ref gfx, y, LineHeight * 2);
-                gfx.DrawString("Details", sectionFont, XBrushes.DarkSlateGray, Margin, y);
-                y += 20;
+                y = EnsureSpace(doc, ref page, ref gfx, y, SectionTitleHeight + LineHeight);
+                y = DrawSectionTitle(gfx, "Details", sectionFont, Margin, contentWidth, y);
 
                 bool twoCol = data.Fields.Columns.Count >= 2
                               && data.Fields.Columns[0].ColumnName.Equals("Field", StringComparison.OrdinalIgnoreCase);
@@ -116,9 +120,9 @@ namespace FurnitureERP.Helpers
 
             if (data.Lines != null && data.Lines.Columns.Count > 0)
             {
-                y = EnsureSpace(doc, ref page, ref gfx, y, TableHeaderHeight + 10);
-                gfx.DrawString("Line Items", sectionFont, XBrushes.DarkSlateGray, Margin, y);
-                y += 22;
+                y += SectionGap;
+                y = EnsureSpace(doc, ref page, ref gfx, y, SectionTitleHeight + TableHeaderHeight + 10);
+                y = DrawSectionTitle(gfx, "Line Items", sectionFont, Margin, contentWidth, y);
 
                 int colCount = data.Lines.Columns.Count;
                 double[] colWidths = CalculateColumnWidths(data.Lines, contentWidth, colCount);
@@ -129,8 +133,8 @@ namespace FurnitureERP.Helpers
                 {
                     var rect = new XRect(x, y, colWidths[c], TableHeaderHeight);
                     gfx.DrawRectangle(XBrushes.LightSteelBlue, rect);
-                    gfx.DrawString(data.Lines.Columns[c].ColumnName, tableHeaderFont, XBrushes.White,
-                        new XRect(x + 3, y + 3, colWidths[c] - 6, TableHeaderHeight - 4), XStringFormats.TopLeft);
+                    DrawTableCell(gfx, data.Lines.Columns[c].ColumnName, tableHeaderFont, XBrushes.White,
+                        rect, IsNumericColumn(data.Lines.Columns[c]));
                     x += colWidths[c];
                 }
                 y += TableHeaderHeight;
@@ -141,9 +145,10 @@ namespace FurnitureERP.Helpers
                     var cellTexts = new string[colCount];
                     for (int c = 0; c < colCount; c++)
                     {
-                        cellTexts[c] = row[c]?.ToString() ?? "";
-                        double h = MeasureWrappedHeight(gfx, cellTexts[c], tableCellFont, colWidths[c] - 6);
-                        rowHeight = Math.Max(rowHeight, h + 6);
+                        cellTexts[c] = FormatTableCellValue(row[c], data.Lines.Columns[c]);
+                        double innerW = colWidths[c] - TableCellPadding * 2;
+                        double h = MeasureWrappedHeight(gfx, cellTexts[c], tableCellFont, innerW);
+                        rowHeight = Math.Max(rowHeight, h + TableCellPadding * 2);
                     }
 
                     y = EnsureSpace(doc, ref page, ref gfx, y, rowHeight);
@@ -152,11 +157,13 @@ namespace FurnitureERP.Helpers
                     {
                         var rect = new XRect(x, y, colWidths[c], rowHeight);
                         gfx.DrawRectangle(new XPen(XColors.LightGray, 0.5), rect);
-                        DrawWrapped(gfx, cellTexts[c], tableCellFont, XBrushes.Black, x + 3, y + 3, colWidths[c] - 6);
+                        DrawTableCell(gfx, cellTexts[c], tableCellFont, XBrushes.Black,
+                            rect, IsNumericColumn(data.Lines.Columns[c]));
                         x += colWidths[c];
                     }
                     y += rowHeight;
                 }
+                y += SectionGap;
             }
 
             if (data.Charts != null && data.Charts.Count > 0)
@@ -178,52 +185,136 @@ namespace FurnitureERP.Helpers
             double contentWidth, List<PdfChartImage> charts, XFont sectionFont)
         {
             var chartTitleFont = new XFont("Segoe UI", 9, XFontStyleEx.Bold);
-            const double gap = 12;
-            const double chartHeight = 190;
+            const double gap = 14;
+            const double titleHeight = 20;
+            const double rowGap = 20;
             double colWidth = (contentWidth - gap) / 2;
 
-            y = EnsureSpace(doc, ref page, ref gfx, y, 30);
-            gfx.DrawString("Charts", sectionFont, XBrushes.DarkSlateGray, Margin, y);
-            y += 22;
+            double firstRowNeed = titleHeight + GetChartFrameHeight(charts[0], colWidth) + rowGap;
+            if (charts.Count > 1)
+                firstRowNeed = Math.Max(firstRowNeed,
+                    titleHeight + GetChartFrameHeight(charts[1], colWidth) + rowGap);
+            y += SectionGap;
+            y = EnsureSpace(doc, ref page, ref gfx, y, SectionTitleHeight + firstRowNeed + 8);
+            y = DrawSectionTitle(gfx, "Charts", sectionFont, Margin, contentWidth, y);
 
-            for (int i = 0; i < charts.Count; i++)
+            for (int i = 0; i < charts.Count; i += 2)
             {
-                int col = i % 2;
-                if (col == 0)
-                    y = EnsureSpace(doc, ref page, ref gfx, y, chartHeight + 34);
+                var left = charts[i];
+                var right = i + 1 < charts.Count ? charts[i + 1] : null;
 
-                double x = Margin + col * (colWidth + gap);
-                double blockY = y;
+                double leftFrameH = GetChartFrameHeight(left, colWidth);
+                double rightFrameH = right != null ? GetChartFrameHeight(right, colWidth) : 0;
+                double rowFrameH = Math.Max(leftFrameH, rightFrameH);
+                double rowHeight = titleHeight + rowFrameH + rowGap;
 
-                var chart = charts[i];
-                string title = string.IsNullOrWhiteSpace(chart?.Title) ? "Chart" : chart.Title;
-                gfx.DrawString(title, chartTitleFont, XBrushes.DarkSlateGray, x, blockY);
-                blockY += 16;
+                y = EnsureSpace(doc, ref page, ref gfx, y, rowHeight);
+                double rowY = y;
 
-                var frame = new XRect(x, blockY, colWidth, chartHeight);
-                gfx.DrawRectangle(new XPen(XColors.LightGray, 0.8), frame);
+                DrawChartBlock(gfx, left, Margin, rowY, colWidth, titleHeight, rowFrameH, chartTitleFont);
+                if (right != null)
+                    DrawChartBlock(gfx, right, Margin + colWidth + gap, rowY, colWidth, titleHeight, rowFrameH, chartTitleFont);
 
-                if (chart?.Image != null)
-                {
-                    using (var ms = new MemoryStream())
-                    {
-                        chart.Image.Save(ms, ImageFormat.Png);
-                        ms.Position = 0;
-                        using (var xImage = XImage.FromStream(ms))
-                            gfx.DrawImage(xImage, x + 4, blockY + 4, colWidth - 8, chartHeight - 8);
-                    }
-                }
-                else
-                {
-                    gfx.DrawString("No chart data", new XFont("Segoe UI", 8, XFontStyleEx.Italic),
-                        XBrushes.Gray, x + 8, blockY + chartHeight / 2);
-                }
-
-                if (col == 1 || i == charts.Count - 1)
-                    y += chartHeight + 34;
+                y += rowHeight;
             }
 
             return y;
+        }
+
+        private static double GetChartFrameHeight(PdfChartImage chart, double colWidth)
+        {
+            if (chart?.PreferSquareFrame == true)
+                return colWidth;
+            if (chart?.Image != null && chart.Image.Width > 0 && chart.Image.Height > 0)
+            {
+                double ratio = (double)chart.Image.Width / chart.Image.Height;
+                return Math.Max(150, Math.Min(210, colWidth / ratio));
+            }
+            return 185;
+        }
+
+        private static void DrawChartBlock(XGraphics gfx, PdfChartImage chart, double x, double rowY,
+            double colWidth, double titleHeight, double frameHeight, XFont chartTitleFont)
+        {
+            string title = string.IsNullOrWhiteSpace(chart?.Title) ? "Chart" : chart.Title;
+            gfx.DrawString(title, chartTitleFont, XBrushes.DarkSlateGray,
+                new XRect(x, rowY, colWidth, titleHeight), XStringFormats.TopLeft);
+
+            var frame = new XRect(x, rowY + titleHeight, colWidth, frameHeight);
+            gfx.DrawRectangle(new XPen(XColors.LightGray, 0.8), frame);
+
+            if (chart?.Image != null)
+            {
+                using (var ms = new MemoryStream())
+                {
+                    chart.Image.Save(ms, ImageFormat.Png);
+                    ms.Position = 0;
+                    using (var xImage = XImage.FromStream(ms))
+                        DrawImagePreserveAspect(gfx, xImage, frame, 6);
+                }
+            }
+            else
+            {
+                gfx.DrawString("No chart data", new XFont("Segoe UI", 8, XFontStyleEx.Italic),
+                    XBrushes.Gray, new XRect(frame.X + 8, frame.Y, frame.Width - 16, frame.Height), XStringFormats.Center);
+            }
+        }
+
+        private static void DrawImagePreserveAspect(XGraphics gfx, XImage image, XRect frame, double padding)
+        {
+            double imgW = image.PixelWidth;
+            double imgH = image.PixelHeight;
+            if (imgW <= 0 || imgH <= 0) return;
+
+            double availW = frame.Width - padding * 2;
+            double availH = frame.Height - padding * 2;
+            double scale = Math.Min(availW / imgW, availH / imgH);
+            double drawW = imgW * scale;
+            double drawH = imgH * scale;
+            double drawX = frame.X + padding + (availW - drawW) / 2;
+            double drawY = frame.Y + padding + (availH - drawH) / 2;
+            gfx.DrawImage(image, drawX, drawY, drawW, drawH);
+        }
+
+        private static double DrawSectionTitle(XGraphics gfx, string text, XFont font, double x, double width, double y)
+        {
+            gfx.DrawString(text, font, XBrushes.DarkSlateGray,
+                new XRect(x, y, width, SectionTitleHeight), XStringFormats.TopLeft);
+            return y + SectionTitleHeight + 8;
+        }
+
+        private static void DrawTableCell(XGraphics gfx, string text, XFont font, XBrush brush, XRect rect, bool rightAlign)
+        {
+            var format = rightAlign ? XStringFormats.CenterRight : XStringFormats.CenterLeft;
+            var inner = new XRect(
+                rect.X + TableCellPadding,
+                rect.Y,
+                rect.Width - TableCellPadding * 2,
+                rect.Height);
+            gfx.DrawString(text ?? string.Empty, font, brush, inner, format);
+        }
+
+        private static bool IsNumericColumn(DataColumn column)
+        {
+            if (column == null) return false;
+            var type = column.DataType;
+            if (type == typeof(decimal) || type == typeof(double) || type == typeof(float) || type == typeof(int) || type == typeof(long))
+                return true;
+            string name = column.ColumnName ?? string.Empty;
+            return name.IndexOf("total", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("rate", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("count", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("amount", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string FormatTableCellValue(object value, DataColumn column)
+        {
+            if (value == null || value == DBNull.Value) return string.Empty;
+            if (column?.DataType == typeof(decimal) || column?.DataType == typeof(double) || column?.DataType == typeof(float))
+                return Convert.ToDecimal(value).ToString("N2");
+            if (column?.DataType == typeof(int) || column?.DataType == typeof(long))
+                return Convert.ToInt64(value).ToString();
+            return value.ToString();
         }
 
         private static double[] CalculateColumnWidths(DataTable table, double totalWidth, int colCount)
@@ -231,13 +322,22 @@ namespace FurnitureERP.Helpers
             var widths = new double[colCount];
             for (int c = 0; c < colCount; c++)
             {
-                int maxLen = table.Columns[c].ColumnName.Length;
+                string colName = table.Columns[c].ColumnName ?? string.Empty;
+                int maxLen = colName.Length;
                 foreach (DataRow row in table.Rows)
                 {
-                    string s = row[c]?.ToString() ?? "";
-                    if (s.Length > maxLen) maxLen = Math.Min(s.Length, 40);
+                    string s = FormatTableCellValue(row[c], table.Columns[c]);
+                    if (s.Length > maxLen) maxLen = Math.Min(s.Length, 24);
                 }
-                widths[c] = Math.Max(50, maxLen * 5.5);
+
+                double minWidth = 52;
+                if (colName.Equals("Category", StringComparison.OrdinalIgnoreCase)
+                    || colName.Equals("Currency", StringComparison.OrdinalIgnoreCase))
+                    minWidth = 62;
+                else if (IsNumericColumn(table.Columns[c]))
+                    minWidth = 72;
+
+                widths[c] = Math.Max(minWidth, maxLen * 6.2);
             }
 
             double sum = widths.Sum();

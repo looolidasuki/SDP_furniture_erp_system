@@ -59,7 +59,7 @@ namespace FurnitureERP.Forms
             };
 
             Controls.Add(_grid);
-            Controls.Add(FilterBlockHelper.CreateFilterBlock(_grid, "Staff Filters"));
+            Controls.Add(FilterBlockHelper.CreateFilterBlock(_grid, "Staff Filters", DictionaryService.Categories.Staff));
             Controls.Add(toolbar);
         }
 
@@ -67,10 +67,11 @@ namespace FurnitureERP.Forms
         {
             try
             {
-                var dt = _staffCtrl.GetAllStaff();
-                DictionaryService.DecorateStatusColumn(dt, "Status", DictionaryService.Categories.Staff);
-                _grid.DataSource = dt;
-                GridHelper.StyleGrid(_grid);
+                GridHelper.BindStatusData(
+                    _grid,
+                    _staffCtrl.GetAllStaff(),
+                    "Status",
+                    DictionaryService.Categories.Staff);
             }
             catch (Exception ex)
             {

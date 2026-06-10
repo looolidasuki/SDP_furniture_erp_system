@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Data;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 
 namespace FurnitureERP.Helpers
@@ -14,7 +16,44 @@ namespace FurnitureERP.Helpers
         private const int HeaderHeight = 42;
         private const int BlockPadding = 10;
 
-        public static Panel CreateFilterBlock(DataGridView grid, string title = "Filters")
+        private sealed class FilterBlockContext
+        {
+            public string StatusCategory;
+            public Panel RowsPanel;
+            public Action ResizeBlock;
+        }
+
+        private sealed class FilterColumnOption
+        {
+            public FilterColumnOption(string columnName, string displayName = null)
+            {
+                ColumnName = columnName;
+                DisplayName = displayName ?? columnName;
+            }
+
+            public string ColumnName { get; }
+            public string DisplayName { get; }
+            public override string ToString() => DisplayName;
+        }
+
+        private sealed class FilterRowTag
+        {
+            public ComboBox ColumnCombo;
+            public ComboBox OperatorCombo;
+            public TextBox TextValue;
+            public NumericUpDown NumValue;
+            public DateTimePicker DateFrom;
+            public DateTimePicker DateTo;
+            public FlowLayoutPanel DateFlow;
+            public ComboBox StatusValueCombo;
+            public Panel ValueHost;
+            public string StatusCategory;
+        }
+
+        private static readonly ConditionalWeakTable<DataGridView, FilterBlockContext> FilterContexts =
+            new ConditionalWeakTable<DataGridView, FilterBlockContext>();
+
+        public static Panel CreateFilterBlock(DataGridView grid, string title = "Filters", string statusCategory = null)
         {
             var box = new Panel
             {
@@ -100,9 +139,17 @@ namespace FurnitureERP.Helpers
                 box.Height = HeaderHeight + rowsHeight + BlockPadding * 2 + 6;
             };
 
+            var context = new FilterBlockContext
+            {
+                StatusCategory = statusCategory,
+                RowsPanel = rowsPanel,
+                ResizeBlock = resizeBlock
+            };
+            FilterContexts.Add(grid, context);
+
             Action addRow = () =>
             {
-                var row = CreateConditionRow(grid, rowsPanel, resizeBlock);
+                var row = CreateConditionRow(grid, rowsPanel, resizeBlock, statusCategory);
                 rowsPanel.Controls.Add(row);
                 resizeBlock();
             };
@@ -117,11 +164,67 @@ namespace FurnitureERP.Helpers
                 addRow();
             };
 
+            grid.DataBindingComplete -= Grid_FilterDataBindingComplete;
+            grid.DataBindingComplete += Grid_FilterDataBindingComplete;
+
             addRow();
             return box;
         }
 
-        private static Panel CreateConditionRow(DataGridView grid, Panel rowsPanel, Action resizeBlock)
+        private static void Grid_FilterDataBindingComplete(object sender, DataGridViewBindingCompleteEventArgs e)
+        {
+            if (!(sender is DataGridView grid) || e.ListChangedType != ListChangedType.Reset)
+                return;
+            if (!FilterContexts.TryGetValue(grid, out var context) || context?.RowsPanel == null)
+                return;
+
+            RefreshAllFilterRows(grid, context);
+        }
+
+        private static void RefreshAllFilterRows(DataGridView grid, FilterBlockContext context)
+        {
+            foreach (Control ctrl in context.RowsPanel.Controls)
+            {
+                if (!(ctrl is TableLayoutPanel row) || !(row.Tag is FilterRowTag tag))
+                    continue;
+
+                string selectedColumn = GetSelectedColumnName(tag.ColumnCombo);
+                PopulateColumns(tag.ColumnCombo, grid, context.StatusCategory);
+                RestoreColumnSelection(tag.ColumnCombo, selectedColumn);
+                ConfigureRowForColumn(grid, tag, context.StatusCategory);
+            }
+        }
+
+        private static void RestoreColumnSelection(ComboBox cmbColumn, string columnName)
+        {
+            if (string.IsNullOrWhiteSpace(columnName) || cmbColumn.Items.Count == 0)
+            {
+                if (cmbColumn.Items.Count > 0)
+                    cmbColumn.SelectedIndex = 0;
+                return;
+            }
+
+            for (int i = 0; i < cmbColumn.Items.Count; i++)
+            {
+                if (cmbColumn.Items[i] is FilterColumnOption opt
+                    && string.Equals(opt.ColumnName, columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    cmbColumn.SelectedIndex = i;
+                    return;
+                }
+            }
+
+            cmbColumn.SelectedIndex = 0;
+        }
+
+        private static string GetSelectedColumnName(ComboBox cmbColumn)
+        {
+            if (cmbColumn?.SelectedItem is FilterColumnOption opt)
+                return opt.ColumnName;
+            return cmbColumn?.SelectedItem?.ToString();
+        }
+
+        private static Panel CreateConditionRow(DataGridView grid, Panel rowsPanel, Action resizeBlock, string statusCategory)
         {
             var row = new TableLayoutPanel
             {
@@ -150,6 +253,8 @@ namespace FurnitureERP.Helpers
                 Visible = false,
                 Font = new Font("Segoe UI", 9f)
             };
+            var cmbStatusValue = CreateFilterCombo();
+            cmbStatusValue.Visible = false;
             var dtFrom = new DateTimePicker
             {
                 Width = 120,
@@ -182,6 +287,7 @@ namespace FurnitureERP.Helpers
 
             valueHost.Controls.Add(txtValue);
             valueHost.Controls.Add(numValue);
+            valueHost.Controls.Add(cmbStatusValue);
             valueHost.Controls.Add(dateFlow);
 
             var btnRemove = UITheme.CreateSecondaryButton("Remove");
@@ -195,9 +301,24 @@ namespace FurnitureERP.Helpers
                 resizeBlock();
             };
 
-            PopulateColumns(cmbColumn, grid);
-            cmbColumn.SelectedIndexChanged += (s, e) => ConfigureRowForColumn(grid, cmbColumn, cmbOperator, txtValue, numValue, dtFrom, dtTo, dateFlow);
-            cmbOperator.SelectedIndexChanged += (s, e) => ConfigureValueControlsForOperator(grid, cmbColumn, cmbOperator, txtValue, numValue, dtFrom, dtTo, dateFlow);
+            var tag = new FilterRowTag
+            {
+                ColumnCombo = cmbColumn,
+                OperatorCombo = cmbOperator,
+                TextValue = txtValue,
+                NumValue = numValue,
+                DateFrom = dtFrom,
+                DateTo = dtTo,
+                DateFlow = dateFlow,
+                StatusValueCombo = cmbStatusValue,
+                ValueHost = valueHost,
+                StatusCategory = statusCategory
+            };
+            row.Tag = tag;
+
+            PopulateColumns(cmbColumn, grid, statusCategory);
+            cmbColumn.SelectedIndexChanged += (s, e) => ConfigureRowForColumn(grid, tag, statusCategory);
+            cmbOperator.SelectedIndexChanged += (s, e) => ConfigureValueControlsForOperator(grid, tag);
 
             if (cmbColumn.Items.Count > 0)
                 cmbColumn.SelectedIndex = 0;
@@ -220,79 +341,175 @@ namespace FurnitureERP.Helpers
             };
         }
 
-        private static void PopulateColumns(ComboBox cmbColumn, DataGridView grid)
+        private static void PopulateColumns(ComboBox cmbColumn, DataGridView grid, string statusCategory)
         {
+            string selected = GetSelectedColumnName(cmbColumn);
             cmbColumn.Items.Clear();
-            if (!(grid.DataSource is DataTable table)) return;
 
-            var visible = grid.Columns
-                .Cast<DataGridViewColumn>()
-                .Where(c => c.Visible)
-                .Select(c => string.IsNullOrWhiteSpace(c.DataPropertyName) ? c.Name : c.DataPropertyName)
-                .Where(name => !string.IsNullOrWhiteSpace(name) && table.Columns.Contains(name))
-                .Where(name => !IsIdLikeColumnName(name))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            foreach (var option in GetFilterableColumnOptions(grid, statusCategory))
+                cmbColumn.Items.Add(option);
 
-            if (visible.Count > 0)
+            RestoreColumnSelection(cmbColumn, selected);
+        }
+
+        private static List<FilterColumnOption> GetFilterableColumnOptions(DataGridView grid, string statusCategory)
+        {
+            var options = new List<FilterColumnOption>();
+            if (grid == null) return options;
+
+            var table = grid.DataSource as DataTable;
+            bool hasStatusLabel = table?.Columns.Contains("Status Label") == true;
+            bool hasTextStatus = !hasStatusLabel && table?.Columns.Contains("Status") == true
+                && table.Columns["Status"].DataType == typeof(string);
+
+            if (table != null)
             {
-                foreach (var name in visible)
-                    cmbColumn.Items.Add(name);
+                foreach (DataColumn col in table.Columns)
+                {
+                    if (IsIdLikeColumnName(col.ColumnName)) continue;
+                    if (hasStatusLabel && string.Equals(col.ColumnName, "Status", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (string.Equals(col.ColumnName, "Status Label", StringComparison.OrdinalIgnoreCase))
+                        options.Add(new FilterColumnOption("Status Label", "Status"));
+                    else if (hasTextStatus && string.Equals(col.ColumnName, "Status", StringComparison.OrdinalIgnoreCase))
+                        options.Add(new FilterColumnOption("Status", "Status"));
+                    else
+                        options.Add(new FilterColumnOption(col.ColumnName));
+                }
+                return options;
+            }
+
+            bool gridHasStatusLabel = grid.Columns.Cast<DataGridViewColumn>()
+                .Any(c => string.Equals(c.Name, "Status Label", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(c.DataPropertyName, "Status Label", StringComparison.OrdinalIgnoreCase));
+
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                if (!col.Visible) continue;
+                string name = string.IsNullOrWhiteSpace(col.DataPropertyName) ? col.Name : col.DataPropertyName;
+                if (string.IsNullOrWhiteSpace(name) || IsIdLikeColumnName(name)) continue;
+                if (gridHasStatusLabel && string.Equals(name, "Status", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (string.Equals(name, "Status Label", StringComparison.OrdinalIgnoreCase))
+                    options.Add(new FilterColumnOption("Status Label", "Status"));
+                else
+                    options.Add(new FilterColumnOption(name));
+            }
+
+            return options;
+        }
+
+        private static void ConfigureRowForColumn(DataGridView grid, FilterRowTag tag, string statusCategory)
+        {
+            if (!(grid.DataSource is DataTable table)) return;
+            if (tag?.ColumnCombo?.SelectedItem == null) return;
+
+            string colName = GetSelectedColumnName(tag.ColumnCombo);
+            if (string.IsNullOrWhiteSpace(colName) || !table.Columns.Contains(colName)) return;
+
+            bool isStatusLabel = string.Equals(colName, "Status Label", StringComparison.OrdinalIgnoreCase);
+            bool isTextStatus = string.Equals(colName, "Status", StringComparison.OrdinalIgnoreCase)
+                && table.Columns[colName].DataType == typeof(string);
+
+            tag.OperatorCombo.Items.Clear();
+            if (isStatusLabel && !string.IsNullOrWhiteSpace(statusCategory))
+            {
+                tag.OperatorCombo.Items.Add("Equals");
+                tag.OperatorCombo.SelectedIndex = 0;
+                BindStatusValueCombo(tag.StatusValueCombo, statusCategory, includeAny: true);
+            }
+            else if (isTextStatus)
+            {
+                tag.OperatorCombo.Items.Add("Equals");
+                tag.OperatorCombo.SelectedIndex = 0;
+                BindDistinctTextStatusCombo(tag.StatusValueCombo, table, "Status", includeAny: true);
+            }
+            else
+            {
+                var type = table.Columns[colName].DataType;
+                bool isDate = type == typeof(DateTime) || colName.IndexOf("Date", StringComparison.OrdinalIgnoreCase) >= 0;
+                bool isNumber = IsNumericType(type);
+
+                if (isDate)
+                    tag.OperatorCombo.Items.AddRange(new object[] { "On", "From", "To", "Between" });
+                else if (isNumber)
+                    tag.OperatorCombo.Items.AddRange(new object[] { "Equals", ">=", "<=", "Between" });
+                else
+                    tag.OperatorCombo.Items.AddRange(new object[] { "Contains", "Equals", "StartsWith" });
+
+                if (tag.OperatorCombo.Items.Count > 0)
+                    tag.OperatorCombo.SelectedIndex = 0;
+            }
+
+            ConfigureValueControlsForOperator(grid, tag);
+        }
+
+        private static void BindStatusValueCombo(ComboBox combo, string statusCategory, bool includeAny)
+        {
+            combo.Items.Clear();
+            if (includeAny)
+                combo.Items.Add("(Any)");
+            foreach (var item in DictionaryService.GetItems(statusCategory))
+                combo.Items.Add(item.Value);
+            combo.SelectedIndex = 0;
+        }
+
+        private static void BindDistinctTextStatusCombo(ComboBox combo, DataTable table, string column, bool includeAny)
+        {
+            combo.Items.Clear();
+            if (includeAny)
+                combo.Items.Add("(Any)");
+            var values = table.Rows.Cast<DataRow>()
+                .Select(r => r[column]?.ToString())
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(v => v, StringComparer.OrdinalIgnoreCase);
+            foreach (var value in values)
+                combo.Items.Add(value);
+            combo.SelectedIndex = 0;
+        }
+
+        private static void ConfigureValueControlsForOperator(DataGridView grid, FilterRowTag tag)
+        {
+            if (!(grid.DataSource is DataTable table)) return;
+            if (tag?.ColumnCombo?.SelectedItem == null || tag.OperatorCombo?.SelectedItem == null) return;
+
+            string colName = GetSelectedColumnName(tag.ColumnCombo);
+            if (string.IsNullOrWhiteSpace(colName) || !table.Columns.Contains(colName)) return;
+
+            bool isStatusLabel = string.Equals(colName, "Status Label", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(tag.StatusCategory);
+            bool isTextStatus = string.Equals(colName, "Status", StringComparison.OrdinalIgnoreCase)
+                && table.Columns[colName].DataType == typeof(string);
+
+            if (isStatusLabel || isTextStatus)
+            {
+                tag.TextValue.Visible = false;
+                tag.NumValue.Visible = false;
+                tag.DateFlow.Visible = false;
+                tag.StatusValueCombo.Visible = true;
+                tag.StatusValueCombo.Dock = DockStyle.Fill;
                 return;
             }
 
-            foreach (DataColumn col in table.Columns)
-            {
-                if (IsIdLikeColumnName(col.ColumnName)) continue;
-                cmbColumn.Items.Add(col.ColumnName);
-            }
-        }
-
-        private static void ConfigureRowForColumn(DataGridView grid, ComboBox cmbColumn, ComboBox cmbOperator, TextBox txtValue, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo, FlowLayoutPanel dateFlow)
-        {
-            if (!(grid.DataSource is DataTable table)) return;
-            if (cmbColumn.SelectedItem == null) return;
-            string colName = cmbColumn.SelectedItem.ToString();
-            if (!table.Columns.Contains(colName)) return;
-
             var type = table.Columns[colName].DataType;
             bool isDate = type == typeof(DateTime) || colName.IndexOf("Date", StringComparison.OrdinalIgnoreCase) >= 0;
             bool isNumber = IsNumericType(type);
+            string op = tag.OperatorCombo.SelectedItem.ToString();
 
-            cmbOperator.Items.Clear();
-            if (isDate)
-                cmbOperator.Items.AddRange(new object[] { "On", "From", "To", "Between" });
-            else if (isNumber)
-                cmbOperator.Items.AddRange(new object[] { "Equals", ">=", "<=", "Between" });
-            else
-                cmbOperator.Items.AddRange(new object[] { "Contains", "Equals", "StartsWith" });
-
-            cmbOperator.SelectedIndex = 0;
-            ConfigureValueControlsForOperator(grid, cmbColumn, cmbOperator, txtValue, numValue, dtFrom, dtTo, dateFlow);
-        }
-
-        private static void ConfigureValueControlsForOperator(DataGridView grid, ComboBox cmbColumn, ComboBox cmbOperator, TextBox txtValue, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo, FlowLayoutPanel dateFlow)
-        {
-            if (!(grid.DataSource is DataTable table)) return;
-            if (cmbColumn.SelectedItem == null || cmbOperator.SelectedItem == null) return;
-            string colName = cmbColumn.SelectedItem.ToString();
-            if (!table.Columns.Contains(colName)) return;
-
-            var type = table.Columns[colName].DataType;
-            bool isDate = type == typeof(DateTime) || colName.IndexOf("Date", StringComparison.OrdinalIgnoreCase) >= 0;
-            bool isNumber = IsNumericType(type);
-            string op = cmbOperator.SelectedItem.ToString();
-
-            txtValue.Visible = !isDate && (!isNumber || op == "Between");
-            numValue.Visible = !isDate && isNumber && op != "Between";
-            dateFlow.Visible = isDate;
-            dtFrom.Visible = isDate;
-            dtTo.Visible = isDate && op == "Between";
+            tag.StatusValueCombo.Visible = false;
+            tag.TextValue.Visible = !isDate && (!isNumber || op == "Between");
+            tag.NumValue.Visible = !isDate && isNumber && op != "Between";
+            tag.DateFlow.Visible = isDate;
+            tag.DateFrom.Visible = isDate;
+            tag.DateTo.Visible = isDate && op == "Between";
 
             if (isDate)
             {
-                dtFrom.Checked = false;
-                dtTo.Checked = false;
+                tag.DateFrom.Checked = false;
+                tag.DateTo.Checked = false;
             }
         }
 
@@ -303,28 +520,33 @@ namespace FurnitureERP.Helpers
 
             foreach (Control ctrl in rowsPanel.Controls)
             {
-                if (!(ctrl is TableLayoutPanel row) || row.Controls.Count < 4) continue;
-                var cmbColumn = row.Controls[0] as ComboBox;
-                var cmbOperator = row.Controls[1] as ComboBox;
-                var valueHost = row.Controls[2] as Panel;
-                var txtValue = valueHost?.Controls.OfType<TextBox>().FirstOrDefault();
-                var numValue = valueHost?.Controls.OfType<NumericUpDown>().FirstOrDefault();
-                var dateFlow = valueHost?.Controls.OfType<FlowLayoutPanel>().FirstOrDefault();
-                var dtPickers = dateFlow?.Controls.OfType<DateTimePicker>().ToList() ?? new List<DateTimePicker>();
-                var dtFrom = dtPickers.Count > 0 ? dtPickers[0] : null;
-                var dtTo = dtPickers.Count > 1 ? dtPickers[1] : null;
+                if (!(ctrl is TableLayoutPanel row) || !(row.Tag is FilterRowTag tag)) continue;
 
-                if (cmbColumn?.SelectedItem == null || cmbOperator?.SelectedItem == null) continue;
-                string column = cmbColumn.SelectedItem.ToString();
-                string op = cmbOperator.SelectedItem.ToString();
+                if (tag.ColumnCombo?.SelectedItem == null || tag.OperatorCombo?.SelectedItem == null) continue;
+                string column = GetSelectedColumnName(tag.ColumnCombo);
+                string op = tag.OperatorCombo.SelectedItem.ToString();
                 if (!table.Columns.Contains(column)) continue;
 
-                string clause = BuildClause(table, column, op, txtValue, numValue, dtFrom, dtTo);
+                string clause = BuildClause(table, column, op, tag);
                 if (!string.IsNullOrWhiteSpace(clause))
                     clauses.Add(clause);
             }
 
             table.DefaultView.RowFilter = string.Join(" AND ", clauses);
+        }
+
+        private static string BuildClause(DataTable table, string column, string op, FilterRowTag tag)
+        {
+            if (tag.StatusValueCombo.Visible)
+            {
+                string selected = tag.StatusValueCombo.SelectedItem?.ToString();
+                if (string.IsNullOrWhiteSpace(selected) || selected == "(Any)")
+                    return string.Empty;
+                string escaped = selected.Replace("'", "''");
+                return $"[{column}] = '{escaped}'";
+            }
+
+            return BuildClause(table, column, op, tag.TextValue, tag.NumValue, tag.DateFrom, tag.DateTo);
         }
 
         private static string BuildClause(DataTable table, string column, string op, TextBox txtValue, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo)

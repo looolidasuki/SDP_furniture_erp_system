@@ -69,6 +69,18 @@ namespace Sales_user.Controllers
                     return invId;
                 });
 
+                try
+                {
+                    _invoiceCtrl.SyncCurrencyFromSalesOrder(invoiceId, salesOrderId);
+                    _invoiceCtrl.RefreshTotals(invoiceId);
+                }
+                catch (Exception syncEx)
+                {
+                    return WorkflowResult.Ok(invoiceId,
+                        "Deposit invoice " + DocumentCodeHelper.FormatInvoiceCode(invoiceId) +
+                        " created, but currency totals sync failed: " + syncEx.Message);
+                }
+
                 return WorkflowResult.Ok(invoiceId, "Deposit invoice " + DocumentCodeHelper.FormatInvoiceCode(invoiceId) + " created.");
             }
             catch (Exception ex)
@@ -226,6 +238,9 @@ namespace Sales_user.Controllers
 
                     return invId;
                 });
+
+                _invoiceCtrl.SyncCurrencyFromSalesOrder(invoiceId, delivery.SalesOrderID);
+                _invoiceCtrl.RefreshTotals(invoiceId);
 
                 string msg = "Invoice " + DocumentCodeHelper.FormatInvoiceCode(invoiceId) + " created from delivery note.";
                 if (applyDepositOffset)

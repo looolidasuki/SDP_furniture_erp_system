@@ -26,5 +26,7 @@ namespace Sales_user.Models
         // 💡 配合 SQL 的到帳日期與幣種
         public DateTime PaymentReceivedDate { get; set; }
         public long CurrencyID { get; set; }
+        public decimal ExchangeRate { get; set; } = 1m;
+        public decimal PaymentAmountBase { get; set; }
     }
 }

@@ -1,14 +1,32 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Data;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 
 namespace FurnitureERP.Helpers
 {
     public static class GridHelper
     {
+        private sealed class StatusPresentationState
+        {
+            public string Category;
+        }
+
+        private sealed class TextStatusState
+        {
+            public string ColumnName;
+        }
+
+        private static readonly ConditionalWeakTable<DataGridView, StatusPresentationState> StatusPresentationStates =
+            new ConditionalWeakTable<DataGridView, StatusPresentationState>();
+
+        private static readonly ConditionalWeakTable<DataGridView, TextStatusState> TextStatusStates =
+            new ConditionalWeakTable<DataGridView, TextStatusState>();
+
         public static DataGridView CreateStyledGrid()
         {
             var grid = new DataGridView
@@ -27,15 +45,148 @@ namespace FurnitureERP.Helpers
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
                 RowTemplate = { Height = 32 }
             };
-            grid.DataBindingComplete += (s, e) =>
-            {
-                if (s is DataGridView boundGrid && e.ListChangedType == ListChangedType.Reset)
-                    StyleGrid(boundGrid);
-            };
+            grid.DataBindingComplete += Grid_DataBindingComplete;
             return grid;
         }
 
+        private static void Grid_DataBindingComplete(object sender, DataGridViewBindingCompleteEventArgs e)
+        {
+            if (!(sender is DataGridView boundGrid) || e.ListChangedType != ListChangedType.Reset)
+                return;
+
+            StyleGrid(boundGrid);
+
+            if (StatusPresentationStates.TryGetValue(boundGrid, out var state)
+                && !string.IsNullOrWhiteSpace(state?.Category))
+            {
+                ApplyStatusPresentation(boundGrid, state.Category);
+            }
+        }
+
         public static void ApplyStyle(DataGridView grid) => StyleGrid(grid);
+
+        public static DataTable DecorateStatusTable(DataTable source, string statusColumn, string category) =>
+            DictionaryService.DecorateStatusColumn(source, statusColumn, category);
+
+        public static void BindStatusData(DataGridView grid, DataTable data, string statusCategory)
+        {
+            if (grid == null) return;
+
+            if (!string.IsNullOrWhiteSpace(statusCategory))
+            {
+                if (!StatusPresentationStates.TryGetValue(grid, out var state))
+                {
+                    state = new StatusPresentationState();
+                    StatusPresentationStates.Add(grid, state);
+                    grid.CellFormatting -= StatusGrid_CellFormatting;
+                    grid.CellFormatting += StatusGrid_CellFormatting;
+                }
+                state.Category = statusCategory;
+            }
+
+            grid.DataSource = data;
+            StyleGrid(grid);
+
+            if (!string.IsNullOrWhiteSpace(statusCategory))
+                ApplyStatusPresentation(grid, statusCategory);
+        }
+
+        public static void BindStatusData(DataGridView grid, DataTable raw, string statusColumn, string statusCategory)
+        {
+            if (raw == null)
+            {
+                BindStatusData(grid, (DataTable)null, statusCategory);
+                return;
+            }
+
+            BindStatusData(grid, DecorateStatusTable(raw, statusColumn, statusCategory), statusCategory);
+        }
+
+        public static void LoadStatusData(DataGridView grid, Func<DataTable> loader, string statusColumn, string statusCategory)
+        {
+            if (loader == null) return;
+            BindStatusData(grid, loader(), statusColumn, statusCategory);
+        }
+
+        public static void BindStatusWithStockAlert(
+            DataGridView grid,
+            DataTable raw,
+            string statusColumn,
+            string statusCategory,
+            string stockColumn,
+            string minStockColumn)
+        {
+            BindStatusData(grid, DecorateStatusTable(raw, statusColumn, statusCategory), statusCategory);
+            StockAlertHelper.WireStockLevelHighlight(grid, stockColumn, minStockColumn);
+        }
+
+        public static void StyleStatusGrid(DataGridView grid, string statusCategory)
+        {
+            if (!string.IsNullOrWhiteSpace(statusCategory))
+            {
+                if (!StatusPresentationStates.TryGetValue(grid, out var state))
+                {
+                    state = new StatusPresentationState();
+                    StatusPresentationStates.Add(grid, state);
+                    grid.CellFormatting -= StatusGrid_CellFormatting;
+                    grid.CellFormatting += StatusGrid_CellFormatting;
+                }
+                state.Category = statusCategory;
+            }
+
+            StyleGrid(grid);
+            ApplyStatusPresentation(grid, statusCategory);
+        }
+
+        public static void ApplyStatusPresentation(DataGridView grid, string statusCategory)
+        {
+            if (grid == null || string.IsNullOrWhiteSpace(statusCategory))
+                return;
+
+            if (!StatusPresentationStates.TryGetValue(grid, out var state))
+            {
+                state = new StatusPresentationState { Category = statusCategory };
+                StatusPresentationStates.Add(grid, state);
+                grid.CellFormatting -= StatusGrid_CellFormatting;
+                grid.CellFormatting += StatusGrid_CellFormatting;
+            }
+            else
+            {
+                state.Category = statusCategory;
+            }
+
+            string labelColumn = FindStatusLabelColumn(grid);
+            if (string.IsNullOrEmpty(labelColumn))
+                return;
+
+            var statusCol = ResolveGridColumn(grid, "Status");
+            if (statusCol != null)
+                statusCol.Visible = false;
+
+            var labelCol = ResolveGridColumn(grid, labelColumn);
+            if (labelCol == null)
+                return;
+
+            labelCol.HeaderText = "Status";
+            labelCol.DisplayIndex = Math.Max(0, grid.Columns.Count - 1);
+        }
+
+        public static void StyleTextStatusColumn(DataGridView grid, string columnName = "Status")
+        {
+            if (grid == null || string.IsNullOrWhiteSpace(columnName))
+                return;
+
+            if (!TextStatusStates.TryGetValue(grid, out var state))
+            {
+                state = new TextStatusState();
+                TextStatusStates.Add(grid, state);
+                grid.CellFormatting -= TextStatusGrid_CellFormatting;
+                grid.CellFormatting += TextStatusGrid_CellFormatting;
+            }
+            state.ColumnName = columnName;
+
+            StyleGrid(grid);
+        }
 
         public static void StyleGrid(DataGridView grid)
         {
@@ -188,6 +339,116 @@ namespace FurnitureERP.Helpers
                 || name.EndsWith(" ID", System.StringComparison.OrdinalIgnoreCase)
                 || name.EndsWith("Id", System.StringComparison.OrdinalIgnoreCase)
                 || (name.Length > 2 && name.EndsWith("ID", System.StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static DataGridViewColumn ResolveGridColumn(DataGridView grid, string columnName)
+        {
+            if (grid?.Columns == null || string.IsNullOrWhiteSpace(columnName) || grid.Columns.Count == 0)
+                return null;
+
+            if (grid.Columns.Contains(columnName))
+                return grid.Columns[columnName];
+
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                if (string.Equals(col.DataPropertyName, columnName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(col.Name, columnName, StringComparison.OrdinalIgnoreCase))
+                    return col;
+            }
+
+            return null;
+        }
+
+        private static string FindStatusLabelColumn(DataGridView grid)
+        {
+            if (grid?.Columns == null || grid.Columns.Count == 0)
+                return null;
+
+            var labelCol = ResolveGridColumn(grid, "Status Label");
+            if (labelCol != null)
+                return labelCol.DataPropertyName ?? labelCol.Name;
+
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                string header = col.HeaderText ?? string.Empty;
+                if (header.Equals("Status Label", StringComparison.OrdinalIgnoreCase))
+                    return col.DataPropertyName ?? col.Name;
+            }
+
+            return null;
+        }
+
+        private static void StatusGrid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            var grid = sender as DataGridView;
+            if (grid == null || e.RowIndex < 0 || e.ColumnIndex < 0)
+                return;
+
+            if (!StatusPresentationStates.TryGetValue(grid, out var state)
+                || string.IsNullOrWhiteSpace(state?.Category))
+                return;
+
+            string category = state.Category;
+
+            string labelColumn = FindStatusLabelColumn(grid);
+            if (string.IsNullOrEmpty(labelColumn))
+                return;
+
+            var column = grid.Columns[e.ColumnIndex];
+            if (!string.Equals(column.Name, labelColumn, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(column.HeaderText, "Status", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            int statusCode = TryGetStatusCodeFromRow(grid, e.RowIndex);
+            var colors = StatusStyleHelper.GetColors(category, statusCode);
+            e.CellStyle.BackColor = colors.Background;
+            e.CellStyle.ForeColor = colors.Foreground;
+            e.CellStyle.SelectionBackColor = colors.Background;
+            e.CellStyle.SelectionForeColor = colors.Foreground;
+        }
+
+        private static void TextStatusGrid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            var grid = sender as DataGridView;
+            if (grid == null || e.RowIndex < 0 || e.ColumnIndex < 0)
+                return;
+
+            if (!TextStatusStates.TryGetValue(grid, out var state)
+                || string.IsNullOrWhiteSpace(state?.ColumnName))
+                return;
+
+            var column = grid.Columns[e.ColumnIndex];
+            if (!string.Equals(column.Name, state.ColumnName, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(column.DataPropertyName, state.ColumnName, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var colors = StatusStyleHelper.GetColorsByLabel(e.Value?.ToString());
+            e.CellStyle.BackColor = colors.Background;
+            e.CellStyle.ForeColor = colors.Foreground;
+            e.CellStyle.SelectionBackColor = colors.Background;
+            e.CellStyle.SelectionForeColor = colors.Foreground;
+        }
+
+        private static int TryGetStatusCodeFromRow(DataGridView grid, int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= grid.Rows.Count)
+                return 0;
+
+            var row = grid.Rows[rowIndex];
+            if (row.DataBoundItem is DataRowView drv && drv.Row.Table.Columns.Contains("Status")
+                && drv["Status"] != DBNull.Value)
+            {
+                return Convert.ToInt32(drv["Status"]);
+            }
+
+            if (grid.Columns.Contains("Status"))
+            {
+                object value = row.Cells["Status"]?.Value;
+                if (value != null && value != DBNull.Value)
+                    return Convert.ToInt32(value);
+            }
+
+            return 0;
         }
     }
 }

@@ -482,6 +482,14 @@ namespace FurnitureERP.Forms
             ShowSalesOrderViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Order ID"));
         }
 
+        private static void FinishCrudGrid(DataGridView grid, string statusCategory)
+        {
+            if (!string.IsNullOrWhiteSpace(statusCategory) && grid.DataSource is DataTable dt)
+                GridHelper.BindStatusData(grid, dt, statusCategory);
+            else if (grid.DataSource != null)
+                GridHelper.StyleGrid(grid);
+        }
+
         private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onEdit, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Control[]> extraControlsFactory = null, Action<DataGridViewRow> onViewDetail = null, string idColumnName = null)
         {
             Panel panel = new Panel { Dock = DockStyle.Fill };
@@ -518,7 +526,12 @@ namespace FurnitureERP.Forms
                 onRowOpen?.Invoke(grid.Rows[e.RowIndex]);
             };
             btnRefresh.Click += (s, e) => {
-                try { grid.DataSource = loadData(); GridHelper.StyleGrid(grid); } catch { }
+                try
+                {
+                    grid.DataSource = loadData();
+                    FinishCrudGrid(grid, statusCategory);
+                }
+                catch { }
             };
 
             toolbar.Controls.Add(btnNew);
@@ -536,9 +549,14 @@ namespace FurnitureERP.Forms
                 }
             }
 
-            var filterBox = FilterBlockHelper.CreateFilterBlock(grid, $"{entity} Filters");
+            var filterBox = FilterBlockHelper.CreateFilterBlock(grid, $"{entity} Filters", statusCategory);
 
-            try { grid.DataSource = loadData(); GridHelper.StyleGrid(grid); } catch { }
+            try
+            {
+                grid.DataSource = loadData();
+                FinishCrudGrid(grid, statusCategory);
+            }
+            catch { }
 
             panel.Controls.Add(grid);
             panel.Controls.Add(filterBox);
@@ -902,15 +920,11 @@ namespace FurnitureERP.Forms
             try
             {
                 dnList = _deliveryCtrl.GetByCustomer(customerId);
-                dnList = DictionaryService.DecorateStatusColumn(dnList, "Status", DictionaryService.Categories.Delivery);
             }
             catch { }
-            listGrid.DataSource = dnList;
-            GridHelper.StyleGrid(listGrid);
+            GridHelper.BindStatusData(listGrid, dnList, "Status", DictionaryService.Categories.Delivery);
             if (listGrid.Columns.Contains("Delivery Note ID"))
                 listGrid.Columns["Delivery Note ID"].Visible = false;
-            if (listGrid.Columns.Contains("Status"))
-                listGrid.Columns["Status"].Visible = false;
 
             var detailSplit = new SplitContainer
             {
@@ -1410,10 +1424,10 @@ namespace FurnitureERP.Forms
                 dlg.BackColor = UITheme.Background;
 
                 var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2 };
-                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 190));
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 220));
                 root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-                var form = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 2, RowCount = 4 };
+                var form = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 2, RowCount = 5 };
                 form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
                 form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 var cmbCustomer = BuildCustomerCombo();
@@ -1422,15 +1436,19 @@ namespace FurnitureERP.Forms
                 var txtRemark = new TextBox { Multiline = true, Height = 70, Text = existing?.Remark ?? string.Empty };
                 var lblStaff = new Label { Text = AppSession.CurrentUser?.Username ?? "Current User", AutoSize = true, ForeColor = UITheme.TextDark };
                 var cmbCurrency = BuildCurrencyCombo(isEdit ? existing.CurrencyID : 1);
+                var lblCurrencySummary = new Label { AutoSize = true, ForeColor = UITheme.TextGray };
                 if (isEdit) CustomerComboHelper.SelectCustomer(cmbCustomer, existing.CustomerID);
                 UITheme.AddFormRow(form, 0, "Customer *", cmbCustomer);
                 UITheme.AddFormRow(form, 1, "Staff", lblStaff);
                 UITheme.AddFormRow(form, 2, "Currency *", cmbCurrency);
-                UITheme.AddFormRow(form, 3, "Status / Remark", BuildStatusRemarkRow(cmbStatus, txtRemark));
+                UITheme.AddFormRow(form, 3, "FX / Total", lblCurrencySummary);
+                UITheme.AddFormRow(form, 4, "Status / Remark", BuildStatusRemarkRow(cmbStatus, txtRemark));
+                form.RowCount = 5;
 
                 var lineGrid = BuildEditableQuotationLineGrid();
                 lineGrid.Tag = isEdit && existing.CurrencyID > 0 ? existing.CurrencyID : 1L;
                 if (isEdit) LoadProductLinesToGrid(lineGrid, _quotationCtrl.GetProductLinesInternal(existing.QuotationID));
+                WireCurrencySummary(cmbCurrency, lineGrid, lblCurrencySummary, isEdit ? existing?.ExchangeRate : null);
                 cmbCurrency.SelectedIndexChanged += (s, e) => RecalculateGridPricesForCurrency(lineGrid, GetComboId(cmbCurrency));
 
                 root.Controls.Add(form, 0, 0);
@@ -1797,16 +1815,21 @@ namespace FurnitureERP.Forms
 
                 UITheme.AddFormRow(form, 0, "Customer *", cmbCustomer);
                 UITheme.AddFormRow(form, 1, "Staff", lblStaff);
+                var lblCurrencySummary = new Label { AutoSize = true, ForeColor = UITheme.TextGray };
                 UITheme.AddFormRow(form, 2, "Currency *", cmbCurrency);
-                UITheme.AddFormRow(form, 3, "Delivery Address *", cmbDeliveryAddress);
-                UITheme.AddFormRow(form, 4, "Requested Delivery Date", dtpRequestedDelivery);
-                UITheme.AddFormRow(form, 5, "Discount", txtDiscount);
-                UITheme.AddFormRow(form, 6, "Customer Ref Number (PO-PL-#########)", cmbCustomerRefNumber);
-                UITheme.AddFormRow(form, 7, "Status / Remark", BuildStatusRemarkRow(cmbStatus, txtRemark));
+                UITheme.AddFormRow(form, 3, "FX / Total", lblCurrencySummary);
+                UITheme.AddFormRow(form, 4, "Delivery Address *", cmbDeliveryAddress);
+                UITheme.AddFormRow(form, 5, "Requested Delivery Date", dtpRequestedDelivery);
+                UITheme.AddFormRow(form, 6, "Discount", txtDiscount);
+                UITheme.AddFormRow(form, 7, "Customer Ref Number (PO-PL-#########)", cmbCustomerRefNumber);
+                UITheme.AddFormRow(form, 8, "Status / Remark", BuildStatusRemarkRow(cmbStatus, txtRemark));
+                form.RowCount = 9;
+                root.RowStyles[0] = new RowStyle(SizeType.Absolute, 280);
 
                 var lineGrid = BuildEditableSalesOrderLineGrid();
                 lineGrid.Tag = isEdit && existing.CurrencyCurrencyID > 0 ? existing.CurrencyCurrencyID : 1L;
                 if (isEdit) LoadProductLinesToGrid(lineGrid, _salesOrderCtrl.GetProductLinesInternal(existing.SalesOrderID));
+                WireCurrencySummary(cmbCurrency, lineGrid, lblCurrencySummary, isEdit ? existing?.ExchangeRate : null);
                 cmbCurrency.SelectedIndexChanged += (s, e) => RecalculateGridPricesForCurrency(lineGrid, GetComboId(cmbCurrency));
 
                 root.Controls.Add(form, 0, 0);
@@ -2149,6 +2172,28 @@ namespace FurnitureERP.Forms
             if (selectedCurrencyId > 0)
                 SetComboValue(cmb, selectedCurrencyId);
             return cmb;
+        }
+
+        private void WireCurrencySummary(ComboBox cmbCurrency, DataGridView lineGrid, Label lblSummary, decimal? lockedRate)
+        {
+            void RefreshSummary()
+            {
+                long currencyId = GetComboId(cmbCurrency);
+                if (currencyId <= 0) currencyId = 1;
+                decimal rate = lockedRate.HasValue && lockedRate.Value > 0
+                    ? lockedRate.Value
+                    : _currencyCtrl.GetRateToBase(currencyId);
+                decimal lineTotal = 0m;
+                foreach (var line in ReadProductLinesFromGrid(lineGrid))
+                    lineTotal += line.Price * line.Quantity - line.Discount;
+                decimal hkd = CurrencyConversionService.ToBaseAmount(lineTotal, rate);
+                string rateNote = lockedRate.HasValue && lockedRate.Value > 0 ? "locked" : "preview on save";
+                lblSummary.Text = $"Rate: {rate:N4} ({rateNote}) | Lines: {lineTotal:N2} → HKD {hkd:N2}";
+            }
+
+            cmbCurrency.SelectedIndexChanged += (s, e) => RefreshSummary();
+            lineGrid.CellValueChanged += (s, e) => RefreshSummary();
+            RefreshSummary();
         }
 
         private void RecalculateGridPricesForCurrency(DataGridView grid, long targetCurrencyId)

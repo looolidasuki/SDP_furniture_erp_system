@@ -135,13 +135,14 @@ namespace Sales_user.Controllers
             });
             if (id > 0)
             {
+                string code = DocumentCodeHelper.FormatRefundRequestCode(id);
                 DatabaseConnect.ExecuteNonQuery(
                     "UPDATE RefundRequest SET refundRequestCode = @code WHERE refundRequestID = @id",
                     new[] {
-                        new MySqlParameter("@code", "RF-" + id),
+                        new MySqlParameter("@code", code),
                         new MySqlParameter("@id", id)
                     });
-                refund.RefundRequestCode = "RF-" + id;
+                refund.RefundRequestCode = code;
                 refund.RefundRequestID = id;
             }
             return id;

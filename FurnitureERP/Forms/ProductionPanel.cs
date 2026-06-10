@@ -20,8 +20,6 @@ namespace FurnitureERP.Forms
         private readonly ProductController _productCtrl = new ProductController();
 
         private DataGridView _grid;
-        private TextBox _searchBox;
-        private ComboBox _statusFilter;
         private TabControl _tabs;
 
         public ProductionPanel(string module = "Production")
@@ -127,14 +125,7 @@ namespace FurnitureERP.Forms
             PermissionGuard.ApplyCreateButton(btnCreateRmrn, PermissionModule.RawMaterialRequestNote);
             btnCreateRmrn.Visible = AppSession.CanCreate(PermissionModule.RawMaterialRequestNote);
 
-            _searchBox = new TextBox { Width = 160, Height = 28, Location = new Point(btnCreateRmrn.Right + 10, 12) };
-            _searchBox.TextChanged += (s, e) => LoadData(_searchBox.Text.Trim());
-
-            _statusFilter = new ComboBox { Width = 150, Height = 28, DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(_searchBox.Right + 8, 12) };
-            DictionaryUIHelper.BindStatusFilter(_statusFilter, DictionaryService.Categories.Production);
-            _statusFilter.SelectedIndexChanged += (s, e) => LoadData(_searchBox.Text.Trim());
-
-            toolbar.Controls.AddRange(new Control[] { btnNew, btnQuickNew, btnSample, btnRefresh, btnDetail, btnEdit, btnComplete, btnViewProducts, btnAddProduct, btnRMRN, btnCreateRmrn, _searchBox, _statusFilter });
+            toolbar.Controls.AddRange(new Control[] { btnNew, btnQuickNew, btnSample, btnRefresh, btnDetail, btnEdit, btnComplete, btnViewProducts, btnAddProduct, btnRMRN, btnCreateRmrn });
 
             _grid = GridHelper.CreateStyledGrid();
             _grid.CellDoubleClick += (s, e) =>
@@ -150,7 +141,7 @@ namespace FurnitureERP.Forms
 
             var content = new Panel { Dock = DockStyle.Fill };
             content.Controls.Add(_grid);
-            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(_grid, "Production Order Filters"));
+            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(_grid, "Production Order Filters", DictionaryService.Categories.Production));
             content.Controls.Add(toolbar);
             page.Controls.Add(content);
 
@@ -187,7 +178,7 @@ namespace FurnitureERP.Forms
 
             var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
             btnRefresh.Location = new Point(btnNew.Width + 10, 9);
-            btnRefresh.Click += (s, e) => { try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock(); GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock"); } catch { } };
+            btnRefresh.Click += (s, e) => { try { ReloadRawMaterialGrid(grid); } catch { } };
 
             var btnEdit = UITheme.CreateSecondaryButton("✏ Edit");
             btnEdit.Location = new Point(btnRefresh.Right + 10, 9);
@@ -195,7 +186,7 @@ namespace FurnitureERP.Forms
             {
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Raw Material ID") <= 0) { UITheme.ShowWarning("Please select a raw material first."); return; }
                 var rm = _rawMaterialCtrl.GetById(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Raw Material ID"));
-                if (rm != null) { ShowRawMaterialDialog(rm); try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock(); GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock"); } catch { } }
+                if (rm != null) { ShowRawMaterialDialog(rm); try { ReloadRawMaterialGrid(grid); } catch { } }
             };
 
             toolbar.Controls.Add(btnNew);
@@ -211,11 +202,11 @@ namespace FurnitureERP.Forms
                 if (rm != null) ShowRawMaterialDialog(rm);
             };
 
-            try { grid.DataSource = _rawMaterialCtrl.GetAllRawMaterialsWithStock(); GridHelper.StyleGridWithStockAlert(grid, "Current Stock", "Min Stock"); } catch { }
+            try { ReloadRawMaterialGrid(grid); } catch { }
 
             var content = new Panel { Dock = DockStyle.Fill };
             content.Controls.Add(grid);
-            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Raw Material Filters"));
+            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Raw Material Filters", DictionaryService.Categories.RawMaterial));
             content.Controls.Add(toolbar);
             page.Controls.Add(content);
             return page;
@@ -277,15 +268,15 @@ namespace FurnitureERP.Forms
             btnRefresh.Location = new Point(0, 9);
             btnRefresh.Click += (s, e) =>
             {
-                try { grid.DataSource = _rawMaterialCtrl.GetAllSupplierQuotes(); GridHelper.StyleGrid(grid); } catch { }
+                try { ReloadSupplierQuoteGrid(grid); } catch { }
             };
             toolbar.Controls.Add(btnRefresh);
 
-            try { grid.DataSource = _rawMaterialCtrl.GetAllSupplierQuotes(); GridHelper.StyleGrid(grid); } catch { }
+            try { ReloadSupplierQuoteGrid(grid); } catch { }
 
             var content = new Panel { Dock = DockStyle.Fill };
             content.Controls.Add(grid);
-            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Supplier Quote Filters"));
+            content.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Supplier Quote Filters", DictionaryService.Categories.RawMaterial));
             content.Controls.Add(toolbar);
             page.Controls.Add(content);
             return page;
@@ -610,24 +601,35 @@ namespace FurnitureERP.Forms
         // ─────────────────────────────────────────
         //  PRODUCTION ORDER METHODS (unchanged)
         // ─────────────────────────────────────────
-        private void LoadData(string keyword = null)
+        private void ReloadRawMaterialGrid(DataGridView grid)
+        {
+            GridHelper.BindStatusWithStockAlert(
+                grid,
+                _rawMaterialCtrl.GetAllRawMaterialsWithStock(),
+                "Status",
+                DictionaryService.Categories.RawMaterial,
+                "Current Stock",
+                "Min Stock");
+        }
+
+        private void ReloadSupplierQuoteGrid(DataGridView grid)
+        {
+            GridHelper.BindStatusData(
+                grid,
+                _rawMaterialCtrl.GetAllSupplierQuotes(),
+                "Status",
+                DictionaryService.Categories.RawMaterial);
+        }
+
+        private void LoadData()
         {
             try
             {
-                DataTable dt = string.IsNullOrEmpty(keyword)
-                    ? _productionCtrl.GetAllProductionOrders()
-                    : _productionCtrl.Search(new SearchFilterCriteria { Keyword = keyword });
-
-                dt = DictionaryUIHelper.LoadWithStatusLabels(() => dt, "Status", DictionaryService.Categories.Production);
-
-                int? statusCode = DictionaryUIHelper.GetFilterStatusCode(_statusFilter);
-                if (dt != null && statusCode.HasValue)
-                {
-                    dt.DefaultView.RowFilter = "[Status] = " + statusCode.Value;
-                    dt = dt.DefaultView.ToTable();
-                }
-                _grid.DataSource = dt;
-                GridHelper.StyleGrid(_grid);
+                GridHelper.LoadStatusData(
+                    _grid,
+                    () => _productionCtrl.GetAllProductionOrders(),
+                    "Status",
+                    DictionaryService.Categories.Production);
             }
             catch { }
         }
@@ -666,7 +668,7 @@ namespace FurnitureERP.Forms
             }
 
             if (TryCompleteProductionOrder(id.Value))
-                LoadData(_searchBox?.Text?.Trim());
+                LoadData();
         }
 
         private bool TryCompleteProductionOrder(long productionOrderId)
@@ -1004,16 +1006,8 @@ namespace FurnitureERP.Forms
                 var lblStaff = new Label { AutoSize = true, ForeColor = UITheme.TextDark };
                 if (!readOnly)
                 {
-                    cmbStaff = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
-                    try
-                    {
-                        cmbStaff.DataSource = _productionCtrl.GetStaffForPicker();
-                        cmbStaff.DisplayMember = "DisplayText";
-                        cmbStaff.ValueMember = "Staff ID";
-                        long currentStaff = isEdit ? existing.StaffID : (AppSession.CurrentUser?.StaffID ?? 1);
-                        try { cmbStaff.SelectedValue = currentStaff; } catch { }
-                    }
-                    catch { }
+                    long currentStaff = isEdit ? existing.StaffID : (AppSession.CurrentUser?.StaffID ?? 0);
+                    cmbStaff = BuildStaffPickerCombo(currentStaff);
                 }
                 else
                 {
@@ -1150,7 +1144,7 @@ namespace FurnitureERP.Forms
 
                             dlg.DialogResult = DialogResult.OK;
                         dlg.Close();
-                            LoadData(_searchBox?.Text?.Trim());
+                            LoadData();
                         }
                         catch (Exception ex) { UITheme.ShowError(ex.Message); }
                     };
@@ -1358,25 +1352,8 @@ namespace FurnitureERP.Forms
 
                 if (!isEdit && !readOnly)
                 {
-                    cmbSalesOrder = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 400 };
-                    try
-                    {
-                        cmbSalesOrder.DataSource = _productionCtrl.GetSalesOrdersForProductionPicker();
-                        cmbSalesOrder.DisplayMember = "DisplayText";
-                        cmbSalesOrder.ValueMember = "Sales Order ID";
-                    }
-                    catch { }
-
-                    cmbStaff = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
-                    try
-                    {
-                        cmbStaff.DataSource = _productionCtrl.GetStaffForPicker();
-                        cmbStaff.DisplayMember = "DisplayText";
-                        cmbStaff.ValueMember = "Staff ID";
-                        long currentStaff = AppSession.CurrentUser?.StaffID ?? 1;
-                        try { cmbStaff.SelectedValue = currentStaff; } catch { }
-                    }
-                    catch { }
+                    cmbSalesOrder = BuildProductionSalesOrderCombo();
+                    cmbStaff = BuildStaffPickerCombo(AppSession.CurrentUser?.StaffID ?? 0);
                 }
                 else
                 {
@@ -1440,7 +1417,12 @@ namespace FurnitureERP.Forms
                     LoadProductionLinesToGrid(lineGrid, lines);
                 };
                 if (cmbSalesOrder != null)
-                    cmbSalesOrder.SelectedIndexChanged += (s, e) => loadLines();
+                {
+                    var soBinder = GetComboBinder(cmbSalesOrder);
+                    if (soBinder != null)
+                        soBinder.SelectionCommitted += (s, e) => loadLines();
+                    cmbSalesOrder.Leave += (s, e) => loadLines();
+                }
                 dlg.Shown += (s, e) => loadLines();
 
                 root.Controls.Add(form, 0, 0);
@@ -1521,7 +1503,7 @@ namespace FurnitureERP.Forms
                             }
                             dlg.DialogResult = DialogResult.OK;
                             dlg.Close();
-                            LoadData(_searchBox?.Text?.Trim());
+                            LoadData();
                         }
                         catch (Exception ex) { UITheme.ShowError(ex.Message); }
                     };
@@ -1642,9 +1624,49 @@ namespace FurnitureERP.Forms
             return grid;
         }
 
+        private ComboBox BuildProductionSalesOrderCombo(long selectedSalesOrderId = 0)
+        {
+            var cmb = new ComboBox { Width = 400 };
+            var binder = new FilteredComboBinder(cmb, "Sales Order ID", "DisplayText");
+            DataTable dt = null;
+            try { dt = _productionCtrl.GetSalesOrdersForProductionPicker(); } catch { }
+            binder.SetSource(dt ?? EmptyPickerTable("Sales Order ID"), selectedSalesOrderId);
+            cmb.Tag = binder;
+            return cmb;
+        }
+
+        private ComboBox BuildStaffPickerCombo(long selectedStaffId = 0)
+        {
+            var cmb = new ComboBox { Width = 280 };
+            var binder = new FilteredComboBinder(cmb, "Staff ID", "DisplayText");
+            DataTable dt = null;
+            try { dt = _productionCtrl.GetStaffForPicker(); } catch { }
+            if (selectedStaffId <= 0)
+                selectedStaffId = AppSession.CurrentUser?.StaffID ?? 0;
+            binder.SetSource(dt ?? EmptyPickerTable("Staff ID"), selectedStaffId);
+            cmb.Tag = binder;
+            return cmb;
+        }
+
+        private static DataTable EmptyPickerTable(string idColumn)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add(idColumn, typeof(long));
+            dt.Columns.Add("DisplayText", typeof(string));
+            return dt;
+        }
+
+        private static FilteredComboBinder GetComboBinder(ComboBox cmb) => cmb?.Tag as FilteredComboBinder;
+
         private static long GetComboLongId(ComboBox cmb, string valueMember)
         {
             if (cmb == null) return 0;
+
+            if (cmb.Tag is FilteredComboBinder binder)
+            {
+                long binderId = binder.GetSelectedId();
+                if (binderId > 0) return binderId;
+            }
 
             object selected = cmb.SelectedValue;
             if (selected != null && selected != DBNull.Value)
@@ -2052,7 +2074,7 @@ namespace FurnitureERP.Forms
                     UITheme.ShowSuccess(summary);
                     dlg.DialogResult = DialogResult.OK;
                     dlg.Close();
-                    LoadData(_searchBox?.Text?.Trim());
+                    LoadData();
                 };
 
                 var btnPanel = new FlowLayoutPanel
@@ -2550,12 +2572,25 @@ namespace FurnitureERP.Forms
 
                 var grid = GridHelper.CreateStyledGrid();
                 grid.Dock = DockStyle.Fill;
-                try { grid.DataSource = _rmrnCtrl.GetAllRequestNotes(); GridHelper.StyleGrid(grid); } catch { }
+                try
+                {
+                    grid.DataSource = _rmrnCtrl.GetAllRequestNotes();
+                    GridHelper.StyleTextStatusColumn(grid, "Status");
+                }
+                catch { }
 
                 var toolbar = new Panel { Dock = DockStyle.Top, Height = 50 };
                 var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
                 btnRefresh.Location = new Point(8, 9);
-                btnRefresh.Click += (s, e) => { try { grid.DataSource = _rmrnCtrl.GetAllRequestNotes(); GridHelper.StyleGrid(grid); } catch { } };
+                btnRefresh.Click += (s, e) =>
+                {
+                    try
+                    {
+                        grid.DataSource = _rmrnCtrl.GetAllRequestNotes();
+                        GridHelper.StyleTextStatusColumn(grid, "Status");
+                    }
+                    catch { }
+                };
 
                 var btnDetail = UITheme.CreateSecondaryButton("View Detail");
                 btnDetail.Location = new Point(btnRefresh.Right + 10, 9);
@@ -2600,7 +2635,7 @@ namespace FurnitureERP.Forms
 
                 dlg.Controls.Add(toolbar);
                 dlg.Controls.Add(grid);
-                dlg.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "RM Request Filters"));
+                dlg.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "RM Request Filters", null));
                 dlg.Controls.Add(btnClose);
                 dlg.ShowDialog(this);
             }

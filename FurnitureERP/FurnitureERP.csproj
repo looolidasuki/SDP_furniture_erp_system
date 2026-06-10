@@ -158,7 +158,11 @@
     <Compile Include="Helpers\RawMaterialRequestNoteConstants.cs" />
     <Compile Include="Helpers\FilteredComboBinder.cs" />
     <Compile Include="Helpers\CustomerComboHelper.cs" />
+    <Compile Include="Helpers\SalesOrderComboHelper.cs" />
+    <Compile Include="Helpers\StatusStyleHelper.cs" />
     <Compile Include="Helpers\CurrencyPriceHelper.cs" />
+    <Compile Include="Helpers\CurrencyConversionService.cs" />
+    <Compile Include="Helpers\CurrencyDualAmountMigration.cs" />
     <Compile Include="Helpers\OrderTotalCalculator.cs" />
     <Compile Include="Helpers\PdfSharpFontResolver.cs" />
     <Compile Include="..\4915M_SDP\Infrastructure\DatabaseConnect.cs">
