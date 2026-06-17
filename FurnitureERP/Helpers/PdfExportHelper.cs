@@ -33,6 +33,7 @@ namespace FurnitureERP.Helpers
     public static class PdfExportHelper
     {
         private const double Margin = 40;
+        private const double TitleTopPadding = 6;
         private const double LineHeight = 16;
         private const double TableHeaderHeight = 22;
         private const double TableCellPadding = 5;
@@ -71,7 +72,7 @@ namespace FurnitureERP.Helpers
             var page = doc.AddPage();
             page.Size = PdfSharp.PageSize.A4;
             var gfx = XGraphics.FromPdfPage(page);
-            double y = Margin;
+            double y = Margin + TitleTopPadding;
             double contentWidth = page.Width.Point - Margin * 2;
 
             var titleFont = new XFont("Segoe UI", 16, XFontStyleEx.Bold);
@@ -83,7 +84,7 @@ namespace FurnitureERP.Helpers
             var sectionFont = new XFont("Segoe UI", 10, XFontStyleEx.Bold);
 
             y = DrawWrapped(gfx, data.Title ?? "Document", titleFont, XBrushes.DarkSlateGray,
-                Margin, y, contentWidth) + 6;
+                Margin, y, contentWidth) + 8;
 
             string printedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
             string subtitle = string.IsNullOrWhiteSpace(data.Subtitle)
@@ -206,14 +207,19 @@ namespace FurnitureERP.Helpers
                 double leftFrameH = GetChartFrameHeight(left, colWidth);
                 double rightFrameH = right != null ? GetChartFrameHeight(right, colWidth) : 0;
                 double rowFrameH = Math.Max(leftFrameH, rightFrameH);
-                double rowHeight = titleHeight + rowFrameH + rowGap;
+                double leftTitleH = MeasureChartTitleHeight(gfx, left, colWidth, chartTitleFont, titleHeight);
+                double rightTitleH = right != null
+                    ? MeasureChartTitleHeight(gfx, right, colWidth, chartTitleFont, titleHeight)
+                    : 0;
+                double maxTitleH = Math.Max(leftTitleH, rightTitleH);
+                double rowHeight = maxTitleH + 4 + rowFrameH + rowGap;
 
                 y = EnsureSpace(doc, ref page, ref gfx, y, rowHeight);
                 double rowY = y;
 
-                DrawChartBlock(gfx, left, Margin, rowY, colWidth, titleHeight, rowFrameH, chartTitleFont);
+                DrawChartBlock(gfx, left, Margin, rowY, colWidth, maxTitleH, rowFrameH, chartTitleFont);
                 if (right != null)
-                    DrawChartBlock(gfx, right, Margin + colWidth + gap, rowY, colWidth, titleHeight, rowFrameH, chartTitleFont);
+                    DrawChartBlock(gfx, right, Margin + colWidth + gap, rowY, colWidth, maxTitleH, rowFrameH, chartTitleFont);
 
                 y += rowHeight;
             }
@@ -233,14 +239,21 @@ namespace FurnitureERP.Helpers
             return 185;
         }
 
+        private static double MeasureChartTitleHeight(XGraphics gfx, PdfChartImage chart, double colWidth,
+            XFont chartTitleFont, double minHeight)
+        {
+            string title = string.IsNullOrWhiteSpace(chart?.Title) ? "Chart" : chart.Title;
+            return Math.Max(minHeight, MeasureWrappedHeight(gfx, title, chartTitleFont, colWidth));
+        }
+
         private static void DrawChartBlock(XGraphics gfx, PdfChartImage chart, double x, double rowY,
-            double colWidth, double titleHeight, double frameHeight, XFont chartTitleFont)
+            double colWidth, double titleSlotHeight, double frameHeight, XFont chartTitleFont)
         {
             string title = string.IsNullOrWhiteSpace(chart?.Title) ? "Chart" : chart.Title;
             gfx.DrawString(title, chartTitleFont, XBrushes.DarkSlateGray,
-                new XRect(x, rowY, colWidth, titleHeight), XStringFormats.TopLeft);
+                new XRect(x, rowY, colWidth, titleSlotHeight), XStringFormats.TopLeft);
 
-            var frame = new XRect(x, rowY + titleHeight, colWidth, frameHeight);
+            var frame = new XRect(x, rowY + titleSlotHeight + 4, colWidth, frameHeight);
             gfx.DrawRectangle(new XPen(XColors.LightGray, 0.8), frame);
 
             if (chart?.Image != null)
@@ -357,7 +370,12 @@ namespace FurnitureERP.Helpers
             page = doc.AddPage();
             page.Size = PdfSharp.PageSize.A4;
             gfx = XGraphics.FromPdfPage(page);
-            return Margin;
+            return Margin + TitleTopPadding;
+        }
+
+        private static double GetLineHeight(XGraphics gfx, XFont font)
+        {
+            return Math.Max(LineHeight, gfx.MeasureString("Ag", font).Height + 2);
         }
 
         private static double DrawWrapped(XGraphics gfx, string text, XFont font, XBrush brush, double x, double y, double maxWidth)
@@ -365,19 +383,21 @@ namespace FurnitureERP.Helpers
             if (string.IsNullOrEmpty(text))
                 return y;
 
+            double lineHeight = GetLineHeight(gfx, font);
             var lines = WrapText(text, font, gfx, maxWidth);
             foreach (var line in lines)
             {
-                gfx.DrawString(line, font, brush, x, y);
-                y += LineHeight;
+                gfx.DrawString(line, font, brush,
+                    new XRect(x, y, maxWidth, lineHeight), XStringFormats.TopLeft);
+                y += lineHeight;
             }
             return y;
         }
 
         private static double MeasureWrappedHeight(XGraphics gfx, string text, XFont font, double maxWidth)
         {
-            if (string.IsNullOrEmpty(text)) return LineHeight;
-            return WrapText(text, font, gfx, maxWidth).Count * LineHeight;
+            if (string.IsNullOrEmpty(text)) return GetLineHeight(gfx, font);
+            return WrapText(text, font, gfx, maxWidth).Count * GetLineHeight(gfx, font);
         }
 
         private static System.Collections.Generic.List<string> WrapText(string text, XFont font, XGraphics gfx, double maxWidth)

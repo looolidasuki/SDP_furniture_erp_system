@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
@@ -282,6 +283,52 @@ namespace Sales_user.Controllers
             }
         }
 
+        public WorkflowResult CreatePurchaseOrdersForShortagesBySupplier(
+            long staffId,
+            long inventoryWarehouseId,
+            IList<MaterialShortageLine> lines,
+            DateTime requestDeliveryDate,
+            string remark)
+        {
+            if (staffId <= 0 || inventoryWarehouseId <= 0)
+                return WorkflowResult.Fail("Staff and receiving warehouse are required.");
+            if (lines == null || lines.Count == 0)
+                return WorkflowResult.Fail("No purchase lines provided.");
+
+            var activeLines = lines.Where(l => l.RawMaterialId > 0 && l.PoQty > 0).ToList();
+            if (activeLines.Count == 0)
+                return WorkflowResult.Fail("Enter at least one PO quantity.");
+
+            var missingSupplier = activeLines.Where(l => l.SupplierId <= 0).ToList();
+            if (missingSupplier.Count > 0)
+            {
+                string sample = missingSupplier[0].RawMaterialCode ?? missingSupplier[0].RawMaterialId.ToString();
+                return WorkflowResult.Fail(
+                    missingSupplier.Count == 1
+                        ? $"No preferred supplier quote for {sample}. Add a Raw Material Supplier quote first."
+                        : $"{missingSupplier.Count} line(s) have no preferred supplier quote (e.g. {sample}). Add quotes first.");
+            }
+
+            var created = new List<string>();
+            foreach (var group in activeLines.GroupBy(l => l.SupplierId).OrderBy(g => g.Key))
+            {
+                var result = CreatePurchaseOrderForShortages(
+                    group.Key, staffId, inventoryWarehouseId, group.ToList(), requestDeliveryDate, remark);
+                if (!result.Success)
+                {
+                    if (created.Count > 0)
+                        return WorkflowResult.Fail(result.Message + " (Earlier PO(s) were already created: " + string.Join(", ", created) + ")");
+                    return result;
+                }
+                created.Add(result.Message);
+            }
+
+            string summary = created.Count == 1
+                ? created[0]
+                : $"Created {created.Count} purchase orders:{Environment.NewLine}{string.Join(Environment.NewLine, created)}";
+            return WorkflowResult.Ok(0, summary);
+        }
+
         public WorkflowResult CreatePurchaseOrderForShortages(
             long supplierId,
             long staffId,
@@ -326,6 +373,18 @@ namespace Sales_user.Controllers
                     {
                         if (line.RawMaterialId <= 0 || line.PoQty <= 0) continue;
 
+                        var quote = _rmCtrl.TryGetSupplierQuote(line.RawMaterialId, supplierId);
+                        if (quote == null)
+                        {
+                            string rmLabel = string.IsNullOrWhiteSpace(line.RawMaterialCode)
+                                ? line.RawMaterialId.ToString()
+                                : line.RawMaterialCode;
+                            throw new InvalidOperationException(
+                                $"Raw material {rmLabel} has no active quote for supplier {supplierId}.");
+                        }
+
+                        decimal unitPrice = line.UnitPrice > 0 ? line.UnitPrice : quote.BasePrice;
+
                         DatabaseConnect.ExecuteNonQuery(conn, trans,
                             @"INSERT INTO PurchaseOrderRawMaterialLine
                               (purchaseOrderID, rawMaterialID, price, orderQuantity)
@@ -334,7 +393,7 @@ namespace Sales_user.Controllers
                             {
                                 new MySqlParameter("@poId", id),
                                 new MySqlParameter("@rmId", line.RawMaterialId),
-                                new MySqlParameter("@price", line.UnitPrice),
+                                new MySqlParameter("@price", unitPrice),
                                 new MySqlParameter("@qty", line.PoQty)
                             });
 

@@ -98,22 +98,22 @@ namespace FurnitureERP.Helpers
                 Padding = new Padding(0, 6, 0, 0)
             };
 
-            var btnClear = UITheme.CreateSecondaryButton("Clear");
+            var btnClear = UITheme.CreateDangerButton("Clear");
             btnClear.Width = 72;
             btnClear.Height = 28;
             var btnExport = UITheme.CreateSecondaryButton("Export CSV");
             btnExport.Width = 96;
             btnExport.Height = 28;
-            var btnApply = UITheme.CreatePrimaryButton("Apply");
-            btnApply.Width = 72;
-            btnApply.Height = 28;
+            var btnRemove = UITheme.CreateDangerButton("Remove");
+            btnRemove.Width = 80;
+            btnRemove.Height = 28;
             var btnAdd = UITheme.CreateSecondaryButton("+ Condition");
             btnAdd.Width = 108;
             btnAdd.Height = 28;
 
-            actions.Controls.Add(btnClear);
+            actions.Controls.Add(btnRemove);
             actions.Controls.Add(btnExport);
-            actions.Controls.Add(btnApply);
+            actions.Controls.Add(btnClear);
             actions.Controls.Add(btnAdd);
 
             header.Controls.Add(actions);
@@ -159,11 +159,19 @@ namespace FurnitureERP.Helpers
             };
 
             btnAdd.Click += (s, e) => addRow();
-            btnApply.Click += (s, e) => ApplyFilter(grid, rowsPanel);
             btnExport.Click += (s, e) =>
             {
                 var owner = grid.FindForm();
                 CsvExportHelper.ExportDataGridView(grid, title + "_export", owner);
+            };
+            btnRemove.Click += (s, e) =>
+            {
+                if (rowsPanel.Controls.Count <= 1) return;
+                var last = rowsPanel.Controls[rowsPanel.Controls.Count - 1];
+                rowsPanel.Controls.Remove(last);
+                last.Dispose();
+                resizeBlock();
+                ApplyFilter(grid, rowsPanel);
             };
             btnClear.Click += (s, e) =>
             {
@@ -299,16 +307,11 @@ namespace FurnitureERP.Helpers
             valueHost.Controls.Add(cmbStatusValue);
             valueHost.Controls.Add(dateFlow);
 
-            var btnRemove = UITheme.CreateSecondaryButton("Remove");
-            btnRemove.Dock = DockStyle.Fill;
-            btnRemove.Height = 28;
-            btnRemove.Margin = new Padding(0, 2, 0, 0);
-            btnRemove.Click += (s, e) =>
-            {
-                rowsPanel.Controls.Remove(row);
-                row.Dispose();
-                resizeBlock();
-            };
+            var btnApply = UITheme.CreatePrimaryButton("Apply");
+            btnApply.Dock = DockStyle.Fill;
+            btnApply.Height = 28;
+            btnApply.Margin = new Padding(0, 2, 0, 0);
+            btnApply.Click += (s, e) => ApplyFilter(grid, rowsPanel);
 
             var tag = new FilterRowTag
             {
@@ -335,7 +338,7 @@ namespace FurnitureERP.Helpers
             row.Controls.Add(cmbColumn, 0, 0);
             row.Controls.Add(cmbOperator, 1, 0);
             row.Controls.Add(valueHost, 2, 0);
-            row.Controls.Add(btnRemove, 3, 0);
+            row.Controls.Add(btnApply, 3, 0);
             return row;
         }
 

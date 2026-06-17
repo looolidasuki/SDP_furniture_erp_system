@@ -520,50 +520,47 @@ namespace FurnitureERP.Forms
 
             using (var dlg = new Form())
             {
-                dlg.Text = "Create Purchase Order for Shortages";
-                dlg.Size = new Size(820, 520);
+                dlg.Text = "Create Purchase Orders for Shortages";
+                dlg.Size = new Size(900, 540);
                 dlg.StartPosition = FormStartPosition.CenterParent;
                 dlg.BackColor = UITheme.Background;
+
+                var supplierNames = new Dictionary<long, string>();
+                var supplierDt = _supplierCtrl.GetAllSuppliers();
+                if (supplierDt != null)
+                {
+                    foreach (DataRow row in supplierDt.Rows)
+                        supplierNames[Convert.ToInt64(row["Supplier ID"])] = row["Supplier Name"]?.ToString() ?? "";
+                }
 
                 var grid = GridHelper.CreateStyledGrid();
                 grid.Dock = DockStyle.Fill;
                 grid.ReadOnly = false;
                 var table = new DataTable();
+                table.Columns.Add("Supplier", typeof(string));
                 table.Columns.Add("Raw Material", typeof(string));
                 table.Columns.Add("Required", typeof(decimal));
                 table.Columns.Add("Net Available", typeof(decimal));
                 table.Columns.Add("Min Stock", typeof(decimal));
                 table.Columns.Add("PO Qty", typeof(decimal));
                 table.Columns.Add("Unit Price", typeof(decimal));
+                table.Columns.Add("Supplier ID", typeof(long));
                 table.Columns.Add("Raw Material ID", typeof(long));
-                foreach (var line in shortages)
+                foreach (var line in shortages.OrderBy(s => s.SupplierId).ThenBy(s => s.RawMaterialCode))
                 {
-                    table.Rows.Add(line.RawMaterialCode, line.RequiredQty, line.NetAvailable,
-                        line.MinimumStockLevel, line.PoQty, line.UnitPrice, line.RawMaterialId);
+                    string supplierName = line.SupplierId > 0 && supplierNames.TryGetValue(line.SupplierId, out var name)
+                        ? name
+                        : "(No quote)";
+                    table.Rows.Add(supplierName, line.RawMaterialCode, line.RequiredQty, line.NetAvailable,
+                        line.MinimumStockLevel, line.PoQty, line.UnitPrice, line.SupplierId, line.RawMaterialId);
                 }
                 grid.DataSource = table;
+                if (grid.Columns.Contains("Supplier ID"))
+                    grid.Columns["Supplier ID"].Visible = false;
                 if (grid.Columns.Contains("Raw Material ID"))
                     grid.Columns["Raw Material ID"].Visible = false;
                 foreach (DataGridViewColumn col in grid.Columns)
                     col.ReadOnly = col.Name != "PO Qty" && col.HeaderText != "PO Qty";
-
-                var cmbSupplier = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320 };
-                var supplierDt = _supplierCtrl.GetAllSuppliers();
-                if (supplierDt != null)
-                {
-                    if (!supplierDt.Columns.Contains("DisplayText"))
-                        supplierDt.Columns.Add("DisplayText", typeof(string));
-                    foreach (DataRow row in supplierDt.Rows)
-                        row["DisplayText"] = row["Supplier Name"]?.ToString();
-                    cmbSupplier.DataSource = supplierDt;
-                    cmbSupplier.DisplayMember = "DisplayText";
-                    cmbSupplier.ValueMember = "Supplier ID";
-                    long preferred = shortages.FirstOrDefault(s => s.SupplierId > 0)?.SupplierId ?? 0;
-                    if (preferred > 0)
-                    {
-                        try { cmbSupplier.SelectedValue = preferred; } catch { }
-                    }
-                }
 
                 var dtpDelivery = new DateTimePicker { Value = DateTime.Today.AddDays(14), Width = 220 };
                 var txtRemark = new TextBox { Text = "Auto-created for RM request shortage", Width = 420 };
@@ -579,21 +576,30 @@ namespace FurnitureERP.Forms
                 top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
                 top.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
                 top.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-                top.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-                UITheme.AddFormField(top, 0, "Supplier *", cmbSupplier);
-                UITheme.AddFormField(top, 1, "Request Delivery *", dtpDelivery);
-                UITheme.AddFormField(top, 2, "Remark", txtRemark);
+                top.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+                UITheme.AddFormField(top, 0, "Request Delivery *", dtpDelivery);
+                UITheme.AddFormField(top, 1, "Remark", txtRemark);
+                var lblHint = new Label
+                {
+                    Text = "One purchase order is created per supplier (grouped by preferred supplier quote).",
+                    Dock = DockStyle.Fill,
+                    ForeColor = UITheme.TextGray,
+                    Font = new Font("Segoe UI", 8.5f),
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Padding = new Padding(0, 4, 0, 0)
+                };
+                top.Controls.Add(new Label(), 0, 2);
+                top.Controls.Add(lblHint, 1, 2);
 
-                var btnCreate = UITheme.CreatePrimaryButton("Create PO");
+                var btnCreate = UITheme.CreatePrimaryButton("Create PO(s)");
                 var btnCancel = UITheme.CreateSecondaryButton("Cancel");
                 btnCancel.Click += (s, e) => dlg.Close();
                 btnCreate.Click += (s, e) =>
                 {
-                    long supplierId = GetComboLongId(cmbSupplier);
                     long staffId = AppSession.CurrentUser?.StaffID ?? 0;
-                    if (supplierId <= 0 || staffId <= 0)
+                    if (staffId <= 0)
                     {
-                        UITheme.ShowWarning("Supplier and current staff are required.");
+                        UITheme.ShowWarning("Current staff profile is required.");
                         return;
                     }
 
@@ -605,8 +611,10 @@ namespace FurnitureERP.Forms
                         lines.Add(new MaterialShortageLine
                         {
                             RawMaterialId = Convert.ToInt64(row["Raw Material ID"]),
+                            RawMaterialCode = row["Raw Material"]?.ToString(),
                             PoQty = poQty,
-                            UnitPrice = Convert.ToDecimal(row["Unit Price"])
+                            UnitPrice = Convert.ToDecimal(row["Unit Price"]),
+                            SupplierId = Convert.ToInt64(row["Supplier ID"])
                         });
                     }
                     if (lines.Count == 0)
@@ -615,8 +623,8 @@ namespace FurnitureERP.Forms
                         return;
                     }
 
-                    var result = _materialWorkflow.CreatePurchaseOrderForShortages(
-                        supplierId, staffId, invWh, lines, dtpDelivery.Value.Date, txtRemark.Text.Trim());
+                    var result = _materialWorkflow.CreatePurchaseOrdersForShortagesBySupplier(
+                        staffId, invWh, lines, dtpDelivery.Value.Date, txtRemark.Text.Trim());
                     if (!result.Success)
                     {
                         UITheme.ShowWarning(result.Message);
@@ -640,7 +648,7 @@ namespace FurnitureERP.Forms
                 btnPanel.Controls.Add(btnCancel);
 
                 var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
-                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
+                root.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
                 root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 root.Controls.Add(top, 0, 0);
                 root.Controls.Add(grid, 0, 1);

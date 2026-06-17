@@ -60,6 +60,24 @@ namespace FurnitureERP.Helpers
             return btn;
         }
 
+        public static Button CreateDangerButton(string text)
+        {
+            var btn = new Button
+            {
+                Text = text,
+                BackColor = Danger,
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                Height = 32,
+                AutoSize = false,
+                Width = 110,
+                Cursor = Cursors.Hand
+            };
+            btn.FlatAppearance.BorderSize = 0;
+            return btn;
+        }
+
         // Card panel
         public static Panel CreateCard(string title)
         {
