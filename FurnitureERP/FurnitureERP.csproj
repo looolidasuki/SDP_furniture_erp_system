@@ -97,6 +97,7 @@
     <Compile Include="Helpers\ListPagingHelper.cs" />
     <Compile Include="Helpers\PagedGridBinder.cs" />
     <Compile Include="Helpers\FinanceReconciliationService.cs" />
+    <Compile Include="Helpers\DictionarySeedMigration.cs" />
     <Compile Include="Forms\LoginForm.cs">
       <SubType>Form</SubType>
     </Compile>

@@ -29,6 +29,7 @@ namespace FurnitureERP
                 DocumentAuditMigration.EnsureApplied();
                 StaffPasswordMigration.EnsureApplied();
                 InventoryLedgerMigration.EnsureApplied();
+                DictionarySeedMigration.EnsureApplied();
             }
             catch (Exception ex)
             {
@@ -42,6 +43,7 @@ namespace FurnitureERP
 
             EnsureDiagnosticAccount();
 
+            DictionaryService.ClearCache();
             StartupHealthChecks.WarnIfDictionaryMissing();
 
             // Safety notice: app is running on a fallback MySQL connection string (typically root + no password).

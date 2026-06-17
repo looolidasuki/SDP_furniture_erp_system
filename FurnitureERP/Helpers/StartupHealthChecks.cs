@@ -37,15 +37,15 @@ namespace FurnitureERP.Helpers
             // category -> SQL that returns a single column of distinct status codes
             var checks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                ["QUOTATION_STATUS"] = "SELECT DISTINCT status AS codeValue FROM quotation",
-                ["SALES_ORDER_STATUS"] = "SELECT DISTINCT status AS codeValue FROM salesorder",
-                ["PURCHASE_ORDER_STATUS"] = "SELECT DISTINCT status AS codeValue FROM purchaseorder",
-                ["PRODUCTION_ORDER_STATUS"] = "SELECT DISTINCT status AS codeValue FROM productionorder",
-                ["DELIVERY_STATUS"] = "SELECT DISTINCT status AS codeValue FROM deliverynote",
-                ["INVOICE_STATUS"] = "SELECT DISTINCT status AS codeValue FROM invoice",
-                ["PAYMENT_VOUCHER_STATUS"] = "SELECT DISTINCT status AS codeValue FROM paymentvoucher",
-                ["RECEIPT_VOUCHER_STATUS"] = "SELECT DISTINCT status AS codeValue FROM receiptvoucher",
-                ["REFUND_STATUS"] = "SELECT DISTINCT status AS codeValue FROM refundrequest"
+                [DictionaryService.Categories.Quotation] = "SELECT DISTINCT status AS codeValue FROM quotation",
+                [DictionaryService.Categories.SalesOrder] = "SELECT DISTINCT status AS codeValue FROM salesorder",
+                [DictionaryService.Categories.PurchaseOrder] = "SELECT DISTINCT status AS codeValue FROM purchaseorder",
+                [DictionaryService.Categories.Production] = "SELECT DISTINCT status AS codeValue FROM productionorder",
+                [DictionaryService.Categories.Delivery] = "SELECT DISTINCT status AS codeValue FROM deliverynote",
+                [DictionaryService.Categories.Invoice] = "SELECT DISTINCT status AS codeValue FROM invoice",
+                [DictionaryService.Categories.PaymentVoucher] = "SELECT DISTINCT status AS codeValue FROM paymentvoucher",
+                [DictionaryService.Categories.ReceiptVoucher] = "SELECT DISTINCT status AS codeValue FROM receiptvoucher",
+                [DictionaryService.Categories.RefundStatus] = "SELECT DISTINCT status AS codeValue FROM refundrequest"
             };
 
             var missing = new List<string>();
