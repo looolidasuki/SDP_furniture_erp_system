@@ -133,9 +133,16 @@ namespace FurnitureERP.Forms
         {
             var tab = new TabPage("Purchase Orders") { BackColor = UITheme.Background, Padding = new Padding(8) };
             var grid = GridHelper.CreateStyledGrid();
+            var contentPanel = new Panel { Dock = DockStyle.Fill };
 
             var toolbar = BuildToolbar("+ New Purchase Order", PermissionModule.PurchaseOrder, () => ShowPurchaseOrderDialog(), grid, () => {
-                try { ReloadPurchaseOrderGrid(grid, _purchaseOrderCtrl); } catch { }
+                try
+                {
+                    var pager = PagedGridBinder.TryGet(grid);
+                    if (pager != null) pager.Reload();
+                    else ReloadPurchaseOrderGrid(grid, _purchaseOrderCtrl);
+                }
+                catch { }
             }, () =>
             {
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Purchase Order ID") <= 0) { UITheme.ShowWarning("Please select a purchase order first."); return; }
@@ -156,7 +163,20 @@ namespace FurnitureERP.Forms
                     ShowPurchaseOrderTableDialog(purchaseOrderId, grid.Rows[e.RowIndex]);
             };
 
-            try { ReloadPurchaseOrderGrid(grid, _purchaseOrderCtrl); } catch { }
+            Action finishPoGrid = () =>
+            {
+                GridHelper.BindStatusData(grid, grid.DataSource as DataTable, DictionaryService.Categories.PurchaseOrder);
+                if (grid.Columns.Contains("Purchase Order ID")) grid.Columns["Purchase Order ID"].Visible = false;
+            };
+
+            var poPager = new PagedGridBinder(grid, contentPanel, f =>
+            {
+                var paged = _purchaseOrderCtrl.SearchPaged(f);
+                if (paged?.Rows != null)
+                    paged.Rows = GridHelper.DecorateStatusTable(paged.Rows, "Status", DictionaryService.Categories.PurchaseOrder);
+                return paged;
+            }, finishPoGrid);
+            poPager.LoadPage(1);
 
             var btnUnpaid = UITheme.CreateSecondaryButton("Unpaid POs");
             btnUnpaid.Location = new Point(8, 8);
@@ -173,8 +193,8 @@ namespace FurnitureERP.Forms
                     var dt = DictionaryUIHelper.LoadWithStatusLabels(
                         () => DashboardOverviewService.GetUnsettledPurchaseOrders(500),
                         "Status", DictionaryService.Categories.PurchaseOrder);
-                    GridHelper.BindStatusData(grid, dt, DictionaryService.Categories.PurchaseOrder);
-                    if (grid.Columns.Contains("Purchase Order ID")) grid.Columns["Purchase Order ID"].Visible = false;
+                    grid.DataSource = dt;
+                    finishPoGrid();
                 }
                 catch (Exception ex) { UITheme.ShowError(ex.Message); }
             };
@@ -182,14 +202,16 @@ namespace FurnitureERP.Forms
             btnPoShowAll.Location = new Point(btnUnpaid.Right + 10, 8);
             btnPoShowAll.Click += (s, e) =>
             {
-                try { ReloadPurchaseOrderGrid(grid, _purchaseOrderCtrl); } catch (Exception ex) { UITheme.ShowError(ex.Message); }
+                try { poPager.ApplyFilter(new DocumentListFilter()); } catch (Exception ex) { UITheme.ShowError(ex.Message); }
             };
             toolbar.Controls.Add(btnUnpaid);
             toolbar.Controls.Add(btnPoShowAll);
 
-            tab.Controls.Add(grid);
-            tab.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Purchase Order Filters", DictionaryService.Categories.PurchaseOrder));
-            tab.Controls.Add(toolbar);
+            contentPanel.Controls.Add(grid);
+            contentPanel.Controls.Add(FilterBlockHelper.CreateFilterBlock(grid, "Purchase Order Filters", DictionaryService.Categories.PurchaseOrder,
+                onServerApply: f => poPager.ApplyFilter(f)));
+            contentPanel.Controls.Add(toolbar);
+            tab.Controls.Add(contentPanel);
             return tab;
         }
 

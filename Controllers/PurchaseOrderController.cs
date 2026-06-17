@@ -2,6 +2,7 @@ using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
 using System;
+using System.Collections.Generic;
 using System.Data;
 
 namespace Sales_user.Controllers
@@ -26,6 +27,39 @@ namespace Sales_user.Controllers
                            LEFT JOIN Currency cur ON po.currencyID = cur.currencyID
                            ORDER BY po.createDate DESC";
             return DatabaseConnect.ExecuteQuery(sql);
+        }
+
+        public PagedDataTable SearchPaged(DocumentListFilter filter)
+        {
+            filter = filter ?? new DocumentListFilter();
+            var conditions = new List<string>();
+            var parameters = new List<MySqlParameter>();
+
+            if (!string.IsNullOrWhiteSpace(filter.Keyword))
+            {
+                conditions.Add("(po.purchaseOrderCode LIKE @kw ESCAPE '\\\\' OR s.supplierName LIKE @kw ESCAPE '\\\\')");
+                parameters.Add(new MySqlParameter("@kw", "%" + SqlGuard.EscapeLikeValue(filter.Keyword.Trim()) + "%"));
+            }
+            SearchQueryHelper.AddStatus(conditions, parameters, "po.status", filter.Status);
+
+            string where = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : string.Empty;
+            string baseSql = @"SELECT po.purchaseOrderCode AS 'Purchase Order Code',
+                                      s.supplierName AS 'Supplier',
+                                      cur.currencyCode AS 'Currency',
+                                      po.totalAmount AS 'Total',
+                                      po.totalAmountBase AS 'Total (HKD)',
+                                      po.createDate AS 'Create Date',
+                                      po.requestDeliveryDate AS 'Request Delivery Date',
+                                      po.status AS 'Status',
+                                      po.purchaseOrderID AS 'Purchase Order ID'
+                               FROM PurchaseOrder po
+                               LEFT JOIN Supplier s ON po.supplierID = s.supplierID
+                               LEFT JOIN Currency cur ON po.currencyID = cur.currencyID" + where + @"
+                               ORDER BY po.createDate DESC";
+            string countSql = @"SELECT COUNT(*)
+                                FROM PurchaseOrder po
+                                LEFT JOIN Supplier s ON po.supplierID = s.supplierID" + where;
+            return ListPagingHelper.Execute(baseSql, countSql, parameters.ToArray(), filter.Page, filter.PageSize);
         }
 
         public DataTable GetAllPurchaseOrderLines()

@@ -32,6 +32,42 @@ namespace Sales_user.Controllers
             return DatabaseConnect.ExecuteQuery(sql);
         }
 
+        public PagedDataTable SearchPaged(DocumentListFilter filter)
+        {
+            filter = filter ?? new DocumentListFilter();
+            var conditions = new List<string>();
+            var parameters = new List<MySqlParameter>();
+
+            if (!string.IsNullOrWhiteSpace(filter.Keyword))
+            {
+                conditions.Add("(so.salesOrderCode LIKE @kw ESCAPE '\\\\' OR c.customerName LIKE @kw ESCAPE '\\\\' OR so.customerReferenceNumber LIKE @kw ESCAPE '\\\\')");
+                parameters.Add(new MySqlParameter("@kw", "%" + SqlGuard.EscapeLikeValue(filter.Keyword.Trim()) + "%"));
+            }
+            SearchQueryHelper.AddStatus(conditions, parameters, "so.status", filter.Status);
+
+            string where = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : string.Empty;
+            string baseSql = @"SELECT so.salesOrderCode AS 'Order Code',
+                                      so.customerReferenceNumber AS 'Customer Ref Number',
+                                      c.customerName AS 'Customer',
+                                      cur.currencyCode AS 'Currency',
+                                      so.totalAmount AS 'Total',
+                                      so.totalAmountBase AS 'Total (HKD)',
+                                      so.exchangeRate AS 'Rate',
+                                      so.deliveryAddress AS 'Delivery Address',
+                                      so.createDate AS 'Create Date',
+                                      so.status AS 'Status',
+                                      so.salesOrderID AS 'Order ID',
+                                      so.customerID AS 'Customer ID'
+                               FROM SalesOrder so
+                               LEFT JOIN Customer c ON so.customerID = c.customerID
+                               LEFT JOIN Currency cur ON so.currencyCurrencyID = cur.currencyID" + where + @"
+                               ORDER BY so.createDate DESC";
+            string countSql = @"SELECT COUNT(*)
+                                FROM SalesOrder so
+                                LEFT JOIN Customer c ON so.customerID = c.customerID" + where;
+            return ListPagingHelper.Execute(baseSql, countSql, parameters.ToArray(), filter.Page, filter.PageSize);
+        }
+
         public long Insert(SalesOrder order)
         {
             long id = DatabaseConnect.InsertWithAllocatedId("salesorder", "salesOrderID",

@@ -83,7 +83,10 @@ namespace Sales_user.Controllers
                         decimal qty = Convert.ToDecimal(line["receivedQuantity"]);
                         if (qty <= 0) continue;
 
-                        UpsertRawMaterialStock(conn, trans, rmId, warehouseId, qty);
+                        UpsertRawMaterialStock(conn, trans, rmId, warehouseId, qty,
+                            DocumentAuditService.Types.GoodsReceivedNote, grnId,
+                            grn.GoodsReceivedNoteCode ?? DocumentCodeHelper.Build("GRN", grnId),
+                            InventoryLedgerService.Actions.GrnReceive);
 
                         DatabaseConnect.ExecuteNonQuery(conn, trans,
                             @"UPDATE PurchaseOrderRawMaterialLine
@@ -182,19 +185,10 @@ namespace Sales_user.Controllers
                         int shipQty = Convert.ToInt32(line["shipQuantity"]);
                         if (shipQty <= 0) continue;
 
-                        int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
-                            @"UPDATE WarehouseProduct
-                              SET physicalQuantity = physicalQuantity - @qty
-                              WHERE warehouseID = @whId AND productID = @productId AND physicalQuantity >= @qty",
-                            new[]
-                            {
-                                new MySqlParameter("@qty", shipQty),
-                                new MySqlParameter("@whId", note.WarehouseID),
-                                new MySqlParameter("@productId", productId)
-                            });
-
-                        if (affected == 0)
-                            throw new InvalidOperationException("Insufficient stock for product ID " + productId + " in warehouse " + note.WarehouseID + ".");
+                        DeductProductStock(conn, trans, productId, note.WarehouseID, shipQty,
+                            DocumentAuditService.Types.DeliveryNote, deliveryNoteId,
+                            note.DeliveryNoteCode ?? DocumentCodeHelper.Build("DN", deliveryNoteId),
+                            InventoryLedgerService.Actions.DeliveryShip);
 
                         DatabaseConnect.ExecuteNonQuery(conn, trans,
                             @"UPDATE SalesOrderProductLine
@@ -277,23 +271,13 @@ namespace Sales_user.Controllers
             long rawMaterialId,
             decimal qty)
         {
-            int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
-                @"UPDATE RawMaterialWarehouse
-                  SET physicalQuantity = physicalQuantity - @qty
-                  WHERE rawMaterialID = @itemId AND warehouseID = @fromWhId
-                    AND physicalQuantity >= @qty
-                    AND (physicalQuantity - reservedQuantity) >= @qty",
-                new[]
-                {
-                    new MySqlParameter("@qty", qty),
-                    new MySqlParameter("@itemId", rawMaterialId),
-                    new MySqlParameter("@fromWhId", fromWarehouseId)
-                });
+            DeductRawMaterialStock(conn, trans, rawMaterialId, fromWarehouseId, qty,
+                null, 0, null, InventoryLedgerService.Actions.TransferOut,
+                "Transfer to warehouse " + toWarehouseId, enforceAvailable: true);
 
-            if (affected == 0)
-                throw new InvalidOperationException("Insufficient available raw material stock for item ID " + rawMaterialId + ".");
-
-            UpsertRawMaterialStock(conn, trans, rawMaterialId, toWarehouseId, qty);
+            UpsertRawMaterialStock(conn, trans, rawMaterialId, toWarehouseId, qty,
+                null, 0, null, InventoryLedgerService.Actions.TransferIn,
+                "Transfer from warehouse " + fromWarehouseId);
         }
 
         private static void TransferProductLine(
@@ -304,26 +288,26 @@ namespace Sales_user.Controllers
             long productId,
             decimal qty)
         {
-            int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
-                @"UPDATE WarehouseProduct
-                  SET physicalQuantity = physicalQuantity - @qty
-                  WHERE warehouseID = @fromWhId AND productID = @itemId
-                    AND physicalQuantity >= @qty
-                    AND (physicalQuantity - reservedQuantity) >= @qty",
-                new[]
-                {
-                    new MySqlParameter("@qty", qty),
-                    new MySqlParameter("@fromWhId", fromWarehouseId),
-                    new MySqlParameter("@itemId", productId)
-                });
+            DeductProductStock(conn, trans, productId, fromWarehouseId, qty,
+                null, 0, null, InventoryLedgerService.Actions.TransferOut,
+                "Transfer to warehouse " + toWarehouseId, enforceAvailable: true);
 
-            if (affected == 0)
-                throw new InvalidOperationException("Insufficient available product stock for item ID " + productId + ".");
-
-            UpsertProductStock(conn, trans, productId, toWarehouseId, qty);
+            UpsertProductStock(conn, trans, productId, toWarehouseId, qty,
+                null, 0, null, InventoryLedgerService.Actions.TransferIn,
+                "Transfer from warehouse " + fromWarehouseId);
         }
 
-        public static void UpsertProductStock(MySqlConnection conn, MySqlTransaction trans, long productId, long warehouseId, decimal qty)
+        public static void UpsertProductStock(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long productId,
+            long warehouseId,
+            decimal qty,
+            string documentType = null,
+            long documentId = 0,
+            string documentCode = null,
+            string action = null,
+            string remark = null)
         {
             object exists = DatabaseConnect.ExecuteScalar(conn, trans,
                 "SELECT COUNT(*) FROM WarehouseProduct WHERE productID = @itemId AND warehouseID = @whId",
@@ -358,9 +342,23 @@ namespace Sales_user.Controllers
                         new MySqlParameter("@qty", qty)
                     });
             }
+
+            InventoryLedgerService.LogPhysicalChange(conn, trans, InventoryLedgerService.ItemTypeProduct,
+                productId, warehouseId, qty, action ?? InventoryLedgerService.Actions.Adjustment,
+                documentType, documentId, documentCode, remark);
         }
 
-        public static void UpsertRawMaterialStock(MySqlConnection conn, MySqlTransaction trans, long rawMaterialId, long warehouseId, decimal qty)
+        public static void UpsertRawMaterialStock(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long rawMaterialId,
+            long warehouseId,
+            decimal qty,
+            string documentType = null,
+            long documentId = 0,
+            string documentCode = null,
+            string action = null,
+            string remark = null)
         {
             object exists = DatabaseConnect.ExecuteScalar(conn, trans,
                 "SELECT COUNT(*) FROM RawMaterialWarehouse WHERE rawMaterialID = @rmId AND warehouseID = @whId",
@@ -395,6 +393,10 @@ namespace Sales_user.Controllers
                         new MySqlParameter("@qty", qty)
                     });
             }
+
+            InventoryLedgerService.LogPhysicalChange(conn, trans, InventoryLedgerService.ItemTypeRawMaterial,
+                rawMaterialId, warehouseId, qty, action ?? InventoryLedgerService.Actions.Adjustment,
+                documentType, documentId, documentCode, remark);
         }
 
         public static void DeductRawMaterialStock(
@@ -402,13 +404,22 @@ namespace Sales_user.Controllers
             MySqlTransaction trans,
             long rawMaterialId,
             long warehouseId,
-            decimal qty)
+            decimal qty,
+            string documentType = null,
+            long documentId = 0,
+            string documentCode = null,
+            string action = null,
+            string remark = null,
+            bool enforceAvailable = false)
         {
+            string availableClause = enforceAvailable
+                ? " AND (physicalQuantity - reservedQuantity) >= @qty"
+                : string.Empty;
             int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
                 @"UPDATE RawMaterialWarehouse
                   SET physicalQuantity = physicalQuantity - @qty
                   WHERE rawMaterialID = @rmId AND warehouseID = @whId
-                    AND physicalQuantity >= @qty",
+                    AND physicalQuantity >= @qty" + availableClause,
                 new[]
                 {
                     new MySqlParameter("@qty", qty),
@@ -419,6 +430,46 @@ namespace Sales_user.Controllers
             if (affected == 0)
                 throw new InvalidOperationException(
                     "Insufficient raw material stock in warehouse for item ID " + rawMaterialId + ".");
+
+            InventoryLedgerService.LogPhysicalChange(conn, trans, InventoryLedgerService.ItemTypeRawMaterial,
+                rawMaterialId, warehouseId, -qty, action ?? InventoryLedgerService.Actions.Adjustment,
+                documentType, documentId, documentCode, remark);
+        }
+
+        public static void DeductProductStock(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long productId,
+            long warehouseId,
+            decimal qty,
+            string documentType = null,
+            long documentId = 0,
+            string documentCode = null,
+            string action = null,
+            string remark = null,
+            bool enforceAvailable = false)
+        {
+            string availableClause = enforceAvailable
+                ? " AND (physicalQuantity - reservedQuantity) >= @qty"
+                : string.Empty;
+            int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
+                @"UPDATE WarehouseProduct
+                  SET physicalQuantity = physicalQuantity - @qty
+                  WHERE warehouseID = @whId AND productID = @productId AND physicalQuantity >= @qty" + availableClause,
+                new[]
+                {
+                    new MySqlParameter("@qty", qty),
+                    new MySqlParameter("@whId", warehouseId),
+                    new MySqlParameter("@productId", productId)
+                });
+
+            if (affected == 0)
+                throw new InvalidOperationException(
+                    "Insufficient product stock in warehouse for item ID " + productId + ".");
+
+            InventoryLedgerService.LogPhysicalChange(conn, trans, InventoryLedgerService.ItemTypeProduct,
+                productId, warehouseId, -qty, action ?? InventoryLedgerService.Actions.Adjustment,
+                documentType, documentId, documentCode, remark);
         }
 
         public static void AddRawMaterialPurchasedQuantity(

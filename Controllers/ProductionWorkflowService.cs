@@ -125,23 +125,14 @@ namespace Sales_user.Controllers
             long productId,
             decimal qty)
         {
-            int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
-                @"UPDATE WarehouseProduct
-                  SET physicalQuantity = physicalQuantity - @qty
-                  WHERE warehouseID = @fromWhId AND productID = @itemId
-                    AND physicalQuantity >= @qty",
-                new[]
-                {
-                    new MySqlParameter("@qty", qty),
-                    new MySqlParameter("@fromWhId", productionWarehouseId),
-                    new MySqlParameter("@itemId", productId)
-                });
-
-            if (affected == 0)
-                throw new InvalidOperationException(
-                    "Finished goods were not available in the production warehouse for product ID " + productId + ".");
-
-            InventoryWorkflowService.UpsertProductStock(conn, trans, productId, inventoryWarehouseId, qty);
+            InventoryWorkflowService.DeductProductStock(conn, trans, productId, productionWarehouseId, qty,
+                DocumentAuditService.Types.ProductionOrder, 0, null,
+                InventoryLedgerService.Actions.ProductionOut,
+                "Transfer finished goods to inventory warehouse " + inventoryWarehouseId);
+            InventoryWorkflowService.UpsertProductStock(conn, trans, productId, inventoryWarehouseId, qty,
+                DocumentAuditService.Types.ProductionOrder, 0, null,
+                InventoryLedgerService.Actions.ProductionIn,
+                "Received from production warehouse " + productionWarehouseId);
         }
 
         private static void TryReserveProducedStockForSalesOrder(

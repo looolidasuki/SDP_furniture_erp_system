@@ -469,23 +469,15 @@ namespace Sales_user.Controllers
             long rawMaterialId,
             decimal qty)
         {
-            int affected = DatabaseConnect.ExecuteNonQuery(conn, trans,
-                @"UPDATE RawMaterialWarehouse
-                  SET physicalQuantity = physicalQuantity - @qty
-                  WHERE rawMaterialID = @itemId AND warehouseID = @fromWhId
-                    AND physicalQuantity >= @qty
-                    AND (physicalQuantity - reservedQuantity) >= @qty",
-                new[]
-                {
-                    new MySqlParameter("@qty", qty),
-                    new MySqlParameter("@itemId", rawMaterialId),
-                    new MySqlParameter("@fromWhId", fromWarehouseId)
-                });
-
-            if (affected == 0)
-                throw new InvalidOperationException("Insufficient available raw material stock for item ID " + rawMaterialId + ".");
-
-            InventoryWorkflowService.UpsertRawMaterialStock(conn, trans, rawMaterialId, toWarehouseId, qty);
+            InventoryWorkflowService.DeductRawMaterialStock(conn, trans, rawMaterialId, fromWarehouseId, qty,
+                DocumentAuditService.Types.RawMaterialRequest, 0, null,
+                InventoryLedgerService.Actions.MaterialIssue,
+                "Issue to production warehouse " + toWarehouseId,
+                enforceAvailable: true);
+            InventoryWorkflowService.UpsertRawMaterialStock(conn, trans, rawMaterialId, toWarehouseId, qty,
+                DocumentAuditService.Types.RawMaterialRequest, 0, null,
+                InventoryLedgerService.Actions.MaterialIssue,
+                "Received from inventory warehouse " + fromWarehouseId);
         }
 
         private static string GetProductCode(long productId)

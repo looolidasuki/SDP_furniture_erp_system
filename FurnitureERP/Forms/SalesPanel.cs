@@ -99,7 +99,8 @@ namespace FurnitureERP.Forms
                     return extras.ToArray();
                 },
                 row => ShowQuotationViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Quotation ID")),
-                "Quotation ID"));
+                "Quotation ID",
+                f => _quotationCtrl.SearchPaged(f)));
             return page;
         }
 
@@ -163,7 +164,8 @@ namespace FurnitureERP.Forms
                     return extras.ToArray();
                 },
                 row => ShowSalesOrderViewDetailDialog(GridHelper.TryGetRowLongId(row.DataGridView, row, "Order ID")),
-                "Order ID"));
+                "Order ID",
+                f => _salesOrderCtrl.SearchPaged(f)));
             return page;
         }
 
@@ -529,7 +531,7 @@ namespace FurnitureERP.Forms
                 GridHelper.StyleGrid(grid);
         }
 
-        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onEdit, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Control[]> extraControlsFactory = null, Action<DataGridViewRow> onViewDetail = null, string idColumnName = null)
+        private Panel BuildCrudPanel(string entity, string permissionModule, Func<DataTable> loadData, Action onCreate, Action<DataGridViewRow> onEdit, Action<DataGridViewRow> onRowOpen, string statusCategory = null, Func<DataGridView, Control[]> extraControlsFactory = null, Action<DataGridViewRow> onViewDetail = null, string idColumnName = null, Func<DocumentListFilter, PagedDataTable> pagedLoad = null)
         {
             Panel panel = new Panel { Dock = DockStyle.Fill };
 
@@ -564,14 +566,23 @@ namespace FurnitureERP.Forms
                 if (e.RowIndex < 0) return;
                 onRowOpen?.Invoke(grid.Rows[e.RowIndex]);
             };
-            btnRefresh.Click += (s, e) => {
+
+            PagedGridBinder pager = null;
+            Action reloadGrid = () =>
+            {
                 try
                 {
-                    grid.DataSource = loadData();
-                    FinishCrudGrid(grid, statusCategory);
+                    if (pager != null)
+                        pager.Reload();
+                    else
+                    {
+                        grid.DataSource = loadData();
+                        FinishCrudGrid(grid, statusCategory);
+                    }
                 }
                 catch { }
             };
+            btnRefresh.Click += (s, e) => reloadGrid();
 
             toolbar.Controls.Add(btnNew);
             toolbar.Controls.Add(btnRefresh);
@@ -588,14 +599,35 @@ namespace FurnitureERP.Forms
                 }
             }
 
-            var filterBox = FilterBlockHelper.CreateFilterBlock(grid, $"{entity} Filters", statusCategory);
-
-            try
+            if (pagedLoad != null)
             {
-                grid.DataSource = loadData();
-                FinishCrudGrid(grid, statusCategory);
+                pager = new PagedGridBinder(grid, panel, f =>
+                {
+                    var paged = pagedLoad(f);
+                    if (paged?.Rows != null && !string.IsNullOrWhiteSpace(statusCategory))
+                        paged.Rows = GridHelper.DecorateStatusTable(paged.Rows, "Status", statusCategory);
+                    return paged;
+                }, () => FinishCrudGrid(grid, statusCategory));
             }
-            catch { }
+
+            Action<DocumentListFilter> serverApply = null;
+            if (pager != null)
+                serverApply = f => pager.ApplyFilter(f);
+
+            var filterBox = FilterBlockHelper.CreateFilterBlock(grid, $"{entity} Filters", statusCategory,
+                onServerApply: serverApply);
+
+            if (pager != null)
+                pager.LoadPage(1);
+            else
+            {
+                try
+                {
+                    grid.DataSource = loadData();
+                    FinishCrudGrid(grid, statusCategory);
+                }
+                catch { }
+            }
 
             panel.Controls.Add(grid);
             panel.Controls.Add(filterBox);

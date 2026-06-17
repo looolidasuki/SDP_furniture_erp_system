@@ -1,6 +1,7 @@
 using FurnitureERP.Helpers;
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
+using System;
 using System.Collections.Generic;
 using System.Data;
 
@@ -26,6 +27,39 @@ namespace Sales_user.Controllers
                            LEFT JOIN Currency cur ON q.currencyID = cur.currencyID
                            ORDER BY q.createDate DESC";
             return DatabaseConnect.ExecuteQuery(sql);
+        }
+
+        public PagedDataTable SearchPaged(DocumentListFilter filter)
+        {
+            filter = filter ?? new DocumentListFilter();
+            var conditions = new List<string>();
+            var parameters = new List<MySqlParameter>();
+
+            if (!string.IsNullOrWhiteSpace(filter.Keyword))
+            {
+                conditions.Add("(q.quotationCode LIKE @kw ESCAPE '\\\\' OR c.customerName LIKE @kw ESCAPE '\\\\')");
+                parameters.Add(new MySqlParameter("@kw", "%" + SqlGuard.EscapeLikeValue(filter.Keyword.Trim()) + "%"));
+            }
+            SearchQueryHelper.AddStatus(conditions, parameters, "q.status", filter.Status);
+
+            string where = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : string.Empty;
+            string baseSql = @"SELECT q.quotationCode AS 'Quotation Code',
+                                      c.customerName AS 'Customer',
+                                      cur.currencyCode AS 'Currency',
+                                      q.totalAmount AS 'Total',
+                                      q.totalAmountBase AS 'Total (HKD)',
+                                      q.exchangeRate AS 'Rate',
+                                      q.createDate AS 'Create Date',
+                                      q.status AS 'Status',
+                                      q.quotationID AS 'Quotation ID'
+                               FROM Quotation q
+                               LEFT JOIN Customer c ON q.customerID = c.customerID
+                               LEFT JOIN Currency cur ON q.currencyID = cur.currencyID" + where + @"
+                               ORDER BY q.createDate DESC";
+            string countSql = @"SELECT COUNT(*)
+                                FROM Quotation q
+                                LEFT JOIN Customer c ON q.customerID = c.customerID" + where;
+            return ListPagingHelper.Execute(baseSql, countSql, parameters.ToArray(), filter.Page, filter.PageSize);
         }
 
         public long Insert(Quotation quotation)

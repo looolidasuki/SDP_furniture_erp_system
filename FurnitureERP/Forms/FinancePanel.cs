@@ -24,6 +24,7 @@ namespace FurnitureERP.Forms
         private TabControl _tabControl;
         private DataGridView _invoiceGrid;
         private DataGridView _refundGrid;
+        private PagedGridBinder _invoicePager;
         public FinancePanel(string module = "Invoices")
         {
             Dock = DockStyle.Fill;
@@ -78,8 +79,34 @@ namespace FurnitureERP.Forms
             _invoiceGrid.CellDoubleClick += InvoiceGrid_CellDoubleClick;
 
             Panel invoicePanel = new Panel { Dock = DockStyle.Fill };
+            _invoicePager = new PagedGridBinder(_invoiceGrid, invoicePanel, f =>
+            {
+                var paged = _invoiceCtrl.SearchPaged(f);
+                if (paged?.Rows != null)
+                {
+                    paged.Rows = GridHelper.DecorateStatusTable(paged.Rows, "Status", DictionaryService.Categories.Invoice);
+                    if (paged.Rows.Columns.Contains("Invoice Type"))
+                    {
+                        if (!paged.Rows.Columns.Contains("Type Label"))
+                            paged.Rows.Columns.Add("Type Label", typeof(string));
+                        foreach (DataRow row in paged.Rows.Rows)
+                        {
+                            if (row["Invoice Type"] == DBNull.Value) continue;
+                            int t = Convert.ToInt32(row["Invoice Type"]);
+                            row["Type Label"] = DictionaryService.GetDisplayName(DictionaryService.Categories.InvoiceType, t);
+                        }
+                    }
+                }
+                return paged;
+            }, () =>
+            {
+                GridHelper.BindStatusData(_invoiceGrid, _invoiceGrid.DataSource as DataTable, DictionaryService.Categories.Invoice);
+                HideInvoiceGridCodeColumns();
+            });
+
             invoicePanel.Controls.Add(_invoiceGrid);
-            invoicePanel.Controls.Add(FilterBlockHelper.CreateFilterBlock(_invoiceGrid, "Invoice Filters", DictionaryService.Categories.Invoice));
+            invoicePanel.Controls.Add(FilterBlockHelper.CreateFilterBlock(_invoiceGrid, "Invoice Filters", DictionaryService.Categories.Invoice,
+                onServerApply: f => _invoicePager.ApplyFilter(f)));
             invoicePanel.Controls.Add(invoiceToolbar);
             invoiceTab.Controls.Add(invoicePanel);
 
@@ -150,6 +177,12 @@ namespace FurnitureERP.Forms
         {
             try
             {
+                if (_invoicePager != null)
+                {
+                    _invoicePager.Reload();
+                    return;
+                }
+
                 var dt = _invoiceCtrl.GetAllInvoices();
                 dt = GridHelper.DecorateStatusTable(dt, "Status", DictionaryService.Categories.Invoice);
                 if (dt != null && dt.Columns.Contains("Invoice Type"))

@@ -53,7 +53,8 @@ namespace FurnitureERP.Helpers
         private static readonly ConditionalWeakTable<DataGridView, FilterBlockContext> FilterContexts =
             new ConditionalWeakTable<DataGridView, FilterBlockContext>();
 
-        public static Panel CreateFilterBlock(DataGridView grid, string title = "Filters", string statusCategory = null)
+        public static Panel CreateFilterBlock(DataGridView grid, string title = "Filters", string statusCategory = null,
+            Action<DocumentListFilter> onServerApply = null, int serverPageSize = 100)
         {
             var box = new Panel
             {
@@ -151,9 +152,17 @@ namespace FurnitureERP.Helpers
             };
             FilterContexts.Add(grid, context);
 
+            Action applyFilters = () =>
+            {
+                if (onServerApply != null)
+                    onServerApply(BuildDocumentListFilter(rowsPanel, 1, serverPageSize, statusCategory));
+                else
+                    ApplyFilter(grid, rowsPanel);
+            };
+
             Action addRow = () =>
             {
-                var row = CreateConditionRow(grid, rowsPanel, resizeBlock, statusCategory);
+                var row = CreateConditionRow(grid, rowsPanel, resizeBlock, statusCategory, applyFilters);
                 rowsPanel.Controls.Add(row);
                 resizeBlock();
             };
@@ -171,14 +180,16 @@ namespace FurnitureERP.Helpers
                 rowsPanel.Controls.Remove(last);
                 last.Dispose();
                 resizeBlock();
-                ApplyFilter(grid, rowsPanel);
+                applyFilters();
             };
             btnClear.Click += (s, e) =>
             {
-                if (grid.DataSource is DataTable table)
+                if (onServerApply == null && grid.DataSource is DataTable table)
                     table.DefaultView.RowFilter = string.Empty;
                 rowsPanel.Controls.Clear();
                 addRow();
+                if (onServerApply != null)
+                    onServerApply(new DocumentListFilter { Page = 1, PageSize = serverPageSize });
             };
 
             grid.DataBindingComplete -= Grid_FilterDataBindingComplete;
@@ -241,7 +252,7 @@ namespace FurnitureERP.Helpers
             return cmbColumn?.SelectedItem?.ToString();
         }
 
-        private static Panel CreateConditionRow(DataGridView grid, Panel rowsPanel, Action resizeBlock, string statusCategory)
+        private static Panel CreateConditionRow(DataGridView grid, Panel rowsPanel, Action resizeBlock, string statusCategory, Action applyFilters)
         {
             var row = new TableLayoutPanel
             {
@@ -311,7 +322,7 @@ namespace FurnitureERP.Helpers
             btnApply.Dock = DockStyle.Fill;
             btnApply.Height = 28;
             btnApply.Margin = new Padding(0, 2, 0, 0);
-            btnApply.Click += (s, e) => ApplyFilter(grid, rowsPanel);
+            btnApply.Click += (s, e) => applyFilters();
 
             var tag = new FilterRowTag
             {
@@ -645,6 +656,56 @@ namespace FurnitureERP.Helpers
                 || n.EndsWith("ID", StringComparison.OrdinalIgnoreCase)
                 || n.EndsWith(" Id", StringComparison.OrdinalIgnoreCase)
                 || n.EndsWith("Id", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static DocumentListFilter BuildDocumentListFilter(Panel rowsPanel, int page, int pageSize, string statusCategory = null)
+        {
+            var filter = new DocumentListFilter
+            {
+                Page = Math.Max(1, page),
+                PageSize = pageSize
+            };
+
+            foreach (Control ctrl in rowsPanel.Controls)
+            {
+                if (!(ctrl is TableLayoutPanel row) || !(row.Tag is FilterRowTag tag)) continue;
+                if (tag.ColumnCombo?.SelectedItem == null || tag.OperatorCombo?.SelectedItem == null) continue;
+
+                string column = GetSelectedColumnName(tag.ColumnCombo);
+                string op = tag.OperatorCombo.SelectedItem.ToString();
+
+                if (tag.StatusValueCombo.Visible)
+                {
+                    string selected = tag.StatusValueCombo.SelectedItem?.ToString();
+                    if (string.IsNullOrWhiteSpace(selected) || selected == "(Any)") continue;
+                    if (!string.IsNullOrWhiteSpace(statusCategory))
+                    {
+                        foreach (var item in DictionaryService.GetItems(statusCategory))
+                        {
+                            if (string.Equals(item.Value, selected, StringComparison.OrdinalIgnoreCase))
+                            {
+                                filter.Status = item.Key;
+                                break;
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                if (!string.Equals(op, "Contains", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(op, "Equals", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(op, "StartsWith", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string text = tag.TextValue?.Text?.Trim();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    filter.Keyword = text;
+                    break;
+                }
+            }
+
+            return filter;
         }
     }
 }

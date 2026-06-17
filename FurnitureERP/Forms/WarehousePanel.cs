@@ -203,10 +203,14 @@ namespace FurnitureERP.Forms
             deliveryContent.Controls.Add(deliveryToolbar);
             deliveryTab.Controls.Add(deliveryContent);
 
+            var ledgerTab = BuildInventoryLedgerTab();
+
             if (AppSession.CanView(PermissionModule.Warehouse))
                 _tabs.TabPages.Add(warehouseTab);
             if (AppSession.CanView(PermissionModule.DeliveryNote))
                 _tabs.TabPages.Add(deliveryTab);
+            if (AppSession.CanView(PermissionModule.Warehouse))
+                _tabs.TabPages.Add(ledgerTab);
 
             Controls.Add(_tabs);
 
@@ -214,6 +218,77 @@ namespace FurnitureERP.Forms
                 LoadData();
             if (AppSession.CanView(PermissionModule.DeliveryNote))
                 LoadDeliveryNotes();
+        }
+
+        private TabPage BuildInventoryLedgerTab()
+        {
+            var tab = new TabPage("📒 Inventory Ledger") { BackColor = UITheme.Background };
+            var grid = GridHelper.CreateStyledGrid();
+            var cboWarehouse = new ComboBox { Width = 220, DropDownStyle = ComboBoxStyle.DropDownList };
+            var cboItemType = new ComboBox { Width = 140, DropDownStyle = ComboBoxStyle.DropDownList };
+            cboItemType.Items.AddRange(new object[] { "All Types", "Raw Material", "Product" });
+            cboItemType.SelectedIndex = 0;
+
+            var toolbar = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = UITheme.Background };
+            var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
+            btnRefresh.Location = new Point(0, 8);
+            btnRefresh.Click += (s, e) => LoadLedgerGrid(grid, cboWarehouse, cboItemType);
+            toolbar.Controls.Add(btnRefresh);
+            toolbar.Controls.Add(new Label { Text = "Warehouse:", Location = new Point(btnRefresh.Right + 16, 12), AutoSize = true });
+            cboWarehouse.Location = new Point(btnRefresh.Right + 88, 8);
+            toolbar.Controls.Add(cboWarehouse);
+            toolbar.Controls.Add(new Label { Text = "Item Type:", Location = new Point(cboWarehouse.Right + 16, 12), AutoSize = true });
+            cboItemType.Location = new Point(cboWarehouse.Right + 80, 8);
+            cboItemType.SelectedIndexChanged += (s, e) => LoadLedgerGrid(grid, cboWarehouse, cboItemType);
+            toolbar.Controls.Add(cboItemType);
+
+            try
+            {
+                var whDt = _warehouseCtrl.GetAllWarehouses();
+                cboWarehouse.Items.Add(new ComboItem("All Warehouses", 0L));
+                foreach (DataRow row in whDt.Rows)
+                {
+                    long id = Convert.ToInt64(row["Warehouse ID"]);
+                    string name = row["Warehouse Name"]?.ToString() ?? $"Warehouse {id}";
+                    cboWarehouse.Items.Add(new ComboItem(name, id));
+                }
+                cboWarehouse.SelectedIndex = 0;
+            }
+            catch { cboWarehouse.Items.Add(new ComboItem("All Warehouses", 0L)); cboWarehouse.SelectedIndex = 0; }
+
+            cboWarehouse.SelectedIndexChanged += (s, e) => LoadLedgerGrid(grid, cboWarehouse, cboItemType);
+
+            var content = new Panel { Dock = DockStyle.Fill };
+            content.Controls.Add(grid);
+            content.Controls.Add(toolbar);
+            tab.Controls.Add(content);
+
+            LoadLedgerGrid(grid, cboWarehouse, cboItemType);
+            return tab;
+        }
+
+        private void LoadLedgerGrid(DataGridView grid, ComboBox cboWarehouse, ComboBox cboItemType)
+        {
+            try
+            {
+                long whId = 0;
+                if (cboWarehouse.SelectedItem is ComboItem wh) whId = wh.Value;
+                int itemType = cboItemType.SelectedIndex <= 0 ? 0 : cboItemType.SelectedIndex;
+                grid.DataSource = InventoryLedgerService.GetRecentEntries(300, whId, itemType);
+                GridHelper.StyleGrid(grid);
+            }
+            catch (Exception ex)
+            {
+                UITheme.ShowError("Failed to load inventory ledger: " + ex.Message);
+            }
+        }
+
+        private sealed class ComboItem
+        {
+            public string Text { get; }
+            public long Value { get; }
+            public ComboItem(string text, long value) { Text = text; Value = value; }
+            public override string ToString() => Text;
         }
 
         private void LoadData()

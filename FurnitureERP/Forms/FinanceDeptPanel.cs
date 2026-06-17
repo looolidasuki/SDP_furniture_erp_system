@@ -64,12 +64,17 @@ namespace FurnitureERP.Forms
             var tabRV = new TabPage("🧾 Receipt Vouchers") { BackColor = UITheme.Background };
             BuildRVTab(tabRV);
 
+            var tabReconcile = new TabPage("📋 Outstanding") { BackColor = UITheme.Background };
+            BuildReconciliationTab(tabReconcile);
+
             if (AppSession.CanView(PermissionModule.PaymentVoucher) || AppSession.CanView(PermissionModule.ReceiptVoucher))
                 _tabs.TabPages.Add(tabDash);
             if (AppSession.CanView(PermissionModule.PaymentVoucher))
                 _tabs.TabPages.Add(tabPV);
             if (AppSession.CanView(PermissionModule.ReceiptVoucher))
                 _tabs.TabPages.Add(tabRV);
+            if (AppSession.CanView(PermissionModule.PaymentVoucher) || AppSession.CanView(PermissionModule.ReceiptVoucher))
+                _tabs.TabPages.Add(tabReconcile);
             Controls.Add(_tabs);
         }
 
@@ -360,6 +365,77 @@ namespace FurnitureERP.Forms
                 }
             }
             else ShowReceiptVoucherDetail(id);
+        }
+
+        private void BuildReconciliationTab(TabPage page)
+        {
+            var split = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterDistance = 280
+            };
+            var apGrid = GridHelper.CreateStyledGrid();
+            var arGrid = GridHelper.CreateStyledGrid();
+
+            Action loadOutstanding = () =>
+            {
+                try
+                {
+                    var ap = FinanceReconciliationService.GetAccountsPayableOutstanding();
+                    ap = GridHelper.DecorateStatusTable(ap, "Status", DictionaryService.Categories.PurchaseOrder);
+                    GridHelper.BindStatusData(apGrid, ap, DictionaryService.Categories.PurchaseOrder);
+
+                    var ar = FinanceReconciliationService.GetAccountsReceivableOutstanding();
+                    ar = GridHelper.DecorateStatusTable(ar, "Status", DictionaryService.Categories.Invoice);
+                    GridHelper.BindStatusData(arGrid, ar, DictionaryService.Categories.Invoice);
+                }
+                catch (Exception ex)
+                {
+                    UITheme.ShowError("Failed to load outstanding balances: " + ex.Message);
+                }
+            };
+
+            var toolbar = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = UITheme.Background };
+            var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
+            btnRefresh.Location = new Point(8, 8);
+            btnRefresh.Click += (s, e) => loadOutstanding();
+            toolbar.Controls.Add(btnRefresh);
+            toolbar.Controls.Add(new Label
+            {
+                Text = "Unsettled purchase orders (AP) and invoices (AR).",
+                Location = new Point(btnRefresh.Right + 12, 12),
+                AutoSize = true,
+                ForeColor = UITheme.TextGray
+            });
+
+            var apPanel = new Panel { Dock = DockStyle.Fill };
+            apPanel.Controls.Add(apGrid);
+            apPanel.Controls.Add(new Label
+            {
+                Text = "Accounts Payable — Outstanding POs",
+                Dock = DockStyle.Top,
+                Height = 28,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Padding = new Padding(8, 6, 0, 0)
+            });
+
+            var arPanel = new Panel { Dock = DockStyle.Fill };
+            arPanel.Controls.Add(arGrid);
+            arPanel.Controls.Add(new Label
+            {
+                Text = "Accounts Receivable — Outstanding Invoices",
+                Dock = DockStyle.Top,
+                Height = 28,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Padding = new Padding(8, 6, 0, 0)
+            });
+
+            split.Panel1.Controls.Add(apPanel);
+            split.Panel2.Controls.Add(arPanel);
+            page.Controls.Add(split);
+            page.Controls.Add(toolbar);
+            loadOutstanding();
         }
 
         private DataGridView InitializeCustomGridView()

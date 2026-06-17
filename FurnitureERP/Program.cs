@@ -28,6 +28,7 @@ namespace FurnitureERP
                 CurrencyDualAmountMigration.EnsureApplied();
                 DocumentAuditMigration.EnsureApplied();
                 StaffPasswordMigration.EnsureApplied();
+                InventoryLedgerMigration.EnsureApplied();
             }
             catch (Exception ex)
             {

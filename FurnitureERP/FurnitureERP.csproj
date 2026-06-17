@@ -90,6 +90,13 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Helpers\StartupHealthChecks.cs" />
+    <Compile Include="Helpers\InventoryLedgerMigration.cs" />
+    <Compile Include="Helpers\InventoryLedgerService.cs" />
+    <Compile Include="Helpers\DocumentListFilter.cs" />
+    <Compile Include="Helpers\PagedDataTable.cs" />
+    <Compile Include="Helpers\ListPagingHelper.cs" />
+    <Compile Include="Helpers\PagedGridBinder.cs" />
+    <Compile Include="Helpers\FinanceReconciliationService.cs" />
     <Compile Include="Forms\LoginForm.cs">
       <SubType>Form</SubType>
     </Compile>
