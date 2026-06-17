@@ -9,8 +9,10 @@ namespace Sales_user.Controllers
     public static class DatabaseConnect
     {
         private static string _connectionString;
+        private static bool _usedFallbackConnectionString;
 
         public static string ConnectionString => GetConnectionString();
+        public static bool UsedFallbackConnectionString => _usedFallbackConnectionString;
 
         private static string GetConnectionString()
         {
@@ -21,7 +23,10 @@ namespace Sales_user.Controllers
             }
             catch { }
             if (string.IsNullOrEmpty(_connectionString))
+            {
+                _usedFallbackConnectionString = true;
                 _connectionString = "Server=localhost;Port=3306;Database=furniture_erp_system;Uid=root;Pwd=;CharSet=utf8mb4;AllowPublicKeyRetrieval=True;SslMode=Disabled;Convert Zero Datetime=True;";
+            }
             if (_connectionString.IndexOf("Convert Zero Datetime", StringComparison.OrdinalIgnoreCase) < 0)
                 _connectionString += ";Convert Zero Datetime=True;";
             return _connectionString;

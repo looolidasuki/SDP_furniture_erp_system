@@ -464,6 +464,17 @@ namespace Sales_user.Controllers
             foreach (var line in lines)
             {
                 if (line.PurchaseOrderID <= 0 || line.PayAmount <= 0) continue;
+
+                // Enforce supplier consistency on the server side (UI auto-sync is not enough).
+                object poSupplierObj = DatabaseConnect.ExecuteScalar(conn, trans,
+                    "SELECT supplierID FROM purchaseorder WHERE purchaseOrderID = @id",
+                    new[] { new MySqlParameter("@id", line.PurchaseOrderID) });
+                long poSupplierId = poSupplierObj == null || poSupplierObj == DBNull.Value ? 0 : Convert.ToInt64(poSupplierObj);
+                if (poSupplierId <= 0)
+                    throw new InvalidOperationException("Purchase order not found: " + line.PurchaseOrderID);
+                if (pv.SupplierID > 0 && poSupplierId != pv.SupplierID)
+                    throw new InvalidOperationException("Purchase order supplier does not match payment voucher supplier.");
+
                 using (var cmd = new MySqlCommand(sqlRelation, conn, trans))
                 {
                     cmd.Parameters.AddWithValue("@pvId", pvId);

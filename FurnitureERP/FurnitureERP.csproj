@@ -89,6 +89,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="Helpers\StartupHealthChecks.cs" />
     <Compile Include="Forms\LoginForm.cs">
       <SubType>Form</SubType>
     </Compile>

@@ -635,6 +635,16 @@ namespace Sales_user.Controllers
 
                 if (invoiceId > 0 && amount > 0)
                 {
+                    // Enforce customer consistency on the server side.
+                    object invCustomerObj = DatabaseConnect.ExecuteScalar(conn, trans,
+                        "SELECT customerID FROM invoice WHERE invoiceID = @id",
+                        new[] { new MySqlParameter("@id", invoiceId) });
+                    long invCustomerId = invCustomerObj == null || invCustomerObj == DBNull.Value ? 0 : Convert.ToInt64(invCustomerObj);
+                    if (invCustomerId <= 0)
+                        throw new InvalidOperationException("Invoice not found: " + invoiceId);
+                    if (rv.CusomerID > 0 && invCustomerId != rv.CusomerID)
+                        throw new InvalidOperationException("Invoice customer does not match receipt voucher customer.");
+
                     DatabaseConnect.ExecuteNonQuery(conn, trans,
                         @"INSERT INTO ReceiptVoucherInvoice (receiptVoucherID, lineNo, invoiceID, receivedAmount, type)
                           VALUES (@rvId, 1, @invId, @amount, @type)",

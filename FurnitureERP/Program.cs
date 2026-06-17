@@ -41,6 +41,25 @@ namespace FurnitureERP
 
             EnsureDiagnosticAccount();
 
+            StartupHealthChecks.WarnIfDictionaryMissing();
+
+            // Safety notice: app is running on a fallback MySQL connection string (typically root + no password).
+            // This keeps demos working but warns admins to configure DefaultConnection in app.config.
+            try
+            {
+                if (DatabaseConnect.UsedFallbackConnectionString)
+                {
+                    MessageBox.Show(
+                        "Warning: Using fallback database connection settings (DefaultConnection is missing).\n" +
+                        "Please configure the 'DefaultConnection' connection string in FurnitureERP.exe.config/app.config.\n" +
+                        "For production use, do NOT run with root user or empty password.",
+                        "Database Connection Warning",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+            }
+            catch { }
+
             Application.Run(new LoginForm());
         }
 
