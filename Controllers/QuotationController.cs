@@ -35,12 +35,7 @@ namespace Sales_user.Controllers
             var conditions = new List<string>();
             var parameters = new List<MySqlParameter>();
 
-            if (!string.IsNullOrWhiteSpace(filter.Keyword))
-            {
-                conditions.Add("(q.quotationCode LIKE @kw ESCAPE '\\\\' OR c.customerName LIKE @kw ESCAPE '\\\\')");
-                parameters.Add(new MySqlParameter("@kw", "%" + SqlGuard.EscapeLikeValue(filter.Keyword.Trim()) + "%"));
-            }
-            SearchQueryHelper.AddStatus(conditions, parameters, "q.status", filter.Status);
+            DocumentListFilterSqlBuilder.Apply(DictionaryService.Categories.Quotation, filter, conditions, parameters);
 
             string where = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : string.Empty;
             string baseSql = @"SELECT q.quotationCode AS 'Quotation Code',
@@ -58,7 +53,8 @@ namespace Sales_user.Controllers
                                ORDER BY q.createDate DESC";
             string countSql = @"SELECT COUNT(*)
                                 FROM Quotation q
-                                LEFT JOIN Customer c ON q.customerID = c.customerID" + where;
+                                LEFT JOIN Customer c ON q.customerID = c.customerID
+                                LEFT JOIN Currency cur ON q.currencyID = cur.currencyID" + where;
             return ListPagingHelper.Execute(baseSql, countSql, parameters.ToArray(), filter.Page, filter.PageSize);
         }
 

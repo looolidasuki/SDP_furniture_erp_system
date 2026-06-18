@@ -93,6 +93,7 @@
     <Compile Include="Helpers\InventoryLedgerMigration.cs" />
     <Compile Include="Helpers\InventoryLedgerService.cs" />
     <Compile Include="Helpers\DocumentListFilter.cs" />
+    <Compile Include="Helpers\DocumentListFilterSqlBuilder.cs" />
     <Compile Include="Helpers\PagedDataTable.cs" />
     <Compile Include="Helpers\ListPagingHelper.cs" />
     <Compile Include="Helpers\PagedGridBinder.cs" />

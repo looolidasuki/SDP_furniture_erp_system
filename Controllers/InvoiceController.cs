@@ -48,12 +48,7 @@ namespace Sales_user.Controllers
             var conditions = new List<string>();
             var parameters = new List<MySqlParameter>();
 
-            if (!string.IsNullOrWhiteSpace(filter.Keyword))
-            {
-                conditions.Add("(i.invoiceCode LIKE @kw ESCAPE '\\\\' OR c.customerName LIKE @kw ESCAPE '\\\\' OR so.salesOrderCode LIKE @kw ESCAPE '\\\\')");
-                parameters.Add(new MySqlParameter("@kw", "%" + SqlGuard.EscapeLikeValue(filter.Keyword.Trim()) + "%"));
-            }
-            SearchQueryHelper.AddStatus(conditions, parameters, "i.status", filter.Status);
+            DocumentListFilterSqlBuilder.Apply(DictionaryService.Categories.Invoice, filter, conditions, parameters);
 
             string where = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : string.Empty;
             string baseSql = @"SELECT i.invoiceID AS 'Invoice ID',
@@ -75,7 +70,8 @@ namespace Sales_user.Controllers
             string countSql = @"SELECT COUNT(*)
                                 FROM Invoice i
                                 LEFT JOIN Customer c ON i.customerID = c.customerID
-                                LEFT JOIN SalesOrder so ON i.salesOrderID = so.salesOrderID" + where;
+                                LEFT JOIN SalesOrder so ON i.salesOrderID = so.salesOrderID
+                                LEFT JOIN Currency cur ON i.currencyID = cur.currencyID" + where;
             return ListPagingHelper.Execute(baseSql, countSql, parameters.ToArray(), filter.Page, filter.PageSize);
         }
 

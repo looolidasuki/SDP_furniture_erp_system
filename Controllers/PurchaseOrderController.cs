@@ -35,12 +35,7 @@ namespace Sales_user.Controllers
             var conditions = new List<string>();
             var parameters = new List<MySqlParameter>();
 
-            if (!string.IsNullOrWhiteSpace(filter.Keyword))
-            {
-                conditions.Add("(po.purchaseOrderCode LIKE @kw ESCAPE '\\\\' OR s.supplierName LIKE @kw ESCAPE '\\\\')");
-                parameters.Add(new MySqlParameter("@kw", "%" + SqlGuard.EscapeLikeValue(filter.Keyword.Trim()) + "%"));
-            }
-            SearchQueryHelper.AddStatus(conditions, parameters, "po.status", filter.Status);
+            DocumentListFilterSqlBuilder.Apply(DictionaryService.Categories.PurchaseOrder, filter, conditions, parameters);
 
             string where = conditions.Count > 0 ? " WHERE " + string.Join(" AND ", conditions) : string.Empty;
             string baseSql = @"SELECT po.purchaseOrderCode AS 'Purchase Order Code',
@@ -58,7 +53,8 @@ namespace Sales_user.Controllers
                                ORDER BY po.createDate DESC";
             string countSql = @"SELECT COUNT(*)
                                 FROM PurchaseOrder po
-                                LEFT JOIN Supplier s ON po.supplierID = s.supplierID" + where;
+                                LEFT JOIN Supplier s ON po.supplierID = s.supplierID
+                                LEFT JOIN Currency cur ON po.currencyID = cur.currencyID" + where;
             return ListPagingHelper.Execute(baseSql, countSql, parameters.ToArray(), filter.Page, filter.PageSize);
         }
 

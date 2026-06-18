@@ -52,6 +52,7 @@ namespace FurnitureERP.Helpers
             public Panel ValueHost;
             public string StatusCategory;
             public bool UseServerSuggest;
+            public bool DateFilterActive;
         }
 
         private static readonly ConditionalWeakTable<DataGridView, FilterBlockContext> FilterContexts =
@@ -159,6 +160,12 @@ namespace FurnitureERP.Helpers
 
             Action applyFilters = () =>
             {
+                foreach (Control ctrl in rowsPanel.Controls)
+                {
+                    if (ctrl is TableLayoutPanel row && row.Tag is FilterRowTag tag && tag.DateFlow.Visible)
+                        tag.DateFilterActive = true;
+                }
+
                 if (onServerApply != null)
                     onServerApply(BuildDocumentListFilter(rowsPanel, 1, serverPageSize, statusCategory));
                 else
@@ -296,8 +303,7 @@ namespace FurnitureERP.Helpers
             {
                 Width = 120,
                 Format = DateTimePickerFormat.Short,
-                ShowCheckBox = true,
-                Checked = false,
+                ShowCheckBox = false,
                 Visible = false,
                 Font = new Font("Segoe UI", 9f)
             };
@@ -305,8 +311,7 @@ namespace FurnitureERP.Helpers
             {
                 Width = 120,
                 Format = DateTimePickerFormat.Short,
-                ShowCheckBox = true,
-                Checked = false,
+                ShowCheckBox = false,
                 Visible = false,
                 Font = new Font("Segoe UI", 9f)
             };
@@ -351,6 +356,9 @@ namespace FurnitureERP.Helpers
                 UseServerSuggest = useServerSuggest
             };
             row.Tag = tag;
+
+            dtFrom.ValueChanged += (s, e) => tag.DateFilterActive = true;
+            dtTo.ValueChanged += (s, e) => tag.DateFilterActive = true;
 
             PopulateColumns(cmbColumn, grid, statusCategory);
             cmbColumn.SelectedIndexChanged += (s, e) => ConfigureRowForColumn(grid, tag, statusCategory);
@@ -475,6 +483,9 @@ namespace FurnitureERP.Helpers
                 else
                     tag.OperatorCombo.Items.AddRange(new object[] { "Contains", "Equals", "StartsWith" });
 
+                if (isDate)
+                    tag.DateFilterActive = false;
+
                 if (tag.OperatorCombo.Items.Count > 0)
                     tag.OperatorCombo.SelectedIndex = 0;
             }
@@ -548,12 +559,6 @@ namespace FurnitureERP.Helpers
 
             if (tag.TextSuggest.Visible)
                 RefreshTextSuggestSource(grid, tag, colName);
-
-            if (isDate)
-            {
-                tag.DateFrom.Checked = false;
-                tag.DateTo.Checked = false;
-            }
         }
 
         private static void ApplyFilter(DataGridView grid, Panel rowsPanel)
@@ -589,43 +594,45 @@ namespace FurnitureERP.Helpers
                 return $"[{column}] = '{escaped}'";
             }
 
-            return BuildClause(table, column, op, tag.TextSuggestBinder, tag.TextValue, tag.NumValue, tag.DateFrom, tag.DateTo);
+            return BuildClause(table, column, op, tag.TextSuggestBinder, tag.TextValue, tag.NumValue, tag.DateFrom, tag.DateTo, tag.DateFilterActive);
         }
 
-        private static string BuildClause(DataTable table, string column, string op, FilterTextSuggestBinder textSuggest, TextBox betweenText, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo)
+        private static string BuildClause(DataTable table, string column, string op, FilterTextSuggestBinder textSuggest, TextBox betweenText, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo, bool dateFilterActive)
         {
             var colType = table.Columns[column].DataType;
             bool isDate = colType == typeof(DateTime) || column.IndexOf("Date", StringComparison.OrdinalIgnoreCase) >= 0;
             if (isDate)
             {
-                if (dtFrom == null) return string.Empty;
+                if (dtFrom == null || !dateFilterActive) return string.Empty;
 
-                string F(DateTime d) => d.ToString("MM/dd/yyyy", CultureInfo.InvariantCulture);
+                bool asString = colType == typeof(string);
+                string F(DateTime d) => asString
+                    ? d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+                    : d.ToString("MM/dd/yyyy", CultureInfo.InvariantCulture);
+                string Lit(DateTime d) => asString ? $"'{F(d)}'" : $"#{F(d)}#";
+
                 if (op == "On")
                 {
-                    if (!dtFrom.Checked) return string.Empty;
                     var d = dtFrom.Value.Date;
-                    return $"[{column}] >= #{F(d)}# AND [{column}] < #{F(d.AddDays(1))}#";
+                    return $"[{column}] >= {Lit(d)} AND [{column}] < {Lit(d.AddDays(1))}";
                 }
                 if (op == "From")
                 {
-                    if (!dtFrom.Checked) return string.Empty;
                     var d = dtFrom.Value.Date;
-                    return $"[{column}] >= #{F(d)}#";
+                    return $"[{column}] >= {Lit(d)}";
                 }
                 if (op == "To")
                 {
-                    if (!dtFrom.Checked) return string.Empty;
                     var d = dtFrom.Value.Date;
-                    return $"[{column}] < #{F(d.AddDays(1))}#";
+                    return $"[{column}] < {Lit(d.AddDays(1))}";
                 }
                 if (op == "Between")
                 {
-                    if (dtTo == null || !dtFrom.Checked || !dtTo.Checked) return string.Empty;
+                    if (dtTo == null) return string.Empty;
                     var from = dtFrom.Value.Date;
                     var to = dtTo.Value.Date;
                     if (to < from) (from, to) = (to, from);
-                    return $"[{column}] >= #{F(from)}# AND [{column}] < #{F(to.AddDays(1))}#";
+                    return $"[{column}] >= {Lit(from)} AND [{column}] < {Lit(to.AddDays(1))}";
                 }
                 return string.Empty;
             }
@@ -725,43 +732,119 @@ namespace FurnitureERP.Helpers
 
                 string column = GetSelectedColumnName(tag.ColumnCombo);
                 string op = tag.OperatorCombo.SelectedItem.ToString();
-
-                if (tag.StatusValueCombo.Visible)
-                {
-                    string selected = tag.StatusValueCombo.SelectedItem?.ToString();
-                    if (string.IsNullOrWhiteSpace(selected) || selected == "(Any)") continue;
-                    if (!string.IsNullOrWhiteSpace(statusCategory))
-                    {
-                        foreach (var item in DictionaryService.GetItems(statusCategory))
-                        {
-                            if (string.Equals(item.Value, selected, StringComparison.OrdinalIgnoreCase))
-                            {
-                                filter.Status = item.Key;
-                                break;
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                if (!string.Equals(op, "Contains", StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(op, "Equals", StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(op, "StartsWith", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                string text = null;
-                if (tag.TextSuggest != null && tag.TextSuggest.Visible)
-                    text = tag.TextSuggestBinder?.GetText();
-                else
-                    text = tag.TextValue?.Text?.Trim();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    filter.Keyword = text;
-                    break;
-                }
+                var condition = ExtractServerCondition(tag, column, op, statusCategory);
+                if (condition != null)
+                    filter.Conditions.Add(condition);
             }
 
             return filter;
+        }
+
+        private static DocumentFilterCondition ExtractServerCondition(FilterRowTag tag, string column, string op, string statusCategory)
+        {
+            if (tag.StatusValueCombo.Visible)
+            {
+                string selected = tag.StatusValueCombo.SelectedItem?.ToString();
+                if (string.IsNullOrWhiteSpace(selected) || selected == "(Any)")
+                    return null;
+
+                if (string.Equals(column, "Status Label", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(statusCategory))
+                {
+                    foreach (var item in DictionaryService.GetItems(statusCategory))
+                    {
+                        if (string.Equals(item.Value, selected, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return new DocumentFilterCondition
+                            {
+                                Column = column,
+                                Operator = "Equals",
+                                StatusCode = item.Key
+                            };
+                        }
+                    }
+                    return null;
+                }
+
+                return new DocumentFilterCondition
+                {
+                    Column = column,
+                    Operator = "Equals",
+                    TextValue = selected
+                };
+            }
+
+            if (tag.DateFlow.Visible)
+            {
+                if (!tag.DateFilterActive) return null;
+
+                var cond = new DocumentFilterCondition { Column = column, Operator = op };
+                if (op == "On")
+                {
+                    cond.Operator = "On";
+                    cond.DateFrom = tag.DateFrom.Value.Date;
+                    cond.DateTo = tag.DateFrom.Value.Date;
+                }
+                else if (op == "From")
+                {
+                    cond.DateFrom = tag.DateFrom.Value.Date;
+                }
+                else if (op == "To")
+                {
+                    cond.DateFrom = tag.DateFrom.Value.Date;
+                }
+                else if (op == "Between")
+                {
+                    cond.DateFrom = tag.DateFrom.Value.Date;
+                    cond.DateTo = tag.DateTo.Value.Date;
+                }
+                else
+                {
+                    return null;
+                }
+                return cond;
+            }
+
+            if (tag.NumValue.Visible || (tag.TextValue.Visible && op == "Between"))
+            {
+                if (op == "Between")
+                {
+                    string raw = (tag.TextValue?.Text ?? string.Empty).Trim();
+                    if (string.IsNullOrWhiteSpace(raw)) return null;
+                    var parts = raw.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length < 2) return null;
+                    if (!decimal.TryParse(parts[0], out var a) || !decimal.TryParse(parts[1], out var b)) return null;
+                    if (b < a) (a, b) = (b, a);
+                    return new DocumentFilterCondition
+                    {
+                        Column = column,
+                        Operator = op,
+                        NumericValue = a,
+                        NumericValueTo = b
+                    };
+                }
+
+                return new DocumentFilterCondition
+                {
+                    Column = column,
+                    Operator = op,
+                    NumericValue = tag.NumValue.Value
+                };
+            }
+
+            if (tag.TextSuggest.Visible)
+            {
+                string text = tag.TextSuggestBinder?.GetText()?.Trim();
+                if (string.IsNullOrWhiteSpace(text)) return null;
+                return new DocumentFilterCondition
+                {
+                    Column = column,
+                    Operator = op,
+                    TextValue = text
+                };
+            }
+
+            return null;
         }
     }
 }
