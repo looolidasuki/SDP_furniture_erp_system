@@ -75,12 +75,95 @@ namespace Sales_user.Controllers
                                  FROM RawMaterialRequestNoteRawMaterial_line rl
                                  WHERE rl.rawMaterialRequestNoteID = n.rawMaterialRequestNoteID
                              )
-                           ORDER BY po.productionOrderID DESC";
+                           ORDER BY po.productionOrderID DESC
+                           LIMIT 50";
             return DatabaseConnect.ExecuteQuery(sql, new[]
             {
                 new MySqlParameter("@completed", RawMaterialRequestNoteConstants.StatusCompleted),
                 new MySqlParameter("@cancelled", RawMaterialRequestNoteConstants.StatusCancelled)
             });
+        }
+
+        public DataTable SearchOpenRequestNotesForPicker(string prefix, long productionOrderId = 0, int limit = 25)
+        {
+            prefix = (prefix ?? "").Trim();
+            if (prefix.Length < 2) return BuildPickerTableSchema();
+
+            limit = SqlGuard.ClampLimit(limit, 50);
+            string sql = @"SELECT n.rawMaterialRequestNoteID AS 'Request Note ID',
+                                  n.rawMaterialRequestNoteCode AS 'Request Code',
+                                  n.ProductionOrderID AS 'Production Order ID',
+                                  po.productionOrderCode AS 'Production Order',
+                                  COALESCE(n.status, 0) AS 'Status',
+                                  CONCAT(n.rawMaterialRequestNoteCode, ' — ', COALESCE(po.productionOrderCode, ''),
+                                         ' [', CASE COALESCE(n.status, 0)
+                                                  WHEN 0 THEN 'Draft'
+                                                  WHEN 1 THEN 'Partial'
+                                                  ELSE CAST(n.status AS CHAR)
+                                              END, ']') AS DisplayText
+                           FROM RawMaterialRequestNote n
+                           LEFT JOIN ProductionOrder po ON n.ProductionOrderID = po.productionOrderID
+                           WHERE COALESCE(n.status, 0) NOT IN (@completed, @cancelled)
+                             AND EXISTS (
+                                 SELECT 1
+                                 FROM RawMaterialRequestNoteRawMaterial_line rl
+                                 WHERE rl.rawMaterialRequestNoteID = n.rawMaterialRequestNoteID
+                             )
+                             AND (
+                                 n.rawMaterialRequestNoteCode LIKE @kw ESCAPE '\\\\'
+                                 OR po.productionOrderCode LIKE @kw ESCAPE '\\\\'
+                             )
+                             AND (@ptoId = 0 OR n.ProductionOrderID = @ptoId)
+                           ORDER BY n.createDate DESC
+                           LIMIT @lim";
+            return DatabaseConnect.ExecuteQuery(sql, new[]
+            {
+                new MySqlParameter("@completed", RawMaterialRequestNoteConstants.StatusCompleted),
+                new MySqlParameter("@cancelled", RawMaterialRequestNoteConstants.StatusCancelled),
+                new MySqlParameter("@kw", "%" + SqlGuard.EscapeLikeValue(prefix) + "%"),
+                new MySqlParameter("@ptoId", productionOrderId),
+                new MySqlParameter("@lim", limit)
+            });
+        }
+
+        public DataTable GetOpenRequestNotePickerById(long requestNoteId)
+        {
+            if (requestNoteId <= 0) return BuildPickerTableSchema();
+
+            string sql = @"SELECT n.rawMaterialRequestNoteID AS 'Request Note ID',
+                                  n.rawMaterialRequestNoteCode AS 'Request Code',
+                                  n.ProductionOrderID AS 'Production Order ID',
+                                  po.productionOrderCode AS 'Production Order',
+                                  COALESCE(n.status, 0) AS 'Status',
+                                  CONCAT(n.rawMaterialRequestNoteCode, ' — ', COALESCE(po.productionOrderCode, ''),
+                                         ' [', CASE COALESCE(n.status, 0)
+                                                  WHEN 0 THEN 'Draft'
+                                                  WHEN 1 THEN 'Partial'
+                                                  ELSE CAST(n.status AS CHAR)
+                                              END, ']') AS DisplayText
+                           FROM RawMaterialRequestNote n
+                           LEFT JOIN ProductionOrder po ON n.ProductionOrderID = po.productionOrderID
+                           WHERE n.rawMaterialRequestNoteID = @id
+                             AND COALESCE(n.status, 0) NOT IN (@completed, @cancelled)
+                           LIMIT 1";
+            return DatabaseConnect.ExecuteQuery(sql, new[]
+            {
+                new MySqlParameter("@id", requestNoteId),
+                new MySqlParameter("@completed", RawMaterialRequestNoteConstants.StatusCompleted),
+                new MySqlParameter("@cancelled", RawMaterialRequestNoteConstants.StatusCancelled)
+            });
+        }
+
+        private static DataTable BuildPickerTableSchema()
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("Request Note ID", typeof(long));
+            dt.Columns.Add("Request Code", typeof(string));
+            dt.Columns.Add("Production Order ID", typeof(long));
+            dt.Columns.Add("Production Order", typeof(string));
+            dt.Columns.Add("Status", typeof(int));
+            dt.Columns.Add("DisplayText", typeof(string));
+            return dt;
         }
 
         public RawMaterialRequestNote GetById(long id)

@@ -492,7 +492,10 @@ namespace FurnitureERP.Forms
             }
 
             if (_headerPanel.Controls["lblModuleTitle"] is Label t) t.Text = module;
-            _contentPanel.Controls.Clear();
+
+            ControlUiHelper.DisposeChildControls(_contentPanel);
+            ActiveControl = null;
+
             _contentPanel.SuspendLayout();
             try
             {

@@ -11,6 +11,8 @@ namespace FurnitureERP.Helpers
     /// </summary>
     public sealed class FilterTextSuggestBinder
     {
+        public const int MinTypeAheadChars = 1;
+        private const int MaxSuggestItems = 25;
         private readonly ComboBox _combo;
         private List<string> _fullSource = new List<string>();
         private Func<string, IEnumerable<string>> _serverSuggest;
@@ -26,8 +28,6 @@ namespace FurnitureERP.Helpers
             _combo.Font = new Font("Segoe UI", 9f);
             _combo.TextUpdate += Combo_TextUpdate;
             _combo.KeyDown += Combo_KeyDown;
-            _combo.Enter += Combo_Enter;
-            _combo.MouseDown += Combo_MouseDown;
         }
 
         public void SetServerSuggest(Func<string, IEnumerable<string>> provider)
@@ -43,7 +43,8 @@ namespace FurnitureERP.Helpers
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
                 .ToList() ?? new List<string>();
-            BindFilteredItems(SafeGetText());
+            if (!string.IsNullOrWhiteSpace(SafeGetText()))
+                BindFilteredItems(SafeGetText(), restoreCaretToEnd: true);
         }
 
         public string GetText()
@@ -53,9 +54,11 @@ namespace FurnitureERP.Helpers
 
         public void Clear()
         {
+            if (_combo.IsDisposed) return;
             _suppressEvents = true;
             try
             {
+                if (_combo.DroppedDown) _combo.DroppedDown = false;
                 _combo.DataSource = null;
                 _combo.Items.Clear();
                 _combo.Text = "";
@@ -67,31 +70,10 @@ namespace FurnitureERP.Helpers
             }
         }
 
-        private void Combo_Enter(object sender, EventArgs e)
-        {
-            if (_suppressEvents) return;
-            OpenDropdownForCurrentText();
-        }
-
-        private void Combo_MouseDown(object sender, MouseEventArgs e)
-        {
-            if (_suppressEvents || e.Button != MouseButtons.Left) return;
-            if (!_combo.DroppedDown)
-                OpenDropdownForCurrentText();
-        }
-
-        private void OpenDropdownForCurrentText()
-        {
-            BindFilteredItems(SafeGetText());
-            if (_combo.Items.Count > 0 && !_combo.DroppedDown)
-                _combo.DroppedDown = true;
-        }
-
         private void Combo_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Down && _combo.Items.Count > 0 && !_combo.DroppedDown)
-                _combo.DroppedDown = true;
-            else if (e.KeyCode == Keys.Escape && _combo.DroppedDown)
+            if (_combo.IsDisposed) return;
+            if (e.KeyCode == Keys.Escape && _combo.DroppedDown)
             {
                 _combo.DroppedDown = false;
                 e.Handled = true;
@@ -100,42 +82,39 @@ namespace FurnitureERP.Helpers
 
         private void Combo_TextUpdate(object sender, EventArgs e)
         {
-            if (_suppressEvents) return;
+            if (_suppressEvents || _combo.IsDisposed) return;
             _combo.BeginInvoke(new Action(ApplyFilterFromComboText));
         }
 
         private void ApplyFilterFromComboText()
         {
             if (_suppressEvents || _combo.IsDisposed) return;
-            BindFilteredItems(SafeGetText());
+            string text = SafeGetText();
+            _lastTypedText = text;
+
+            if (string.IsNullOrWhiteSpace(text) || text.Trim().Length < MinTypeAheadChars)
+            {
+                ClearDropdownItems(keepText: true);
+                return;
+            }
+
+            BindFilteredItems(text, restoreCaretToEnd: true);
         }
 
-        private void BindFilteredItems(string filterText)
+        private void ClearDropdownItems(bool keepText = false)
         {
+            if (_combo.IsDisposed) return;
             _suppressEvents = true;
             try
             {
-                filterText = filterText ?? "";
-                int caret = 0;
-                try { caret = _combo.SelectionStart; } catch { caret = filterText.Length; }
-
-                IEnumerable<string> matches = GetMatches(filterText);
+                if (_combo.DroppedDown) _combo.DroppedDown = false;
                 _combo.DataSource = null;
                 _combo.Items.Clear();
-                foreach (string item in matches)
-                    _combo.Items.Add(item);
-
-                _combo.SelectedIndex = -1;
-                _combo.Text = filterText;
-                _lastTypedText = filterText;
-                try
+                if (!keepText)
                 {
-                    _combo.SelectionStart = Math.Min(caret, filterText.Length);
-                    _combo.SelectionLength = 0;
+                    _combo.Text = "";
+                    _lastTypedText = "";
                 }
-                catch { }
-
-                _combo.DroppedDown = _combo.Items.Count > 0;
             }
             finally
             {
@@ -143,18 +122,93 @@ namespace FurnitureERP.Helpers
             }
         }
 
+        private void BindFilteredItems(string filterText, bool restoreCaretToEnd)
+        {
+            if (_combo.IsDisposed) return;
+            _suppressEvents = true;
+            try
+            {
+                filterText = filterText ?? "";
+                string workingText = filterText;
+
+                IEnumerable<string> matches = GetMatches(workingText);
+                bool wasDroppedDown = _combo.DroppedDown;
+
+                _combo.DataSource = null;
+                _combo.Items.Clear();
+                foreach (string item in matches)
+                    _combo.Items.Add(item);
+
+                _combo.SelectedIndex = -1;
+
+                // Avoid resetting Text when unchanged — reduces caret jumps during TextUpdate.
+                if (!string.Equals(_combo.Text, workingText, StringComparison.Ordinal))
+                    _combo.Text = workingText;
+
+                _lastTypedText = workingText;
+                RestoreCaret(workingText, restoreCaretToEnd);
+
+                if (_combo.Items.Count > 0)
+                    OpenDropDownDeferred(workingText, wasDroppedDown);
+                else if (_combo.DroppedDown)
+                    _combo.DroppedDown = false;
+            }
+            finally
+            {
+                _suppressEvents = false;
+            }
+        }
+
+        private void RestoreCaret(string text, bool toEnd)
+        {
+            try
+            {
+                int pos = toEnd ? text.Length : Math.Min(_combo.SelectionStart, text.Length);
+                _combo.SelectionStart = pos;
+                _combo.SelectionLength = 0;
+            }
+            catch
+            {
+                try
+                {
+                    _combo.SelectionStart = text.Length;
+                    _combo.SelectionLength = 0;
+                }
+                catch { }
+            }
+        }
+
+        private void OpenDropDownDeferred(string text, bool wasOpen)
+        {
+            _combo.BeginInvoke(new Action(() =>
+            {
+                if (_combo.IsDisposed || _combo.Items.Count == 0) return;
+                try
+                {
+                    if (!wasOpen || !_combo.DroppedDown)
+                        _combo.DroppedDown = true;
+                    RestoreCaret(text, toEnd: true);
+                    Cursor.Current = Cursors.IBeam;
+                }
+                catch { }
+            }));
+        }
+
         private IEnumerable<string> GetMatches(string filterText)
         {
-            filterText = (filterText ?? "").Trim();
+            string trimmed = (filterText ?? "").Trim();
+            if (trimmed.Length < MinTypeAheadChars)
+                return Array.Empty<string>();
+
             if (_serverSuggest != null)
             {
                 try
                 {
-                    var server = _serverSuggest(filterText)?
+                    var server = _serverSuggest(trimmed)?
                         .Where(v => !string.IsNullOrWhiteSpace(v))
                         .Select(v => v.Trim())
                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Take(25)
+                        .Take(MaxSuggestItems)
                         .ToList();
                     if (server != null && server.Count > 0)
                         return server;
@@ -162,16 +216,18 @@ namespace FurnitureERP.Helpers
                 catch { }
             }
 
-            if (string.IsNullOrEmpty(filterText))
-                return _fullSource.Take(25);
+            string matchNeedle = filterText ?? "";
+            if (string.IsNullOrEmpty(matchNeedle))
+                return _fullSource.Take(MaxSuggestItems);
 
             return _fullSource
-                .Where(v => v.IndexOf(filterText, StringComparison.OrdinalIgnoreCase) >= 0)
-                .Take(25);
+                .Where(v => v.IndexOf(matchNeedle, StringComparison.OrdinalIgnoreCase) >= 0)
+                .Take(MaxSuggestItems);
         }
 
         private string SafeGetText()
         {
+            if (_combo.IsDisposed) return _lastTypedText ?? "";
             try
             {
                 return _combo.Text ?? "";

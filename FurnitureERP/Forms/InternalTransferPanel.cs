@@ -30,8 +30,9 @@ namespace FurnitureERP.Forms
         private FilteredComboBinder _requestNoteBinder;
         private ComboBox _cmbProductionOrder;
         private FilteredComboBinder _productionOrderBinder;
-        private DataTable _openNotesSource;
         private bool _filterSyncInProgress;
+        private bool _issueFiltersLoaded;
+        private Timer _issuePreviewTimer;
         private ComboBox _cmbIssueInventoryWh;
         private Label _lblIssueProductionWh;
         private DataGridView _issueGrid;
@@ -62,6 +63,17 @@ namespace FurnitureERP.Forms
             _tabs.TabPages.Add(BuildIssueRequestTab());
             _tabs.TabPages.Add(BuildFreeTransferTab());
             _tabs.SelectedIndex = 0;
+            _tabs.SelectedIndexChanged += (s, e) =>
+            {
+                if (_tabs.SelectedIndex == 0)
+                    EnsureIssueFiltersLoaded();
+            };
+
+            VisibleChanged += (s, e) =>
+            {
+                if (Visible)
+                    EnsureIssueFiltersLoaded();
+            };
 
             Controls.Add(_tabs);
             Controls.Add(title);
@@ -76,6 +88,7 @@ namespace FurnitureERP.Forms
             AppSession.PendingRmRequestNoteId = null;
 
             var note = _rmrnCtrl.GetById(noteId);
+            EnsureIssueFiltersLoaded();
             _tabs.SelectedIndex = 0;
             _filterSyncInProgress = true;
             try
@@ -110,16 +123,17 @@ namespace FurnitureERP.Forms
             {
                 if (_filterSyncInProgress) return;
                 ReloadRequestNoteCombo();
-                LoadIssuePreview();
+                ScheduleIssuePreview();
             };
-            ReloadProductionOrderCombo(0);
 
             _cmbRequestNote = new ComboBox { Dock = DockStyle.Fill };
             _requestNoteBinder = new FilteredComboBinder(_cmbRequestNote, "Request Note ID", "DisplayText");
+            _requestNoteBinder.SetServerSearch(prefix =>
+                _rmrnCtrl.SearchOpenRequestNotesForPicker(prefix, GetSelectedProductionOrderFilterId(), 25));
             _requestNoteBinder.SelectionCommitted += (s, e) =>
             {
                 SyncProductionOrderFromRequestNote(GetSelectedRequestNoteId());
-                LoadIssuePreview();
+                ScheduleIssuePreview();
             };
             _cmbRequestNote.Leave += (s, e) => ResolveTypedRequestNote();
             _cmbRequestNote.KeyDown += (s, e) =>
@@ -128,10 +142,9 @@ namespace FurnitureERP.Forms
                 {
                     e.SuppressKeyPress = true;
                     ResolveTypedRequestNote();
-                    LoadIssuePreview();
+                    ScheduleIssuePreview();
                 }
             };
-            ReloadRequestNoteCombo();
 
             _cmbIssueInventoryWh = BuildInventoryWarehouseCombo();
             if (_cmbIssueInventoryWh.Items.Count > 0)
@@ -142,7 +155,7 @@ namespace FurnitureERP.Forms
             _cmbIssueInventoryWh.SelectedIndexChanged += (s, e) =>
             {
                 UpdateIssueProductionWarehouseLabel();
-                LoadIssuePreview();
+                ScheduleIssuePreview();
             };
 
             _lblIssueProductionWh = new Label
@@ -291,6 +304,30 @@ namespace FurnitureERP.Forms
             return page;
         }
 
+        private void EnsureIssueFiltersLoaded()
+        {
+            if (_issueFiltersLoaded) return;
+            _issueFiltersLoaded = true;
+            ReloadProductionOrderCombo(0);
+            _requestNoteBinder?.ClearSelection();
+        }
+
+        private void ScheduleIssuePreview()
+        {
+            if (_issuePreviewTimer == null)
+            {
+                _issuePreviewTimer = new Timer { Interval = 300 };
+                _issuePreviewTimer.Tick += (s, e) =>
+                {
+                    _issuePreviewTimer.Stop();
+                    LoadIssuePreview();
+                };
+            }
+
+            _issuePreviewTimer.Stop();
+            _issuePreviewTimer.Start();
+        }
+
         private static Label MakeStepLabel(string text) =>
             new Label
             {
@@ -301,9 +338,51 @@ namespace FurnitureERP.Forms
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
-        private void EnsureOpenNotesSource()
+        private void SyncProductionOrderFromRequestNote(long noteId)
         {
-            _openNotesSource = _rmrnCtrl.GetOpenRequestNotesForPicker();
+            if (_filterSyncInProgress || noteId <= 0 || _productionOrderBinder == null) return;
+
+            var note = _rmrnCtrl.GetById(noteId);
+            if (note == null || note.ProductionOrderID <= 0) return;
+
+            _filterSyncInProgress = true;
+            try
+            {
+                _productionOrderBinder.SelectById(note.ProductionOrderID);
+            }
+            finally
+            {
+                _filterSyncInProgress = false;
+            }
+        }
+
+        private void ReloadRequestNoteCombo(long selectId = 0)
+        {
+            if (_requestNoteBinder == null) return;
+
+            if (selectId > 0)
+            {
+                _requestNoteBinder.SetSource(_rmrnCtrl.GetOpenRequestNotePickerById(selectId), selectId);
+                return;
+            }
+
+            _requestNoteBinder.ClearSelection();
+        }
+
+        private void ResolveTypedRequestNote()
+        {
+            if (_requestNoteBinder == null) return;
+            if (_requestNoteBinder.GetSelectedId() > 0) return;
+
+            string text = (_cmbRequestNote.Text ?? "").Trim();
+            if (string.IsNullOrEmpty(text)) return;
+
+            long id = _rmrnCtrl.FindOpenIdByCode(DocumentCodeHelper.NormalizeScrCode(text));
+            if (id > 0)
+            {
+                ReloadRequestNoteCombo(id);
+                SyncProductionOrderFromRequestNote(id);
+            }
         }
 
         private void ReloadProductionOrderCombo(long selectPtoId = 0)
@@ -338,77 +417,6 @@ namespace FurnitureERP.Forms
         {
             if (_productionOrderBinder == null) return 0;
             return _productionOrderBinder.GetSelectedId();
-        }
-
-        private void SyncProductionOrderFromRequestNote(long noteId)
-        {
-            if (_filterSyncInProgress || noteId <= 0 || _productionOrderBinder == null) return;
-
-            EnsureOpenNotesSource();
-            if (_openNotesSource == null) return;
-
-            DataRow[] rows = _openNotesSource.Select("[Request Note ID] = " + noteId);
-            if (rows.Length == 0) return;
-
-            long ptoId = Convert.ToInt64(rows[0]["Production Order ID"]);
-            if (ptoId <= 0) return;
-
-            _filterSyncInProgress = true;
-            try
-            {
-                _productionOrderBinder.SelectById(ptoId);
-            }
-            finally
-            {
-                _filterSyncInProgress = false;
-            }
-        }
-
-        private void ReloadRequestNoteCombo(long selectId = 0)
-        {
-            if (_requestNoteBinder == null) return;
-
-            EnsureOpenNotesSource();
-            var filtered = _openNotesSource?.Clone() ?? new DataTable();
-            filtered.Rows.Clear();
-
-            long ptoFilter = GetSelectedProductionOrderFilterId();
-            if (_openNotesSource != null)
-            {
-                foreach (DataRow row in _openNotesSource.Rows)
-                {
-                    if (ptoFilter > 0)
-                    {
-                        long ptoId = row["Production Order ID"] == DBNull.Value
-                            ? 0
-                            : Convert.ToInt64(row["Production Order ID"]);
-                        if (ptoId != ptoFilter) continue;
-                    }
-                    filtered.ImportRow(row);
-                }
-            }
-
-            long selected = selectId;
-            if (selected <= 0 && filtered.Rows.Count == 1)
-                selected = Convert.ToInt64(filtered.Rows[0]["Request Note ID"]);
-
-            _requestNoteBinder.SetSource(filtered, selected);
-        }
-
-        private void ResolveTypedRequestNote()
-        {
-            if (_requestNoteBinder == null) return;
-            if (_requestNoteBinder.GetSelectedId() > 0) return;
-
-            string text = (_cmbRequestNote.Text ?? "").Trim();
-            if (string.IsNullOrEmpty(text)) return;
-
-            long id = _rmrnCtrl.FindOpenIdByCode(DocumentCodeHelper.NormalizeScrCode(text));
-            if (id > 0)
-            {
-                _requestNoteBinder.SelectById(id);
-                SyncProductionOrderFromRequestNote(id);
-            }
         }
 
         private long GetSelectedRequestNoteId()

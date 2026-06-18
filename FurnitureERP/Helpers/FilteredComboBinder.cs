@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Drawing;
 using System.Windows.Forms;
 
 namespace FurnitureERP.Helpers
@@ -11,11 +12,15 @@ namespace FurnitureERP.Helpers
     /// </summary>
     public sealed class FilteredComboBinder
     {
+        public const int MinTypeAheadChars = 2;
+        private const int MaxSuggestItems = 25;
+
         private readonly ComboBox _combo;
         private readonly string _valueMember;
         private readonly string _displayMember;
         private DataTable _fullSource;
         private readonly List<long> _filteredIds = new List<long>();
+        private Func<string, DataTable> _serverSearch;
         private bool _suppressEvents;
         private bool _itemsMode;
         private string _lastTypedText = "";
@@ -35,34 +40,61 @@ namespace FurnitureERP.Helpers
             _combo.MouseDown += Combo_MouseDown;
         }
 
+        public void SetServerSearch(Func<string, DataTable> search)
+        {
+            _serverSearch = search;
+        }
+
         private void Combo_Enter(object sender, EventArgs e)
         {
-            if (_suppressEvents) return;
-            OpenDropdownForCurrentText();
+            if (_suppressEvents || !IsComboAlive()) return;
+            RefreshSuggestionsForCurrentText();
         }
 
         private void Combo_MouseDown(object sender, MouseEventArgs e)
         {
-            if (_suppressEvents || e.Button != MouseButtons.Left) return;
-            if (!_combo.DroppedDown && GetSelectedId() > 0)
-                OpenDropdownForCurrentText();
+            if (_suppressEvents || !IsComboAlive() || e.Button != MouseButtons.Left) return;
+            RefreshSuggestionsForCurrentText();
+            if (!_combo.DroppedDown)
+                TryOpenDropDownDeferred();
         }
 
-        private void OpenDropdownForCurrentText()
+        private void RefreshSuggestionsForCurrentText()
         {
+            if (!IsComboAlive()) return;
             string text = SafeGetText();
-            if (string.IsNullOrWhiteSpace(text))
-                BindFullList(0);
-            else
-                BindFilteredItems(text);
-            if (_combo.Items.Count > 0 && !_combo.DroppedDown)
-                _combo.DroppedDown = true;
+            if (string.IsNullOrWhiteSpace(text) || text.Trim().Length < MinTypeAheadChars)
+            {
+                if (!_combo.DroppedDown)
+                    ClearDropdownItems();
+                return;
+            }
+
+            BindFilteredItems(text);
+        }
+
+        private void TryOpenDropDownDeferred()
+        {
+            if (!IsComboAlive() || _combo.Items.Count == 0) return;
+            _combo.BeginInvoke(new Action(() =>
+            {
+                if (!IsComboAlive() || _combo.Items.Count == 0) return;
+                if (!_combo.DroppedDown)
+                    _combo.DroppedDown = true;
+                _combo.Focus();
+                Cursor.Current = Cursors.IBeam;
+            }));
         }
 
         private void Combo_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Down && _combo.Items.Count > 0 && !_combo.DroppedDown)
-                _combo.DroppedDown = true;
+            if (!IsComboAlive()) return;
+            if (e.KeyCode == Keys.Down)
+            {
+                RefreshSuggestionsForCurrentText();
+                if (_combo.Items.Count > 0 && !_combo.DroppedDown)
+                    TryOpenDropDownDeferred();
+            }
             else if (e.KeyCode == Keys.Escape && _combo.DroppedDown)
             {
                 _combo.DroppedDown = false;
@@ -72,19 +104,9 @@ namespace FurnitureERP.Helpers
 
         private void Combo_DropDownClosed(object sender, EventArgs e)
         {
-            if (_suppressEvents) return;
+            if (_suppressEvents || !IsComboAlive()) return;
 
-            long id = 0;
-            if (_itemsMode)
-            {
-                if (_combo.SelectedIndex >= 0)
-                    id = GetSelectedId();
-            }
-            else
-            {
-                id = GetSelectedId();
-            }
-
+            long id = GetSelectedId();
             if (id > 0)
             {
                 _lastTypedText = SafeGetText();
@@ -94,19 +116,22 @@ namespace FurnitureERP.Helpers
 
         private void Combo_TextUpdate(object sender, EventArgs e)
         {
-            if (_suppressEvents) return;
+            if (_suppressEvents || !IsComboAlive()) return;
             _combo.BeginInvoke(new Action(ApplyFilterFromComboText));
         }
 
         private void ApplyFilterFromComboText()
         {
-            if (_suppressEvents || _combo.IsDisposed) return;
+            if (_suppressEvents || !IsComboAlive()) return;
             string text = SafeGetText();
             _lastTypedText = text;
-            if (string.IsNullOrEmpty(text))
-                BindFullList(0);
-            else
-                BindFilteredItems(text);
+            if (string.IsNullOrWhiteSpace(text) || text.Trim().Length < MinTypeAheadChars)
+            {
+                ClearDropdownItems();
+                return;
+            }
+
+            BindFilteredItems(text);
         }
 
         public bool SuppressEvents
@@ -133,11 +158,13 @@ namespace FurnitureERP.Helpers
             if (selectedId > 0)
                 BindFullList(selectedId);
             else
-                BindFullList(0);
+                ClearComboDisplay();
         }
 
         public long GetSelectedId()
         {
+            if (!IsComboAlive()) return 0;
+
             if (_itemsMode)
             {
                 if (_combo.SelectedIndex >= 0 && _combo.SelectedIndex < _filteredIds.Count)
@@ -177,16 +204,25 @@ namespace FurnitureERP.Helpers
 
         public void SelectById(long id)
         {
-            BindFullList(id);
+            if (id > 0)
+                BindFullList(id);
+            else
+                ClearComboDisplay();
         }
 
         public void ClearSelection()
         {
-            BindFullList(0);
+            ClearComboDisplay();
+        }
+
+        private bool IsComboAlive()
+        {
+            return _combo != null && !_combo.IsDisposed && _combo.IsHandleCreated;
         }
 
         private string SafeGetText()
         {
+            if (!IsComboAlive()) return _lastTypedText ?? "";
             try
             {
                 return _combo.Text ?? "";
@@ -197,8 +233,48 @@ namespace FurnitureERP.Helpers
             }
         }
 
+        private void ClearComboDisplay()
+        {
+            if (!IsComboAlive()) return;
+            _suppressEvents = true;
+            try
+            {
+                _itemsMode = false;
+                _filteredIds.Clear();
+                if (_combo.DroppedDown) _combo.DroppedDown = false;
+                _combo.DataSource = null;
+                _combo.Items.Clear();
+                _combo.SelectedIndex = -1;
+                _combo.Text = "";
+                _lastTypedText = "";
+            }
+            finally
+            {
+                _suppressEvents = false;
+            }
+        }
+
+        private void ClearDropdownItems()
+        {
+            if (!IsComboAlive()) return;
+            _suppressEvents = true;
+            try
+            {
+                _itemsMode = true;
+                _filteredIds.Clear();
+                if (_combo.DroppedDown) _combo.DroppedDown = false;
+                _combo.DataSource = null;
+                _combo.Items.Clear();
+            }
+            finally
+            {
+                _suppressEvents = false;
+            }
+        }
+
         private void BindFullList(long selectId)
         {
+            if (!IsComboAlive()) return;
             _suppressEvents = true;
             try
             {
@@ -239,26 +315,36 @@ namespace FurnitureERP.Helpers
 
         private void BindFilteredItems(string filterText)
         {
+            if (!IsComboAlive()) return;
             _suppressEvents = true;
             try
             {
-                filterText = filterText ?? "";
+                filterText = (filterText ?? "").Trim();
+                if (filterText.Length < MinTypeAheadChars)
+                {
+                    ClearDropdownItems();
+                    return;
+                }
+
                 int caret = 0;
                 try { caret = _combo.SelectionStart; } catch { caret = filterText.Length; }
 
-                DataTable filtered = FilterDataTable(_fullSource, filterText, _displayMember);
+                DataTable filtered = ResolveFilteredTable(filterText);
                 _itemsMode = true;
                 _filteredIds.Clear();
                 _combo.DataSource = null;
                 _combo.Items.Clear();
 
+                int count = 0;
                 foreach (DataRow row in filtered.Rows)
                 {
+                    if (count >= MaxSuggestItems) break;
                     if (!filtered.Columns.Contains(_displayMember) || !filtered.Columns.Contains(_valueMember))
                         continue;
                     if (row[_valueMember] == DBNull.Value) continue;
                     _combo.Items.Add(row[_displayMember]?.ToString() ?? "");
                     _filteredIds.Add(Convert.ToInt64(row[_valueMember]));
+                    count++;
                 }
 
                 _combo.SelectedIndex = -1;
@@ -271,7 +357,7 @@ namespace FurnitureERP.Helpers
                 }
                 catch { }
 
-                _combo.DroppedDown = filtered.Rows.Count > 0;
+                // Do not auto-open dropdown while typing; user opens via Down key or click.
             }
             finally
             {
@@ -279,9 +365,25 @@ namespace FurnitureERP.Helpers
             }
         }
 
+        private DataTable ResolveFilteredTable(string filterText)
+        {
+            if (_serverSearch != null)
+            {
+                try
+                {
+                    var server = _serverSearch(filterText);
+                    if (server != null && server.Rows.Count > 0)
+                        return server;
+                }
+                catch { }
+            }
+
+            return FilterDataTable(_fullSource, filterText, _displayMember);
+        }
+
         private void SetComboLongValue(long value)
         {
-            if (value <= 0) return;
+            if (value <= 0 || !IsComboAlive()) return;
             try
             {
                 _combo.SelectedValue = value;
@@ -319,19 +421,24 @@ namespace FurnitureERP.Helpers
 
             filter = (filter ?? "").Trim();
             if (string.IsNullOrEmpty(filter))
-                return source.Copy();
+                return source.Clone();
 
             var result = source.Clone();
+            int count = 0;
             foreach (DataRow row in source.Rows)
             {
+                if (count >= MaxSuggestItems) break;
                 if (!source.Columns.Contains(displayColumn)) continue;
                 string display = row[displayColumn]?.ToString() ?? "";
                 if (display.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
                     result.ImportRow(row);
+                    count++;
+                }
             }
             return result;
         }
 
-        protected void OnSelectionCommitted() => SelectionCommitted?.Invoke(_combo, EventArgs.Empty);
+        private void OnSelectionCommitted() => SelectionCommitted?.Invoke(_combo, EventArgs.Empty);
     }
 }
