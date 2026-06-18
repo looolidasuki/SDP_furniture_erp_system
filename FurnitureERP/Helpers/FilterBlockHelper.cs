@@ -21,6 +21,7 @@ namespace FurnitureERP.Helpers
             public string StatusCategory;
             public Panel RowsPanel;
             public Action ResizeBlock;
+            public bool UseServerSuggest;
         }
 
         private sealed class FilterColumnOption
@@ -40,6 +41,8 @@ namespace FurnitureERP.Helpers
         {
             public ComboBox ColumnCombo;
             public ComboBox OperatorCombo;
+            public ComboBox TextSuggest;
+            public FilterTextSuggestBinder TextSuggestBinder;
             public TextBox TextValue;
             public NumericUpDown NumValue;
             public DateTimePicker DateFrom;
@@ -48,6 +51,7 @@ namespace FurnitureERP.Helpers
             public ComboBox StatusValueCombo;
             public Panel ValueHost;
             public string StatusCategory;
+            public bool UseServerSuggest;
         }
 
         private static readonly ConditionalWeakTable<DataGridView, FilterBlockContext> FilterContexts =
@@ -148,7 +152,8 @@ namespace FurnitureERP.Helpers
             {
                 StatusCategory = statusCategory,
                 RowsPanel = rowsPanel,
-                ResizeBlock = resizeBlock
+                ResizeBlock = resizeBlock,
+                UseServerSuggest = onServerApply != null
             };
             FilterContexts.Add(grid, context);
 
@@ -162,7 +167,7 @@ namespace FurnitureERP.Helpers
 
             Action addRow = () =>
             {
-                var row = CreateConditionRow(grid, rowsPanel, resizeBlock, statusCategory, applyFilters);
+                var row = CreateConditionRow(grid, rowsPanel, resizeBlock, statusCategory, applyFilters, context.UseServerSuggest);
                 rowsPanel.Controls.Add(row);
                 resizeBlock();
             };
@@ -220,6 +225,8 @@ namespace FurnitureERP.Helpers
                 PopulateColumns(tag.ColumnCombo, grid, context.StatusCategory);
                 RestoreColumnSelection(tag.ColumnCombo, selectedColumn);
                 ConfigureRowForColumn(grid, tag, context.StatusCategory);
+                if (tag.TextSuggest.Visible)
+                    RefreshTextSuggestSource(grid, tag, GetSelectedColumnName(tag.ColumnCombo));
             }
         }
 
@@ -252,7 +259,7 @@ namespace FurnitureERP.Helpers
             return cmbColumn?.SelectedItem?.ToString();
         }
 
-        private static Panel CreateConditionRow(DataGridView grid, Panel rowsPanel, Action resizeBlock, string statusCategory, Action applyFilters)
+        private static Panel CreateConditionRow(DataGridView grid, Panel rowsPanel, Action resizeBlock, string statusCategory, Action applyFilters, bool useServerSuggest)
         {
             var row = new TableLayoutPanel
             {
@@ -270,7 +277,9 @@ namespace FurnitureERP.Helpers
             var cmbColumn = CreateFilterCombo();
             var cmbOperator = CreateFilterCombo();
             var valueHost = new Panel { Dock = DockStyle.Fill, Height = RowHeight - 4, Margin = new Padding(0, 2, 4, 0) };
-            var txtValue = new TextBox { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f) };
+            var cmbTextSuggest = new ComboBox { Dock = DockStyle.Fill, Visible = true };
+            var textSuggestBinder = new FilterTextSuggestBinder(cmbTextSuggest);
+            var txtValue = new TextBox { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9f), Visible = false };
             var numValue = new NumericUpDown
             {
                 Dock = DockStyle.Fill,
@@ -313,6 +322,7 @@ namespace FurnitureERP.Helpers
             dateFlow.Controls.Add(dtFrom);
             dateFlow.Controls.Add(dtTo);
 
+            valueHost.Controls.Add(cmbTextSuggest);
             valueHost.Controls.Add(txtValue);
             valueHost.Controls.Add(numValue);
             valueHost.Controls.Add(cmbStatusValue);
@@ -328,6 +338,8 @@ namespace FurnitureERP.Helpers
             {
                 ColumnCombo = cmbColumn,
                 OperatorCombo = cmbOperator,
+                TextSuggest = cmbTextSuggest,
+                TextSuggestBinder = textSuggestBinder,
                 TextValue = txtValue,
                 NumValue = numValue,
                 DateFrom = dtFrom,
@@ -335,7 +347,8 @@ namespace FurnitureERP.Helpers
                 DateFlow = dateFlow,
                 StatusValueCombo = cmbStatusValue,
                 ValueHost = valueHost,
-                StatusCategory = statusCategory
+                StatusCategory = statusCategory,
+                UseServerSuggest = useServerSuggest
             };
             row.Tag = tag;
 
@@ -467,6 +480,8 @@ namespace FurnitureERP.Helpers
             }
 
             ConfigureValueControlsForOperator(grid, tag);
+            if (tag.TextSuggest.Visible)
+                RefreshTextSuggestSource(grid, tag, colName);
         }
 
         private static void BindStatusValueCombo(ComboBox combo, string statusCategory, bool includeAny)
@@ -509,6 +524,7 @@ namespace FurnitureERP.Helpers
 
             if (isStatusLabel || isTextStatus)
             {
+                tag.TextSuggest.Visible = false;
                 tag.TextValue.Visible = false;
                 tag.NumValue.Visible = false;
                 tag.DateFlow.Visible = false;
@@ -523,11 +539,15 @@ namespace FurnitureERP.Helpers
             string op = tag.OperatorCombo.SelectedItem.ToString();
 
             tag.StatusValueCombo.Visible = false;
-            tag.TextValue.Visible = !isDate && (!isNumber || op == "Between");
+            tag.TextSuggest.Visible = !isDate && !isNumber;
+            tag.TextValue.Visible = !isDate && isNumber && op == "Between";
             tag.NumValue.Visible = !isDate && isNumber && op != "Between";
             tag.DateFlow.Visible = isDate;
             tag.DateFrom.Visible = isDate;
             tag.DateTo.Visible = isDate && op == "Between";
+
+            if (tag.TextSuggest.Visible)
+                RefreshTextSuggestSource(grid, tag, colName);
 
             if (isDate)
             {
@@ -569,10 +589,10 @@ namespace FurnitureERP.Helpers
                 return $"[{column}] = '{escaped}'";
             }
 
-            return BuildClause(table, column, op, tag.TextValue, tag.NumValue, tag.DateFrom, tag.DateTo);
+            return BuildClause(table, column, op, tag.TextSuggestBinder, tag.TextValue, tag.NumValue, tag.DateFrom, tag.DateTo);
         }
 
-        private static string BuildClause(DataTable table, string column, string op, TextBox txtValue, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo)
+        private static string BuildClause(DataTable table, string column, string op, FilterTextSuggestBinder textSuggest, TextBox betweenText, NumericUpDown numValue, DateTimePicker dtFrom, DateTimePicker dtTo)
         {
             var colType = table.Columns[column].DataType;
             bool isDate = colType == typeof(DateTime) || column.IndexOf("Date", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -616,7 +636,7 @@ namespace FurnitureERP.Helpers
             {
                 if (op == "Between")
                 {
-                    string raw = (txtValue?.Text ?? string.Empty).Trim();
+                    string raw = (betweenText?.Text ?? string.Empty).Trim();
                     if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
                     var parts = raw.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
                     if (parts.Length < 2) return string.Empty;
@@ -633,12 +653,44 @@ namespace FurnitureERP.Helpers
                 return string.Empty;
             }
 
-            string rawText = (txtValue?.Text ?? string.Empty).Trim();
+            string rawText = (textSuggest?.GetText() ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(rawText)) return string.Empty;
             string escaped = rawText.Replace("'", "''");
             if (op == "Equals") return $"[{column}] = '{escaped}'";
             if (op == "StartsWith") return $"[{column}] LIKE '{escaped}%'";
             return $"[{column}] LIKE '%{escaped}%'";
+        }
+
+        private static void RefreshTextSuggestSource(DataGridView grid, FilterRowTag tag, string columnName)
+        {
+            if (tag?.TextSuggestBinder == null || string.IsNullOrWhiteSpace(columnName))
+                return;
+
+            tag.TextSuggestBinder.SetLocalSource(GetDistinctColumnValues(grid, columnName));
+            if (tag.UseServerSuggest && !string.IsNullOrWhiteSpace(tag.StatusCategory))
+            {
+                string category = tag.StatusCategory;
+                tag.TextSuggestBinder.SetServerSuggest(prefix =>
+                    FilterColumnSuggestService.Suggest(category, columnName, prefix));
+            }
+            else
+            {
+                tag.TextSuggestBinder.SetServerSuggest(null);
+            }
+        }
+
+        private static IEnumerable<string> GetDistinctColumnValues(DataGridView grid, string column)
+        {
+            if (!(grid.DataSource is DataTable table) || !table.Columns.Contains(column))
+                yield break;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (DataRow row in table.Rows)
+            {
+                string value = row[column]?.ToString()?.Trim();
+                if (!string.IsNullOrEmpty(value) && seen.Add(value))
+                    yield return value;
+            }
         }
 
         private static bool IsNumericType(Type type)
@@ -697,7 +749,11 @@ namespace FurnitureERP.Helpers
                     && !string.Equals(op, "StartsWith", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                string text = tag.TextValue?.Text?.Trim();
+                string text = null;
+                if (tag.TextSuggest != null && tag.TextSuggest.Visible)
+                    text = tag.TextSuggestBinder?.GetText();
+                else
+                    text = tag.TextValue?.Text?.Trim();
                 if (!string.IsNullOrWhiteSpace(text))
                 {
                     filter.Keyword = text;

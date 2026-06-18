@@ -98,6 +98,8 @@
     <Compile Include="Helpers\PagedGridBinder.cs" />
     <Compile Include="Helpers\FinanceReconciliationService.cs" />
     <Compile Include="Helpers\DictionarySeedMigration.cs" />
+    <Compile Include="Helpers\FilterTextSuggestBinder.cs" />
+    <Compile Include="Helpers\FilterColumnSuggestService.cs" />
     <Compile Include="Forms\LoginForm.cs">
       <SubType>Form</SubType>
     </Compile>
