@@ -62,14 +62,27 @@ namespace Sales_user.Controllers
             if (byName != null && byName.Rows.Count > 0)
                 return System.Convert.ToInt64(byName.Rows[0]["customerID"]);
 
-            string like = "%" + SqlGuard.EscapeLikeValue(text) + "%";
-            string sqlLike = $@"SELECT customerID FROM Customer
-                                WHERE customerName LIKE @like ESCAPE '\\\\'
-                                   OR {CustomerCodeSql} LIKE @like ESCAPE '\\\\'
+            return FindCustomerIdByFuzzyText(text);
+        }
+
+        private long FindCustomerIdByFuzzyText(string text)
+        {
+            text = (text ?? "").Trim().TrimEnd('\\');
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+
+            try
+            {
+                string sql = $@"SELECT customerID FROM Customer
+                                WHERE LOCATE(@needle, customerName) > 0
+                                   OR LOCATE(@needle, {CustomerCodeSql}) > 0
                                 ORDER BY customerID LIMIT 1";
-            var byLike = DatabaseConnect.ExecuteQuery(sqlLike, new[] { new MySqlParameter("@like", like) });
-            if (byLike != null && byLike.Rows.Count > 0)
-                return System.Convert.ToInt64(byLike.Rows[0]["customerID"]);
+                var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@needle", text) });
+                if (dt != null && dt.Rows.Count > 0)
+                    return System.Convert.ToInt64(dt.Rows[0]["customerID"]);
+            }
+            catch (MySqlException)
+            {
+            }
 
             return 0;
         }

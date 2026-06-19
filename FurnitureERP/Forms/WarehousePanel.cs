@@ -984,7 +984,7 @@ namespace FurnitureERP.Forms
                 var lineGrid = CreateDeliveryLineGrid();
                 Action reloadLines = () =>
                 {
-                    long soId = GetComboLongId(cmbSalesOrder);
+                    long soId = SalesOrderComboHelper.ResolveSalesOrderId(cmbSalesOrder, _salesOrderCtrl);
                     long warehouseId = GetComboLongId(cmbWarehouse);
                     if (soId <= 0)
                     {
@@ -1002,6 +1002,9 @@ namespace FurnitureERP.Forms
                     reloadLines();
                 });
                 cmbSalesOrder.SelectedIndexChanged += (s, e) => reloadLines();
+                var soBinder = SalesOrderComboHelper.GetBinder(cmbSalesOrder);
+                if (soBinder != null)
+                    soBinder.SelectionCommitted += (s, e) => reloadLines();
                 cmbWarehouse.SelectedIndexChanged += (s, e) => reloadLines();
                 lineGrid.CellValueChanged += (s, e) =>
                 {

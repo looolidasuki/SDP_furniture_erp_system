@@ -969,7 +969,6 @@ namespace FurnitureERP.Forms
                         e.Cancel = true;
                     }
                 };
-                WirePurchaseOrderLineGrid(lineGrid, cmbSupplier, clearLinesOnSupplierChange: false);
 
                 try
                 {
@@ -999,6 +998,7 @@ namespace FurnitureERP.Forms
                     catch { }
                 }
                 SetPurchaseOrderMaterialComboSource(lineGrid, BuildQuotedPickerForSupplier(po.SupplierID, existingRmIds));
+                WirePurchaseOrderLineGrid(lineGrid, cmbSupplier, clearLinesOnSupplierChange: false);
 
                 MountPurchaseOrderDialogBody(dlg, layout, lineGrid);
 
@@ -1464,31 +1464,14 @@ namespace FurnitureERP.Forms
 
         private ComboBox BuildSupplierCombo(long selectedSupplierId = 0)
         {
-            var cmb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 360 };
-            cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-            cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
-            var dt = _supplierCtrl.GetAllSuppliers();
-            if (dt != null && !dt.Columns.Contains("DisplayText"))
-                dt.Columns.Add("DisplayText", typeof(string));
-            if (dt != null)
-            {
-                foreach (DataRow row in dt.Rows)
-                    row["DisplayText"] = row["Supplier Name"]?.ToString();
-            }
-            cmb.DataSource = dt;
-            cmb.DisplayMember = "DisplayText";
-            cmb.ValueMember = "Supplier ID";
-            if (selectedSupplierId > 0) SetComboLongValue(cmb, selectedSupplierId);
+            var cmb = new ComboBox { Width = 360 };
+            SupplierComboHelper.Attach(cmb, _supplierCtrl, selectedSupplierId);
             return cmb;
         }
 
         private long ResolveSupplierId(ComboBox cmbSupplier)
         {
-            long id = GetComboLongId(cmbSupplier);
-            if (id > 0) return id;
-            string name = (cmbSupplier.Text ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(name)) return 0;
-            return _supplierCtrl.FindSupplierIdByName(name);
+            return SupplierComboHelper.ResolveSupplierId(cmbSupplier, _supplierCtrl);
         }
 
         private static void RecalculatePurchaseOrderLineDerived(DataGridViewRow row, bool includeRemaining)

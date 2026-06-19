@@ -45,14 +45,45 @@ namespace Sales_user.Controllers
         public long FindSupplierIdByName(string supplierName)
         {
             if (string.IsNullOrWhiteSpace(supplierName)) return 0;
-            string sql = @"SELECT supplierID FROM Supplier
-                           WHERE supplierName = @name
-                           ORDER BY supplierID LIMIT 1";
-            var dt = DatabaseConnect.ExecuteQuery(sql, new[] {
-                new MySqlParameter("@name", supplierName.Trim())
+            supplierName = supplierName.Trim();
+
+            string sqlExact = @"SELECT supplierID FROM Supplier
+                                WHERE supplierName = @name
+                                ORDER BY supplierID LIMIT 1";
+            var exact = DatabaseConnect.ExecuteQuery(sqlExact, new[] {
+                new MySqlParameter("@name", supplierName)
             });
-            if (dt == null || dt.Rows.Count == 0) return 0;
-            return System.Convert.ToInt64(dt.Rows[0]["supplierID"]);
+            if (exact != null && exact.Rows.Count > 0)
+                return Convert.ToInt64(exact.Rows[0]["supplierID"]);
+
+            int separator = supplierName.IndexOf('—');
+            if (separator < 0)
+                separator = supplierName.IndexOf(" - ", StringComparison.Ordinal);
+            if (separator > 0)
+            {
+                long fromPrefix = FindSupplierIdByName(supplierName.Substring(0, separator).Trim());
+                if (fromPrefix > 0) return fromPrefix;
+            }
+
+            string needle = supplierName.TrimEnd('\\');
+            if (string.IsNullOrWhiteSpace(needle)) return 0;
+
+            try
+            {
+                string sqlFuzzy = @"SELECT supplierID FROM Supplier
+                                    WHERE LOCATE(@needle, supplierName) > 0
+                                    ORDER BY supplierID LIMIT 1";
+                var fuzzy = DatabaseConnect.ExecuteQuery(sqlFuzzy, new[] {
+                    new MySqlParameter("@needle", needle)
+                });
+                if (fuzzy != null && fuzzy.Rows.Count > 0)
+                    return Convert.ToInt64(fuzzy.Rows[0]["supplierID"]);
+            }
+            catch (MySqlException)
+            {
+            }
+
+            return 0;
         }
 
         public Supplier GetById(long id)

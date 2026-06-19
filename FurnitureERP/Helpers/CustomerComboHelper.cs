@@ -90,7 +90,14 @@ namespace FurnitureERP.Helpers
                 && long.TryParse(rowView["Customer ID"].ToString(), out long rowId) && rowId > 0)
                 return rowId;
 
-            return customerCtrl.FindCustomerIdByText(cmb.Text);
+            try
+            {
+                return customerCtrl.FindCustomerIdByText(cmb.Text);
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         public static void WireCustomerChanged(ComboBox cmb, CustomerController customerCtrl, Action<long> onCustomerResolved)
@@ -99,8 +106,14 @@ namespace FurnitureERP.Helpers
 
             Action tryResolve = () =>
             {
-                long id = ResolveCustomerId(cmb, customerCtrl);
-                if (id > 0) onCustomerResolved(id);
+                try
+                {
+                    long id = ResolveCustomerId(cmb, customerCtrl);
+                    if (id > 0) onCustomerResolved(id);
+                }
+                catch
+                {
+                }
             };
 
             var binder = GetBinder(cmb);

@@ -184,6 +184,7 @@
     <Compile Include="Helpers\DocumentAuditMigration.cs" />
     <Compile Include="Helpers\DocumentAuditService.cs" />
     <Compile Include="Helpers\CustomerComboHelper.cs" />
+    <Compile Include="Helpers\SupplierComboHelper.cs" />
     <Compile Include="Helpers\SalesOrderComboHelper.cs" />
     <Compile Include="Helpers\StatusStyleHelper.cs" />
     <Compile Include="Helpers\CurrencyPriceHelper.cs" />

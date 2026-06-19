@@ -121,7 +121,8 @@ namespace FurnitureERP.Forms
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a sales order first."); return; }
                         ConfirmSalesOrder(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Order ID"));
                     };
-                    var btnProduction = UITheme.CreateSecondaryButton("Create Production");
+                    var btnProduction = UITheme.CreateSecondaryButton("Create Production Order");
+                    btnProduction.Width = 185;
                     btnProduction.Click += (s, e) =>
                     {
                         if (grid.CurrentRow == null) { UITheme.ShowWarning("Please select a sales order first."); return; }
@@ -641,6 +642,15 @@ namespace FurnitureERP.Forms
             DataTable lines = null;
             try { header = _salesOrderCtrl.GetHeaderDetail(salesOrderId); } catch { }
             try { lines = _salesOrderCtrl.GetProductLinesDetailed(salesOrderId); } catch { }
+
+            if (header != null && header.Rows.Count > 0 && header.Columns.Contains("Status"))
+            {
+                header = DetailViewHelper.MapIntColumnsToString(header,
+                    new Dictionary<string, Func<int, string>>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["Status"] = statusCode => DictionaryService.GetDisplayName(DictionaryService.Categories.SalesOrder, statusCode)
+                    });
+            }
 
             decimal total = 0;
             try { total = _salesOrderCtrl.GetTotalAmount(salesOrderId); } catch { }
@@ -1776,7 +1786,7 @@ namespace FurnitureERP.Forms
                 form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
                 form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-                var cmbCustomer = BuildCustomerCombo();
+                var cmbCustomer = BuildCustomerCombo(isEdit ? existing.CustomerID : 0);
                 var cmbDeliveryAddress = new ComboBox
                 {
                     DropDownStyle = ComboBoxStyle.DropDown,
@@ -1888,7 +1898,6 @@ namespace FurnitureERP.Forms
 
                 if (isEdit)
                 {
-                    CustomerComboHelper.SelectCustomer(cmbCustomer, existing.CustomerID);
                     loadDeliveryAddresses(existing.CustomerID);
                     loadCustomerRefNumbers(existing.CustomerID);
                 }

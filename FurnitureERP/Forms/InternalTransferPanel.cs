@@ -119,6 +119,7 @@ namespace FurnitureERP.Forms
 
             _cmbProductionOrder = new ComboBox { Dock = DockStyle.Fill };
             _productionOrderBinder = new FilteredComboBinder(_cmbProductionOrder, "Production Order ID", "DisplayText");
+            _productionOrderBinder.MinTypeAheadChars = 2;
             _productionOrderBinder.SelectionCommitted += (s, e) =>
             {
                 if (_filterSyncInProgress) return;
@@ -128,6 +129,7 @@ namespace FurnitureERP.Forms
 
             _cmbRequestNote = new ComboBox { Dock = DockStyle.Fill };
             _requestNoteBinder = new FilteredComboBinder(_cmbRequestNote, "Request Note ID", "DisplayText");
+            _requestNoteBinder.MinTypeAheadChars = 2;
             _requestNoteBinder.SetServerSearch(prefix =>
                 _rmrnCtrl.SearchOpenRequestNotesForPicker(prefix, GetSelectedProductionOrderFilterId(), 25));
             _requestNoteBinder.SelectionCommitted += (s, e) =>

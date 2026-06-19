@@ -47,8 +47,11 @@ namespace FurnitureERP.Helpers
             if (salesOrderCtrl == null) throw new ArgumentNullException(nameof(salesOrderCtrl));
             if (cmb.Width <= 0) cmb.Width = 340;
 
+            var table = BuildPickerTable(salesOrderCtrl, customerId);
             var binder = new FilteredComboBinder(cmb, "Order ID", "DisplayText");
-            binder.SetSource(BuildPickerTable(salesOrderCtrl, customerId), selectedSalesOrderId);
+            binder.SetSource(table, selectedSalesOrderId);
+            if (customerId > 0 && selectedSalesOrderId <= 0 && table.Rows.Count > 0)
+                binder.ShowFullList();
             cmb.Tag = binder;
             return binder;
         }
@@ -64,7 +67,10 @@ namespace FurnitureERP.Helpers
                 return;
             }
 
-            binder.SetSource(BuildPickerTable(salesOrderCtrl, customerId), selectedSalesOrderId);
+            var table = BuildPickerTable(salesOrderCtrl, customerId);
+            binder.SetSource(table, selectedSalesOrderId);
+            if (customerId > 0 && selectedSalesOrderId <= 0 && table.Rows.Count > 0)
+                binder.ShowFullList();
         }
 
         public static long ResolveSalesOrderId(ComboBox cmb, SalesOrderController salesOrderCtrl)
