@@ -259,6 +259,7 @@ namespace Sales_user.Controllers
         // 5. 新增付款憑證 (解決第3個錯誤)
         public long Insert(PaymentVoucher pv)
         {
+            ValidatePurchaseOrderAllocationTotal(pv);
             long pvId = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
             {
                 ApplyCurrencyAmounts(pv);
@@ -309,6 +310,7 @@ namespace Sales_user.Controllers
         {
             try
             {
+                ValidatePurchaseOrderAllocationTotal(pv);
                 bool updated = DatabaseConnect.ExecuteInTransaction((conn, trans) =>
                 {
                     ApplyCurrencyAmounts(pv);
@@ -439,6 +441,31 @@ namespace Sales_user.Controllers
                 cmd.Parameters.AddWithValue("@id", paymentVoucherId);
                 cmd.ExecuteNonQuery();
             }
+        }
+
+        private static void ValidatePurchaseOrderAllocationTotal(PaymentVoucher pv)
+        {
+            var lines = pv.PurchaseOrderLines;
+            if (lines == null || lines.Count == 0)
+                return;
+
+            var seenPo = new HashSet<long>();
+            decimal total = 0;
+            foreach (var line in lines)
+            {
+                if (line.PurchaseOrderID <= 0)
+                    throw new InvalidOperationException("Each allocation line must reference a purchase order.");
+                if (line.PayAmount <= 0)
+                    throw new InvalidOperationException("Each allocation line must have a positive pay amount.");
+                if (!seenPo.Add(line.PurchaseOrderID))
+                    throw new InvalidOperationException("Duplicate purchase order on allocation lines. Combine amounts into one line per PO.");
+                total += line.PayAmount;
+            }
+
+            if (Math.Abs(total - pv.Amount) > 0.01m)
+                throw new InvalidOperationException(
+                    "Total allocated (" + total.ToString("N2") +
+                    ") must equal payment amount (" + pv.Amount.ToString("N2") + ").");
         }
 
         private static void WritePurchaseOrderSettlements(MySqlConnection conn, MySqlTransaction trans, long pvId, PaymentVoucher pv)

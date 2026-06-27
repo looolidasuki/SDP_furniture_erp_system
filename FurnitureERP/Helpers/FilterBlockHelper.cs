@@ -674,7 +674,8 @@ namespace FurnitureERP.Helpers
                 return;
 
             tag.TextSuggestBinder.SetLocalSource(GetDistinctColumnValues(grid, columnName));
-            if (tag.UseServerSuggest && !string.IsNullOrWhiteSpace(tag.StatusCategory))
+            if (!string.IsNullOrWhiteSpace(tag.StatusCategory)
+                && FilterColumnSuggestService.CanSuggest(tag.StatusCategory, columnName))
             {
                 string category = tag.StatusCategory;
                 tag.TextSuggestBinder.SetServerSuggest(prefix =>

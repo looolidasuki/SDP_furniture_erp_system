@@ -64,6 +64,30 @@ INSERT INTO `systemdictionary` (`dictionaryID`, `category`, `codeValue`, `displa
 SELECT 120, 'QUOTATION_STATUS', 5, 'Cancelled', NULL, 6 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'QUOTATION_STATUS' AND `codeValue` = 5);
 
+-- 3c) Payment / receipt voucher status dictionary (filters + status labels)
+INSERT INTO `systemdictionary` (`category`, `codeValue`, `displayNameEnglish`, `sortOrder`)
+SELECT 'PAYMENT_VOUCHER_STATUS', 0, 'Draft', 1 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'PAYMENT_VOUCHER_STATUS' AND `codeValue` = 0);
+INSERT INTO `systemdictionary` (`category`, `codeValue`, `displayNameEnglish`, `sortOrder`)
+SELECT 'PAYMENT_VOUCHER_STATUS', 1, 'Approved', 2 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'PAYMENT_VOUCHER_STATUS' AND `codeValue` = 1);
+INSERT INTO `systemdictionary` (`category`, `codeValue`, `displayNameEnglish`, `sortOrder`)
+SELECT 'PAYMENT_VOUCHER_STATUS', 2, 'Paid', 3 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'PAYMENT_VOUCHER_STATUS' AND `codeValue` = 2);
+INSERT INTO `systemdictionary` (`category`, `codeValue`, `displayNameEnglish`, `sortOrder`)
+SELECT 'PAYMENT_VOUCHER_STATUS', 3, 'Cancelled', 4 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'PAYMENT_VOUCHER_STATUS' AND `codeValue` = 3);
+
+INSERT INTO `systemdictionary` (`category`, `codeValue`, `displayNameEnglish`, `sortOrder`)
+SELECT 'RECEIPT_VOUCHER_STATUS', 0, 'Draft', 1 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'RECEIPT_VOUCHER_STATUS' AND `codeValue` = 0);
+INSERT INTO `systemdictionary` (`category`, `codeValue`, `displayNameEnglish`, `sortOrder`)
+SELECT 'RECEIPT_VOUCHER_STATUS', 1, 'Confirmed', 2 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'RECEIPT_VOUCHER_STATUS' AND `codeValue` = 1);
+INSERT INTO `systemdictionary` (`category`, `codeValue`, `displayNameEnglish`, `sortOrder`)
+SELECT 'RECEIPT_VOUCHER_STATUS', 2, 'Cancelled', 3 FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'RECEIPT_VOUCHER_STATUS' AND `codeValue` = 2);
+
 -- 4) Admin account: Super User department (password hashed on app startup via StaffPasswordMigration)
 UPDATE `staff`
 SET `title` = 'Super User',

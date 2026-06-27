@@ -1,6 +1,9 @@
 using MySql.Data.MySqlClient;
 using Sales_user.Models;
+using System;
+using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 
 namespace Sales_user.Controllers
 {
@@ -149,7 +152,8 @@ namespace Sales_user.Controllers
 
         public DataTable GetSupplierQuotesByMaterial(long rawMaterialId)
         {
-            string sql = @"SELECT s.supplierName AS 'Supplier',
+            string sql = @"SELECT rms.supplierID AS 'Supplier ID',
+                                  s.supplierName AS 'Supplier',
                                   rms.supplierStyleNumber AS 'Supplier Style Number',
                                   rms.basePrice AS 'Base Price',
                                   c.currencyCode AS 'Currency',
@@ -161,8 +165,146 @@ namespace Sales_user.Controllers
                            FROM RawMaterialSupplier rms
                            INNER JOIN Supplier s ON rms.supplierID = s.supplierID
                            LEFT JOIN Currency c ON rms.currencyID = c.currencyID
-                           WHERE rms.rawMaterialID = @id";
+                           WHERE rms.rawMaterialID = @id
+                           ORDER BY s.supplierName";
             return DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", rawMaterialId) });
+        }
+
+        public IList<RawMaterialSupplierLine> GetSupplierQuoteLines(long rawMaterialId)
+        {
+            var lines = new List<RawMaterialSupplierLine>();
+            if (rawMaterialId <= 0) return lines;
+
+            string sql = @"SELECT rms.supplierID, rms.supplierStyleNumber, rms.basePrice, rms.currencyID,
+                                  rms.unit, rms.minimumOrderQuantity, rms.quoteDate, rms.status
+                           FROM RawMaterialSupplier rms
+                           WHERE rms.rawMaterialID = @id
+                           ORDER BY rms.supplierID";
+            var dt = DatabaseConnect.ExecuteQuery(sql, new[] { new MySqlParameter("@id", rawMaterialId) });
+            if (dt == null) return lines;
+
+            foreach (DataRow row in dt.Rows)
+            {
+                lines.Add(new RawMaterialSupplierLine
+                {
+                    SupplierId = System.Convert.ToInt64(row["supplierID"]),
+                    SupplierStyleNumber = row["supplierStyleNumber"] == System.DBNull.Value
+                        ? null : row["supplierStyleNumber"]?.ToString(),
+                    BasePrice = System.Convert.ToDecimal(row["basePrice"]),
+                    CurrencyId = row["currencyID"] == System.DBNull.Value ? 1 : System.Convert.ToInt64(row["currencyID"]),
+                    Unit = row["unit"]?.ToString(),
+                    MinimumOrderQuantity = row["minimumOrderQuantity"] == System.DBNull.Value
+                        ? 1 : System.Convert.ToInt32(row["minimumOrderQuantity"]),
+                    QuoteDate = row["quoteDate"] == System.DBNull.Value
+                        ? (DateTime?)null : System.Convert.ToDateTime(row["quoteDate"]),
+                    Status = row["status"] == System.DBNull.Value ? 1 : System.Convert.ToInt32(row["status"])
+                });
+            }
+
+            return lines;
+        }
+
+        public long InsertWithSupplierQuotes(RawMaterial material, IList<RawMaterialSupplierLine> lines)
+        {
+            if (material == null) throw new System.ArgumentNullException(nameof(material));
+
+            return DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            {
+                string sql = @"INSERT INTO RawMaterial
+                    (rawMaterialID, rawMaterialCode, category, SequenceNumber, size, color, minimumStockLevel, status)
+                    VALUES (@id, @code, @category, @seq, @size, @color, @minStock, @status)";
+                long id = DatabaseConnect.InsertWithAllocatedId(conn, trans, "rawmaterial", "rawMaterialID", sql, new[]
+                {
+                    new MySqlParameter("@code", material.RawMaterialCode),
+                    new MySqlParameter("@category", material.Category ?? (object)System.DBNull.Value),
+                    new MySqlParameter("@seq", material.SequenceNumber ?? (object)System.DBNull.Value),
+                    new MySqlParameter("@size", material.Size ?? (object)System.DBNull.Value),
+                    new MySqlParameter("@color", material.Color ?? (object)System.DBNull.Value),
+                    new MySqlParameter("@minStock", material.MinimumStockLevel),
+                    new MySqlParameter("@status", material.Status)
+                });
+                ReplaceSupplierQuotesInTransaction(conn, trans, id, lines);
+                return id;
+            });
+        }
+
+        public void UpdateWithSupplierQuotes(RawMaterial material, IList<RawMaterialSupplierLine> lines)
+        {
+            if (material == null) throw new System.ArgumentNullException(nameof(material));
+            if (material.RawMaterialID <= 0) throw new System.ArgumentException("Raw material ID is required.");
+
+            DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            {
+                string sql = @"UPDATE RawMaterial SET
+                    rawMaterialCode = @code, category = @category, size = @size,
+                    color = @color, minimumStockLevel = @minStock, status = @status
+                    WHERE rawMaterialID = @id";
+                DatabaseConnect.ExecuteNonQuery(conn, trans, sql, new[]
+                {
+                    new MySqlParameter("@code", material.RawMaterialCode),
+                    new MySqlParameter("@category", material.Category ?? (object)System.DBNull.Value),
+                    new MySqlParameter("@size", material.Size ?? (object)System.DBNull.Value),
+                    new MySqlParameter("@color", material.Color ?? (object)System.DBNull.Value),
+                    new MySqlParameter("@minStock", material.MinimumStockLevel),
+                    new MySqlParameter("@status", material.Status),
+                    new MySqlParameter("@id", material.RawMaterialID)
+                });
+                ReplaceSupplierQuotesInTransaction(conn, trans, material.RawMaterialID, lines);
+                return 0;
+            });
+        }
+
+        public void ReplaceSupplierQuotes(long rawMaterialId, IList<RawMaterialSupplierLine> lines)
+        {
+            if (rawMaterialId <= 0) throw new System.ArgumentException("Raw material ID is required.");
+            DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            {
+                ReplaceSupplierQuotesInTransaction(conn, trans, rawMaterialId, lines);
+                return 0;
+            });
+        }
+
+        private static void ReplaceSupplierQuotesInTransaction(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long rawMaterialId,
+            IList<RawMaterialSupplierLine> lines)
+        {
+            DatabaseConnect.ExecuteNonQuery(conn, trans,
+                "DELETE FROM RawMaterialSupplier WHERE rawMaterialID = @id",
+                new[] { new MySqlParameter("@id", rawMaterialId) });
+
+            if (lines == null) return;
+            foreach (var line in lines.Where(l => l != null && l.SupplierId > 0))
+            {
+                InsertSupplierQuoteInTransaction(conn, trans, rawMaterialId, line);
+            }
+        }
+
+        private static void InsertSupplierQuoteInTransaction(
+            MySqlConnection conn,
+            MySqlTransaction trans,
+            long rawMaterialId,
+            RawMaterialSupplierLine line)
+        {
+            string sql = @"INSERT INTO RawMaterialSupplier
+                (rawMaterialID, supplierID, supplierStyleNumber, basePrice, currencyID, unit,
+                 minimumOrderQuantity, quoteDate, status)
+                VALUES (@rmId, @suppId, @style, @price, @currencyId, @unit, @minQty, @quoteDate, @status)";
+            DatabaseConnect.ExecuteNonQuery(conn, trans, sql, new[]
+            {
+                new MySqlParameter("@rmId", rawMaterialId),
+                new MySqlParameter("@suppId", line.SupplierId),
+                new MySqlParameter("@style", string.IsNullOrWhiteSpace(line.SupplierStyleNumber)
+                    ? (object)System.DBNull.Value : line.SupplierStyleNumber.Trim()),
+                new MySqlParameter("@price", line.BasePrice),
+                new MySqlParameter("@currencyId", line.CurrencyId > 0 ? line.CurrencyId : 1),
+                new MySqlParameter("@unit", string.IsNullOrWhiteSpace(line.Unit) ? "piece" : line.Unit.Trim()),
+                new MySqlParameter("@minQty", line.MinimumOrderQuantity > 0 ? line.MinimumOrderQuantity : 1),
+                new MySqlParameter("@quoteDate", line.QuoteDate.HasValue
+                    ? (object)line.QuoteDate.Value.Date : System.DBNull.Value),
+                new MySqlParameter("@status", line.Status)
+            });
         }
 
         public RawMaterial GetById(long id)

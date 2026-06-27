@@ -7,6 +7,9 @@ namespace FurnitureERP.Helpers
 {
     public static class FilterColumnSuggestService
     {
+        public static bool CanSuggest(string statusCategory, string columnName) =>
+            !string.IsNullOrWhiteSpace(BuildSql(statusCategory, columnName));
+
         public static IEnumerable<string> Suggest(string statusCategory, string columnName, string prefix, int limit = 25)
         {
             string sql = BuildSql(statusCategory, columnName);
@@ -89,6 +92,20 @@ namespace FurnitureERP.Helpers
                     return @"SELECT DISTINCT cur.currencyCode FROM purchaseorder po
                              LEFT JOIN Currency cur ON po.currencyID = cur.currencyID
                              WHERE cur.currencyCode LIKE @like ESCAPE '\\\\' ORDER BY cur.currencyCode LIMIT @lim";
+            }
+
+            if (string.Equals(statusCategory, DictionaryService.Categories.Supplier, StringComparison.OrdinalIgnoreCase))
+            {
+                if (columnName.Equals("Supplier Name", StringComparison.OrdinalIgnoreCase))
+                    return "SELECT DISTINCT supplierName FROM Supplier WHERE supplierName LIKE @like ESCAPE '\\\\' ORDER BY supplierName LIMIT @lim";
+                if (columnName.Equals("Contact Person", StringComparison.OrdinalIgnoreCase))
+                    return "SELECT DISTINCT contactPerson FROM Supplier WHERE contactPerson LIKE @like ESCAPE '\\\\' ORDER BY contactPerson LIMIT @lim";
+                if (columnName.Equals("Phone", StringComparison.OrdinalIgnoreCase))
+                    return "SELECT DISTINCT phone FROM Supplier WHERE phone LIKE @like ESCAPE '\\\\' ORDER BY phone LIMIT @lim";
+                if (columnName.Equals("Email", StringComparison.OrdinalIgnoreCase))
+                    return "SELECT DISTINCT email FROM Supplier WHERE email LIKE @like ESCAPE '\\\\' ORDER BY email LIMIT @lim";
+                if (columnName.Equals("Supplier Code", StringComparison.OrdinalIgnoreCase))
+                    return "SELECT DISTINCT CONCAT('SUP-', supplierID) FROM Supplier WHERE CONCAT('SUP-', supplierID) LIKE @like ESCAPE '\\\\' ORDER BY 1 LIMIT @lim";
             }
 
             if (string.Equals(statusCategory, DictionaryService.Categories.Invoice, StringComparison.OrdinalIgnoreCase))

@@ -9,16 +9,7 @@ namespace FurnitureERP.Helpers
     {
         public static DataTable BuildPickerTable(SupplierController supplierCtrl)
         {
-            var dt = supplierCtrl?.GetAllSuppliers();
-            if (dt == null) return new DataTable();
-
-            if (!dt.Columns.Contains("DisplayText"))
-                dt.Columns.Add("DisplayText", typeof(string));
-
-            foreach (DataRow row in dt.Rows)
-                row["DisplayText"] = row["Supplier Name"]?.ToString() ?? "";
-
-            return dt;
+            return supplierCtrl?.SearchForPicker("", 200) ?? SupplierController.BuildPickerTableSchema();
         }
 
         public static FilteredComboBinder Attach(ComboBox cmb, SupplierController supplierCtrl, long selectedSupplierId = 0)
@@ -28,12 +19,30 @@ namespace FurnitureERP.Helpers
             if (cmb.Width <= 0) cmb.Width = 360;
 
             var binder = new FilteredComboBinder(cmb, "Supplier ID", "DisplayText");
-            binder.SetSource(BuildPickerTable(supplierCtrl), selectedSupplierId);
-            cmb.Tag = binder;
+            binder.MinTypeAheadChars = 2;
+            binder.SetServerSearch(term => supplierCtrl.SearchForPicker(term, 25));
+
+            DataTable initial = selectedSupplierId > 0
+                ? supplierCtrl.GetSupplierPickerById(selectedSupplierId)
+                : supplierCtrl.SearchForPicker("", 50);
+            binder.SetSource(initial, selectedSupplierId);
+
+            cmb.Tag = new SupplierComboContext { Binder = binder, Controller = supplierCtrl };
             return binder;
         }
 
-        public static FilteredComboBinder GetBinder(ComboBox cmb) => cmb?.Tag as FilteredComboBinder;
+        private sealed class SupplierComboContext
+        {
+            public FilteredComboBinder Binder { get; set; }
+            public SupplierController Controller { get; set; }
+        }
+
+        public static FilteredComboBinder GetBinder(ComboBox cmb)
+        {
+            if (cmb?.Tag is SupplierComboContext ctx)
+                return ctx.Binder;
+            return cmb?.Tag as FilteredComboBinder;
+        }
 
         public static void SelectSupplier(ComboBox cmb, long supplierId)
         {
@@ -59,15 +68,22 @@ namespace FurnitureERP.Helpers
                 if (id > 0) return id;
             }
 
-            object selected = cmb.SelectedValue;
+            object selected = null;
+            try { selected = cmb.SelectedValue; }
+            catch { }
+
             if (selected != null && selected != DBNull.Value && long.TryParse(selected.ToString(), out long parsed) && parsed > 0)
                 return parsed;
 
-            if (cmb.SelectedItem is DataRowView rowView
-                && rowView.Row.Table.Columns.Contains("Supplier ID")
-                && rowView["Supplier ID"] != DBNull.Value
-                && long.TryParse(rowView["Supplier ID"].ToString(), out long rowId) && rowId > 0)
-                return rowId;
+            try
+            {
+                if (cmb.SelectedItem is DataRowView rowView
+                    && rowView.Row.Table.Columns.Contains("Supplier ID")
+                    && rowView["Supplier ID"] != DBNull.Value
+                    && long.TryParse(rowView["Supplier ID"].ToString(), out long rowId) && rowId > 0)
+                    return rowId;
+            }
+            catch { }
 
             try
             {
@@ -77,6 +93,72 @@ namespace FurnitureERP.Helpers
             {
                 return 0;
             }
+        }
+
+        public static void WireGridSupplierComboColumn(DataGridView grid, string columnName, SupplierController supplierCtrl)
+        {
+            if (grid == null || supplierCtrl == null || string.IsNullOrWhiteSpace(columnName)) return;
+
+            ComboBox activeCombo = null;
+            EventHandler textUpdateHandler = null;
+
+            grid.EditingControlShowing += (s, e) =>
+            {
+                if (activeCombo != null && textUpdateHandler != null)
+                {
+                    activeCombo.TextUpdate -= textUpdateHandler;
+                    activeCombo = null;
+                    textUpdateHandler = null;
+                }
+
+                if (grid.CurrentCell?.OwningColumn?.Name != columnName) return;
+                if (!(e.Control is ComboBox cmb)) return;
+
+                activeCombo = cmb;
+                cmb.DropDownStyle = ComboBoxStyle.DropDown;
+                cmb.AutoCompleteMode = AutoCompleteMode.None;
+                RefreshGridSupplierComboDataSource(cmb, supplierCtrl, cmb.Text);
+
+                textUpdateHandler = (sender, args) =>
+                {
+                    string snapshot = "";
+                    try { snapshot = cmb.Text ?? ""; } catch { }
+                    string captured = snapshot;
+                    cmb.BeginInvoke(new Action(() =>
+                        RefreshGridSupplierComboDataSource(cmb, supplierCtrl, captured)));
+                };
+                cmb.TextUpdate += textUpdateHandler;
+            };
+        }
+
+        private static void RefreshGridSupplierComboDataSource(ComboBox cmb, SupplierController supplierCtrl, string text)
+        {
+            if (cmb == null || supplierCtrl == null || cmb.IsDisposed) return;
+
+            string workingText = text ?? "";
+            string term = workingText.Trim();
+            DataTable source = term.Length < FilteredComboBinder.DefaultMinTypeAheadChars
+                ? supplierCtrl.SearchForPicker("", 50)
+                : supplierCtrl.SearchForPicker(term, 25);
+
+            cmb.DataSource = source;
+            cmb.DisplayMember = "DisplayText";
+            cmb.ValueMember = "Supplier ID";
+            try { cmb.SelectedIndex = -1; } catch { }
+
+            try
+            {
+                if (!string.Equals(cmb.Text, workingText, StringComparison.Ordinal))
+                    cmb.Text = workingText;
+            }
+            catch { }
+
+            try
+            {
+                cmb.SelectionStart = workingText.Length;
+                cmb.SelectionLength = 0;
+            }
+            catch { }
         }
     }
 }

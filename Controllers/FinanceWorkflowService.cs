@@ -261,6 +261,30 @@ namespace Sales_user.Controllers
             }
         }
 
+        public WorkflowResult SaveReceiptDraftAllocations(long receiptVoucherId, IList<ReceiptAllocation> allocations)
+        {
+            var receipt = _receiptCtrl.GetById(receiptVoucherId);
+            if (receipt == null)
+                return WorkflowResult.Fail("Receipt voucher not found.");
+
+            if (receipt.Status == 1)
+                return WorkflowResult.Fail("Cannot edit allocations on a verified receipt voucher.");
+
+            string validationError = ValidateReceiptAllocationLines(receipt, allocations);
+            if (validationError != null)
+                return WorkflowResult.Fail(validationError);
+
+            try
+            {
+                WriteReceiptAllocations(receiptVoucherId, receipt.CusomerID, allocations, updateInvoiceStatus: false);
+                return WorkflowResult.Ok(receiptVoucherId, "Receipt allocations saved.");
+            }
+            catch (Exception ex)
+            {
+                return WorkflowResult.Fail("Failed to save receipt allocations: " + ex.Message);
+            }
+        }
+
         public WorkflowResult ConfirmReceiptWithAllocations(long receiptVoucherId, IList<ReceiptAllocation> allocations)
         {
             var receipt = _receiptCtrl.GetById(receiptVoucherId);
@@ -270,71 +294,15 @@ namespace Sales_user.Controllers
             if (receipt.Status == 1)
                 return WorkflowResult.Fail("Receipt voucher is already verified.");
 
-            if (allocations == null || allocations.Count == 0)
-                return WorkflowResult.Fail("At least one invoice allocation is required.");
-
-            var seenInvoices = new HashSet<long>();
-            decimal totalAllocated = 0;
-            foreach (var item in allocations)
-            {
-                if (item.ReceivedAmount <= 0)
-                    return WorkflowResult.Fail("Allocated amount must be greater than zero on each line.");
-                if (item.Type <= 0)
-                    return WorkflowResult.Fail("Clearing type is required on each line.");
-
-                if (ReceiptVoucherConstants.IsExchangeLoss(item.Type))
-                {
-                    if (item.InvoiceId.HasValue && item.InvoiceId.Value > 0)
-                        return WorkflowResult.Fail("Exchange loss lines must not be linked to an invoice.");
-                }
-                else
-                {
-                    if (!item.InvoiceId.HasValue || item.InvoiceId.Value <= 0)
-                        return WorkflowResult.Fail("Each invoice line must reference a valid invoice.");
-                    if (!seenInvoices.Add(item.InvoiceId.Value))
-                        return WorkflowResult.Fail("Duplicate invoice on allocation lines. Combine amounts into one line per invoice.");
-                }
-
-                totalAllocated += item.ReceivedAmount;
-            }
-
-            if (Math.Abs(totalAllocated - receipt.PaymentAmount) > 0.01m)
-                return WorkflowResult.Fail(
-                    "Total allocated (" + totalAllocated.ToString("N2") +
-                    ") must equal receipt amount (" + receipt.PaymentAmount.ToString("N2") +
-                    "). Add an exchange-loss line for any difference.");
+            string validationError = ValidateReceiptAllocationLines(receipt, allocations);
+            if (validationError != null)
+                return WorkflowResult.Fail(validationError);
 
             try
             {
                 DatabaseConnect.ExecuteInTransaction((conn, trans) =>
                 {
-                    DatabaseConnect.ExecuteNonQuery(conn, trans,
-                        "DELETE FROM ReceiptVoucherInvoice WHERE receiptVoucherID = @id",
-                        new[] { new MySqlParameter("@id", receiptVoucherId) });
-
-                    int insertLine = 0;
-                    foreach (var item in allocations)
-                    {
-                        insertLine++;
-                        object invoiceParam = item.InvoiceId.HasValue && item.InvoiceId.Value > 0
-                            ? (object)item.InvoiceId.Value
-                            : DBNull.Value;
-
-                        DatabaseConnect.ExecuteNonQuery(conn, trans,
-                            @"INSERT INTO ReceiptVoucherInvoice (receiptVoucherID, lineNo, invoiceID, receivedAmount, type)
-                              VALUES (@rvId, @lineNo, @invId, @amount, @type)",
-                            new[]
-                            {
-                                new MySqlParameter("@rvId", receiptVoucherId),
-                                new MySqlParameter("@lineNo", insertLine),
-                                new MySqlParameter("@invId", invoiceParam),
-                                new MySqlParameter("@amount", item.ReceivedAmount),
-                                new MySqlParameter("@type", item.Type)
-                            });
-
-                        if (item.InvoiceId.HasValue && item.InvoiceId.Value > 0)
-                            UpdateInvoicePaymentStatus(conn, trans, item.InvoiceId.Value);
-                    }
+                    WriteReceiptAllocations(conn, trans, receiptVoucherId, receipt.CusomerID, allocations, updateInvoiceStatus: true);
 
                     DatabaseConnect.ExecuteNonQuery(conn, trans,
                         "UPDATE ReceiptVoucher SET status = 1, lastModifyDate = NOW() WHERE receiptVoucherID = @id",
@@ -487,6 +455,100 @@ namespace Sales_user.Controllers
 
         private static MySqlParameter DepositDnParameter(string name, long depositDeliveryNoteId) =>
             new MySqlParameter(name, MySqlDbType.Int64) { Value = depositDeliveryNoteId };
+
+        private static string ValidateReceiptAllocationLines(ReceiptVoucher receipt, IList<ReceiptAllocation> allocations)
+        {
+            if (allocations == null || allocations.Count == 0)
+                return "At least one invoice allocation is required.";
+
+            var seenInvoices = new HashSet<long>();
+            decimal totalAllocated = 0;
+            foreach (var item in allocations)
+            {
+                if (item.ReceivedAmount <= 0)
+                    return "Allocated amount must be greater than zero on each line.";
+                if (item.Type <= 0)
+                    return "Clearing type is required on each line.";
+
+                if (ReceiptVoucherConstants.IsExchangeLoss(item.Type))
+                {
+                    if (item.InvoiceId.HasValue && item.InvoiceId.Value > 0)
+                        return "Exchange loss lines must not be linked to an invoice.";
+                }
+                else
+                {
+                    if (!item.InvoiceId.HasValue || item.InvoiceId.Value <= 0)
+                        return "Each invoice line must reference a valid invoice.";
+                    if (!seenInvoices.Add(item.InvoiceId.Value))
+                        return "Duplicate invoice on allocation lines. Combine amounts into one line per invoice.";
+                }
+
+                totalAllocated += item.ReceivedAmount;
+            }
+
+            if (Math.Abs(totalAllocated - receipt.PaymentAmount) > 0.01m)
+                return "Total allocated (" + totalAllocated.ToString("N2") +
+                       ") must equal receipt amount (" + receipt.PaymentAmount.ToString("N2") +
+                       "). Add an exchange-loss line for any difference.";
+
+            return null;
+        }
+
+        private static void WriteReceiptAllocations(long receiptVoucherId, long customerId, IList<ReceiptAllocation> allocations, bool updateInvoiceStatus)
+        {
+            DatabaseConnect.ExecuteInTransaction((conn, trans) =>
+            {
+                WriteReceiptAllocations(conn, trans, receiptVoucherId, customerId, allocations, updateInvoiceStatus);
+                return 0L;
+            });
+        }
+
+        private static void WriteReceiptAllocations(MySqlConnection conn, MySqlTransaction trans, long receiptVoucherId,
+            long customerId, IList<ReceiptAllocation> allocations, bool updateInvoiceStatus)
+        {
+            DatabaseConnect.ExecuteNonQuery(conn, trans,
+                "DELETE FROM ReceiptVoucherInvoice WHERE receiptVoucherID = @id",
+                new[] { new MySqlParameter("@id", receiptVoucherId) });
+
+            int insertLine = 0;
+            foreach (var item in allocations)
+            {
+                insertLine++;
+                object invoiceParam = item.InvoiceId.HasValue && item.InvoiceId.Value > 0
+                    ? (object)item.InvoiceId.Value
+                    : DBNull.Value;
+
+                if (item.InvoiceId.HasValue && item.InvoiceId.Value > 0)
+                    EnsureInvoiceBelongsToCustomer(conn, trans, item.InvoiceId.Value, customerId);
+
+                DatabaseConnect.ExecuteNonQuery(conn, trans,
+                    @"INSERT INTO ReceiptVoucherInvoice (receiptVoucherID, lineNo, invoiceID, receivedAmount, type)
+                      VALUES (@rvId, @lineNo, @invId, @amount, @type)",
+                    new[]
+                    {
+                        new MySqlParameter("@rvId", receiptVoucherId),
+                        new MySqlParameter("@lineNo", insertLine),
+                        new MySqlParameter("@invId", invoiceParam),
+                        new MySqlParameter("@amount", item.ReceivedAmount),
+                        new MySqlParameter("@type", item.Type)
+                    });
+
+                if (updateInvoiceStatus && item.InvoiceId.HasValue && item.InvoiceId.Value > 0)
+                    UpdateInvoicePaymentStatus(conn, trans, item.InvoiceId.Value);
+            }
+        }
+
+        private static void EnsureInvoiceBelongsToCustomer(MySqlConnection conn, MySqlTransaction trans, long invoiceId, long customerId)
+        {
+            object invCustomerObj = DatabaseConnect.ExecuteScalar(conn, trans,
+                "SELECT customerID FROM invoice WHERE invoiceID = @id",
+                new[] { new MySqlParameter("@id", invoiceId) });
+            long invCustomerId = invCustomerObj == null || invCustomerObj == DBNull.Value ? 0 : Convert.ToInt64(invCustomerObj);
+            if (invCustomerId <= 0)
+                throw new InvalidOperationException("Invoice not found: " + invoiceId);
+            if (customerId > 0 && invCustomerId != customerId)
+                throw new InvalidOperationException("Invoice customer does not match receipt voucher customer.");
+        }
     }
 
     public class ReceiptAllocation

@@ -16,6 +16,8 @@ namespace FurnitureERP.Helpers
                 EnsureQuotationStatuses();
                 EnsureRefundDictionaries();
                 EnsureReplySlipStatuses();
+                EnsurePaymentVoucherStatuses();
+                EnsureReceiptVoucherStatuses();
             }
             catch
             {
@@ -37,6 +39,21 @@ namespace FurnitureERP.Helpers
             EnsureEntry(DictionaryService.Categories.ReplySlip, 1, "Sent", 2);
             EnsureEntry(DictionaryService.Categories.ReplySlip, 2, "Signed", 3);
             EnsureEntry(DictionaryService.Categories.ReplySlip, 3, "Rejected", 4);
+        }
+
+        private static void EnsurePaymentVoucherStatuses()
+        {
+            EnsureEntry(DictionaryService.Categories.PaymentVoucher, 0, "Draft", 1);
+            EnsureEntry(DictionaryService.Categories.PaymentVoucher, 1, "Approved", 2);
+            EnsureEntry(DictionaryService.Categories.PaymentVoucher, 2, "Paid", 3);
+            EnsureEntry(DictionaryService.Categories.PaymentVoucher, 3, "Cancelled", 4);
+        }
+
+        private static void EnsureReceiptVoucherStatuses()
+        {
+            EnsureEntry(DictionaryService.Categories.ReceiptVoucher, 0, "Draft", 1);
+            EnsureEntry(DictionaryService.Categories.ReceiptVoucher, 1, "Confirmed", 2);
+            EnsureEntry(DictionaryService.Categories.ReceiptVoucher, 2, "Cancelled", 3);
         }
 
         private static void EnsureRefundDictionaries()

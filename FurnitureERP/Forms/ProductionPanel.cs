@@ -173,7 +173,11 @@ namespace FurnitureERP.Forms
             var toolbar = new Panel { Dock = DockStyle.Top, Height = 50 };
             var btnNew = UITheme.CreatePrimaryButton("+ New Raw Material");
             btnNew.Location = new Point(0, 9);
-            btnNew.Click += (s, e) => { if (PermissionGuard.Ensure(PermissionModule.RawMaterial, PermissionAction.Create, this)) ShowRawMaterialDialog(); };
+            btnNew.Click += (s, e) =>
+            {
+                if (PermissionGuard.Ensure(PermissionModule.RawMaterial, PermissionAction.Create, this))
+                    RawMaterialDialogHelper.ShowFormDialog(this, null, () => { try { ReloadRawMaterialGrid(grid); } catch { } });
+            };
             PermissionGuard.ApplyCreateButton(btnNew, PermissionModule.RawMaterial);
 
             var btnRefresh = UITheme.CreateSecondaryButton("↻ Refresh");
@@ -186,7 +190,8 @@ namespace FurnitureERP.Forms
             {
                 if (GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Raw Material ID") <= 0) { UITheme.ShowWarning("Please select a raw material first."); return; }
                 var rm = _rawMaterialCtrl.GetById(GridHelper.TryGetRowLongId(grid, grid.CurrentRow, "Raw Material ID"));
-                if (rm != null) { ShowRawMaterialDialog(rm); try { ReloadRawMaterialGrid(grid); } catch { } }
+                if (rm != null)
+                    RawMaterialDialogHelper.ShowFormDialog(this, rm, () => { try { ReloadRawMaterialGrid(grid); } catch { } });
             };
 
             toolbar.Controls.Add(btnNew);
@@ -199,7 +204,10 @@ namespace FurnitureERP.Forms
                 long rawMaterialId = GridHelper.TryGetRowLongId(grid, grid.Rows[e.RowIndex], "Raw Material ID");
                 if (rawMaterialId <= 0) return;
                 var rm = _rawMaterialCtrl.GetById(rawMaterialId);
-                if (rm != null) ShowRawMaterialDialog(rm);
+                if (rm != null && AppSession.CanEdit(PermissionModule.RawMaterial))
+                    RawMaterialDialogHelper.ShowFormDialog(this, rm, () => { try { ReloadRawMaterialGrid(grid); } catch { } });
+                else
+                    RawMaterialDialogHelper.ShowDetailDialog(this, rawMaterialId, grid.Rows[e.RowIndex]);
             };
 
             try { ReloadRawMaterialGrid(grid); } catch { }
@@ -518,85 +526,6 @@ namespace FurnitureERP.Forms
         }
 
         private void ShowProductsViewer() => ShowProductsViewerDialog(this);
-
-        // ─────────────────────────────────────────
-        //  RAW MATERIAL DIALOG (Create / Edit)
-        // ─────────────────────────────────────────
-        private void ShowRawMaterialDialog(RawMaterial existing = null)
-        {
-            bool isEdit = existing != null;
-            using (var dlg = new Form())
-            {
-                dlg.Text = isEdit ? "Edit Raw Material" : "New Raw Material";
-                dlg.Size = new Size(480, 380);
-                dlg.StartPosition = FormStartPosition.CenterParent;
-                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
-                dlg.MaximizeBox = false;
-                dlg.BackColor = UITheme.Background;
-
-                var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 7, Padding = new Padding(16) };
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
-                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-                var txtCode     = new TextBox { Text = existing?.RawMaterialCode ?? "" };
-                var txtCategory = new TextBox { Text = existing?.Category ?? "" };
-                var txtSize     = new TextBox { Text = existing?.Size ?? "" };
-                var txtColor    = new TextBox { Text = existing?.Color ?? "" };
-                var txtMinStock = new TextBox { Text = existing?.MinimumStockLevel.ToString() ?? "0" };
-                var cmbStatus   = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-                cmbStatus.Items.AddRange(new object[] { "0 - Inactive", "1 - Active" });
-                cmbStatus.SelectedIndex = existing != null ? Math.Max(0, Math.Min(existing.Status, 1)) : 1;
-
-                UITheme.AddFormField(layout, 0, "Material Code *", txtCode);
-                UITheme.AddFormField(layout, 1, "Category",        txtCategory);
-                UITheme.AddFormField(layout, 2, "Size",            txtSize);
-                UITheme.AddFormField(layout, 3, "Color",           txtColor);
-                UITheme.AddFormField(layout, 4, "Min Stock Level", txtMinStock);
-                UITheme.AddFormField(layout, 5, "Status",          cmbStatus);
-
-                var btnSave   = UITheme.CreatePrimaryButton(isEdit ? "Update" : "Save");
-                var btnCancel = UITheme.CreateSecondaryButton("Cancel");
-                btnCancel.Click += (s, e) => dlg.Close();
-                btnSave.Click += (s, e) =>
-                {
-                    if (string.IsNullOrWhiteSpace(txtCode.Text)) { UITheme.ShowWarning("Material Code is required."); return; }
-                    if (!decimal.TryParse(txtMinStock.Text.Trim(), out decimal minStock)) { UITheme.ShowWarning("Min Stock Level must be a number."); return; }
-                    try
-                    {
-                        var rm = new RawMaterial
-                        {
-                            RawMaterialCode   = txtCode.Text.Trim(),
-                            Category          = txtCategory.Text.Trim(),
-                            Size              = txtSize.Text.Trim(),
-                            Color             = txtColor.Text.Trim(),
-                            MinimumStockLevel = minStock,
-                            Status            = cmbStatus.SelectedIndex
-                        };
-                        if (isEdit)
-                        {
-                            rm.RawMaterialID = existing.RawMaterialID;
-                            _rawMaterialCtrl.Update(rm);
-                            UITheme.ShowSuccess("Raw material updated.");
-                        }
-                        else
-                        {
-                            long id = _rawMaterialCtrl.Insert(rm);
-                            UITheme.ShowSuccess($"Raw material RM-{id} created.");
-                        }
-                        dlg.DialogResult = DialogResult.OK;
-                        dlg.Close();
-                    }
-                    catch (Exception ex) { MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-                };
-
-                var btnPanel = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-                btnPanel.Controls.Add(btnSave);
-                btnPanel.Controls.Add(btnCancel);
-                dlg.Controls.Add(layout);
-                dlg.Controls.Add(btnPanel);
-                dlg.ShowDialog(this);
-            }
-        }
 
         // ─────────────────────────────────────────
         //  PRODUCTION ORDER METHODS (unchanged)
