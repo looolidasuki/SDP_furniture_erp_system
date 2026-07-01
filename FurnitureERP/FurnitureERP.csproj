@@ -91,6 +91,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="Helpers\StartupHealthChecks.cs" />
     <Compile Include="Helpers\InventoryLedgerMigration.cs" />
+    <Compile Include="Helpers\ReceiptVoucherInvoiceLineMigration.cs" />
     <Compile Include="Helpers\InventoryLedgerService.cs" />
     <Compile Include="Helpers\DocumentListFilter.cs" />
     <Compile Include="Helpers\DocumentListFilterSqlBuilder.cs" />
@@ -102,6 +103,7 @@
     <Compile Include="Helpers\FilterTextSuggestBinder.cs" />
     <Compile Include="Helpers\FilterColumnSuggestService.cs" />
     <Compile Include="Helpers\ControlUiHelper.cs" />
+    <Compile Include="Helpers\ComboSelectionGuard.cs" />
     <Compile Include="Forms\LoginForm.cs">
       <SubType>Form</SubType>
     </Compile>

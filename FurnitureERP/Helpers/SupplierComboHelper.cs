@@ -134,6 +134,7 @@ namespace FurnitureERP.Helpers
         private static void RefreshGridSupplierComboDataSource(ComboBox cmb, SupplierController supplierCtrl, string text)
         {
             if (cmb == null || supplierCtrl == null || cmb.IsDisposed) return;
+            if (cmb.DroppedDown) return;
 
             string workingText = text ?? "";
             string term = workingText.Trim();
@@ -141,10 +142,11 @@ namespace FurnitureERP.Helpers
                 ? supplierCtrl.SearchForPicker("", 50)
                 : supplierCtrl.SearchForPicker(term, 25);
 
+            ComboSelectionGuard.BeforeRebind(cmb);
             cmb.DataSource = source;
             cmb.DisplayMember = "DisplayText";
             cmb.ValueMember = "Supplier ID";
-            try { cmb.SelectedIndex = -1; } catch { }
+            ComboSelectionGuard.Clamp(cmb);
 
             try
             {
@@ -155,6 +157,9 @@ namespace FurnitureERP.Helpers
 
             try
             {
+                int count = cmb.Items.Count;
+                if (cmb.SelectedIndex >= count)
+                    ComboSelectionGuard.Clamp(cmb);
                 cmb.SelectionStart = workingText.Length;
                 cmb.SelectionLength = 0;
             }

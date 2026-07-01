@@ -29,6 +29,7 @@ namespace FurnitureERP
                 DocumentAuditMigration.EnsureApplied();
                 StaffPasswordMigration.EnsureApplied();
                 InventoryLedgerMigration.EnsureApplied();
+                ReceiptVoucherInvoiceLineMigration.EnsureApplied();
                 DictionarySeedMigration.EnsureApplied();
             }
             catch (Exception ex)

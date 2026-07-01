@@ -88,6 +88,10 @@ INSERT INTO `systemdictionary` (`category`, `codeValue`, `displayNameEnglish`, `
 SELECT 'RECEIPT_VOUCHER_STATUS', 2, 'Cancelled', 3 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM `systemdictionary` WHERE `category` = 'RECEIPT_VOUCHER_STATUS' AND `codeValue` = 2);
 
+-- 3d) Receipt voucher invoice allocation lines (lineNo + nullable invoiceID for exchange loss)
+--     Also applied automatically on app startup via ReceiptVoucherInvoiceLineMigration.cs
+--     Full script: Scripts/migrate_receipt_voucher_invoice_line.sql
+
 -- 4) Admin account: Super User department (password hashed on app startup via StaffPasswordMigration)
 UPDATE `staff`
 SET `title` = 'Super User',

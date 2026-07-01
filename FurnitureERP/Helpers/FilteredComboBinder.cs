@@ -27,6 +27,8 @@ namespace FurnitureERP.Helpers
         private bool _itemsMode;
         private string _lastTypedText = "";
         private long _pendingSelectId;
+        private bool _freezeSuggestions;
+        private int _bindGeneration;
 
         public int MinTypeAheadChars { get; set; } = DefaultMinTypeAheadChars;
         public bool AutoOpenOnType { get; set; } = true;
@@ -82,12 +84,14 @@ namespace FurnitureERP.Helpers
         private void Combo_MouseDown(object sender, MouseEventArgs e)
         {
             if (_suppressEvents || !IsComboInteractive() || e.Button != MouseButtons.Left) return;
+            if (_combo.DroppedDown) return;
+            GuardSelectedIndex();
             _combo.BeginInvoke(new Action(HandleMouseDownDeferred));
         }
 
         private void HandleMouseDownDeferred()
         {
-            if (_suppressEvents || !IsComboInteractive()) return;
+            if (_suppressEvents || !IsComboInteractive() || _freezeSuggestions) return;
 
             string text = SafeGetText();
             if (string.IsNullOrWhiteSpace(text) || text.Trim().Length < MinTypeAheadChars)
@@ -117,13 +121,16 @@ namespace FurnitureERP.Helpers
         private void Combo_DropDown(object sender, EventArgs e)
         {
             if (_suppressEvents || !IsComboInteractive()) return;
-            SafeResetSelectedIndex();
+            _freezeSuggestions = true;
+            _filterTimer.Stop();
+            GuardSelectedIndex();
             RestoreCaret(SafeGetText(), toEnd: true);
         }
 
         private void FilterTimer_Tick(object sender, EventArgs e)
         {
             _filterTimer.Stop();
+            if (_freezeSuggestions || _combo.DroppedDown) return;
             ApplyFilterFromComboText();
         }
 
@@ -170,9 +177,11 @@ namespace FurnitureERP.Helpers
         private void TryOpenDropDownDeferred(bool wasOpen)
         {
             if (!IsComboInteractive() || !HasDropDownContent()) return;
+            int generation = _bindGeneration;
             _combo.BeginInvoke(new Action(() =>
             {
-                if (!IsComboInteractive() || !HasDropDownContent()) return;
+                if (!IsComboInteractive() || !HasDropDownContent() || generation != _bindGeneration) return;
+                if (_freezeSuggestions && _combo.DroppedDown) return;
                 try
                 {
                     SafeResetSelectedIndex();
@@ -189,6 +198,11 @@ namespace FurnitureERP.Helpers
         private void Combo_KeyDown(object sender, KeyEventArgs e)
         {
             if (!IsComboInteractive()) return;
+
+            // Let WinForms handle arrow navigation when the list is already open.
+            if (_combo.DroppedDown && (e.KeyCode == Keys.Down || e.KeyCode == Keys.Up))
+                return;
+
             if (e.KeyCode == Keys.Down)
             {
                 string text = SafeGetText();
@@ -204,6 +218,8 @@ namespace FurnitureERP.Helpers
                     if (HasDropDownContent() && !_combo.DroppedDown)
                         TryOpenDropDownDeferred(false);
                 }
+                if (!_combo.DroppedDown)
+                    e.Handled = true;
             }
             else if (e.KeyCode == Keys.Escape && _combo.DroppedDown)
             {
@@ -216,6 +232,7 @@ namespace FurnitureERP.Helpers
         {
             if (_suppressEvents || !IsComboAlive()) return;
 
+            _freezeSuggestions = false;
             SafeResetSelectedIndex();
             long id = GetSelectedId();
             if (id > 0)
@@ -228,6 +245,8 @@ namespace FurnitureERP.Helpers
         private void Combo_TextUpdate(object sender, EventArgs e)
         {
             if (_suppressEvents || !IsComboAlive()) return;
+            // Arrow-key navigation updates Text while DroppedDown; rebinding here desyncs SelectedIndex.
+            if (_combo.DroppedDown) return;
             _lastTypedText = SafeGetText();
             ScheduleFilterApply();
         }
@@ -235,6 +254,7 @@ namespace FurnitureERP.Helpers
         private void ApplyFilterFromComboText()
         {
             if (_suppressEvents || !IsComboAlive()) return;
+            if (_freezeSuggestions || _combo.DroppedDown) return;
             string text = SafeGetText();
             _lastTypedText = text;
 
@@ -457,7 +477,7 @@ namespace FurnitureERP.Helpers
                 if (_combo.DroppedDown) _combo.DroppedDown = false;
                 _combo.DataSource = null;
                 _combo.Items.Clear();
-                _combo.SelectedIndex = -1;
+                try { _combo.SelectedIndex = -1; } catch { }
                 _combo.Text = "";
                 _lastTypedText = "";
             }
@@ -500,8 +520,14 @@ namespace FurnitureERP.Helpers
                 _filteredIds.Clear();
                 if (IsComboInteractive())
                 {
+                    try
+                    {
+                        if (_combo.DroppedDown) _combo.DroppedDown = false;
+                    }
+                    catch { }
                     _combo.DataSource = null;
                     _combo.Items.Clear();
+                    try { _combo.SelectedIndex = -1; } catch { }
                 }
 
                 DataTable source = _fullSource?.Copy();
@@ -548,7 +574,8 @@ namespace FurnitureERP.Helpers
 
         private void BindFilteredItems(string filterText, bool openDropdown)
         {
-            if (!IsComboInteractive()) return;
+            if (!IsComboInteractive() || _freezeSuggestions) return;
+            _bindGeneration++;
             _suppressEvents = true;
             try
             {
@@ -678,7 +705,9 @@ namespace FurnitureERP.Helpers
 
         private void PopulateBrowseItems(bool openDropdown)
         {
-            if (!IsComboInteractive() || _fullSource == null || _fullSource.Rows.Count == 0) return;
+            if (!IsComboInteractive() || _fullSource == null || _fullSource.Rows.Count == 0 || _freezeSuggestions) return;
+
+            _bindGeneration++;
 
             _suppressEvents = true;
             try
@@ -705,31 +734,44 @@ namespace FurnitureERP.Helpers
 
         private void BindSuggestionDataSource(DataTable source, string workingText)
         {
-            _itemsMode = false;
+            // Use Items while typing — DataSource rebinding during dropdown causes SelectedIndex desync.
+            _itemsMode = true;
             _filteredIds.Clear();
             DetachDataSource();
-            SafeResetSelectedIndex();
-
-            if (source == null || source.Rows.Count == 0)
-            {
-                _lastTypedText = workingText ?? "";
-                try
-                {
-                    if (!string.Equals(_combo.Text, _lastTypedText, StringComparison.Ordinal))
-                        _combo.Text = _lastTypedText;
-                }
-                catch { }
-                RestoreCaret(_lastTypedText, toEnd: true);
-                return;
-            }
-
-            _combo.DataSource = source;
-            _combo.DisplayMember = _displayMember;
-            _combo.ValueMember = _valueMember;
-            SafeResetSelectedIndex();
 
             workingText = workingText ?? "";
             _lastTypedText = workingText;
+
+            if (source == null || source.Rows.Count == 0)
+            {
+                try
+                {
+                    if (!string.Equals(_combo.Text, workingText, StringComparison.Ordinal))
+                        _combo.Text = workingText;
+                }
+                catch { }
+                RestoreCaret(workingText, toEnd: true);
+                return;
+            }
+
+            if (!source.Columns.Contains(_valueMember) || !source.Columns.Contains(_displayMember))
+                return;
+
+            var seenIds = new HashSet<long>();
+            var seenDisplay = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (DataRow row in source.Rows)
+            {
+                long id = row[_valueMember] == DBNull.Value ? 0 : Convert.ToInt64(row[_valueMember]);
+                if (id > 0 && !seenIds.Add(id)) continue;
+
+                string display = row[_displayMember]?.ToString() ?? "";
+                if (!seenDisplay.Add(display)) continue;
+
+                _filteredIds.Add(id);
+                _combo.Items.Add(display);
+            }
+
+            GuardSelectedIndex();
             try
             {
                 if (!string.Equals(_combo.Text, workingText, StringComparison.Ordinal))
@@ -742,31 +784,37 @@ namespace FurnitureERP.Helpers
         private void DetachDataSource()
         {
             if (!IsComboInteractive()) return;
+            string preserveText = SafeGetText();
             _combo.DataSource = null;
             _combo.Items.Clear();
-            SafeResetSelectedIndex();
+            try { _combo.SelectedIndex = -1; } catch { }
+            try
+            {
+                if (!string.Equals(_combo.Text, preserveText, StringComparison.Ordinal))
+                    _combo.Text = preserveText;
+            }
+            catch { }
         }
 
         private bool HasDropDownContent()
         {
+            if (_itemsMode)
+                return _combo.Items.Count > 0;
             if (_combo.Items.Count > 0) return true;
             return _combo.DataSource is DataTable dt && dt.Rows.Count > 0;
         }
 
+        /// <summary>
+        /// WinForms ComboBox can keep SelectedIndex while Items.Count is smaller after rebind; guard before dropdown reads SelectedItem.
+        /// </summary>
+        private void GuardSelectedIndex()
+        {
+            ComboSelectionGuard.Clamp(_combo);
+        }
+
         private void SafeResetSelectedIndex()
         {
-            if (!IsComboInteractive()) return;
-            try
-            {
-                if (_combo.Items.Count == 0)
-                    _combo.SelectedIndex = -1;
-                else if (_combo.SelectedIndex >= _combo.Items.Count)
-                    _combo.SelectedIndex = -1;
-            }
-            catch
-            {
-                try { _combo.SelectedIndex = -1; } catch { }
-            }
+            GuardSelectedIndex();
         }
 
         private void OnSelectionCommitted() => SelectionCommitted?.Invoke(_combo, EventArgs.Empty);
